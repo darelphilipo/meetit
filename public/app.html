@@ -13,7 +13,7 @@
       --shadow-md: 6px 6px 0 #1c1c0f; --font: 'Space Grotesk', sans-serif;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: var(--font); background: var(--bg); color: var(--on-surface); padding: 16px; -webkit-font-smoothing: antialiased; }
+    body { font-family: var(--font); background: var(--bg); color: var(--on-surface); padding: 16px; -webkit-font-smoothing: antialiased; overflow-y: auto; -webkit-overflow-scrolling: touch; min-height: 100vh; }
     .container { max-width: 600px; margin: 0 auto; }
 
     .header { background: var(--primary); border: var(--border); padding: 14px 20px; margin-bottom: 16px; box-shadow: var(--shadow-sm); }
@@ -96,6 +96,11 @@
     .toast-copied { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #00ff88; border: var(--border); padding: 10px 20px; font-weight: 700; font-family: var(--font); z-index: 3000; font-size: 14px; }
 
     .hidden { display: none !important; }
+
+    /* Scroll buttons */
+    .scroll-nav { position: fixed; right: 4px; top: 50%; transform: translateY(-50%); z-index: 500; display: flex; flex-direction: column; gap: 4px; }
+    .scroll-btn { width: 32px; height: 32px; background: var(--primary); border: var(--border); font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); font-family: var(--font); }
+    .scroll-btn:active { box-shadow: none; transform: scale(0.9); }
   </style>
 </head>
 <body>
@@ -105,6 +110,7 @@
     <div class="tabs">
       <div class="tab active" data-tab="events">📅 Events</div>
       <div class="tab" data-tab="create">✨ Create</div>
+      <div class="tab" data-tab="mine">👤 My Stuff</div>
     </div>
 
     <!-- Events Tab -->
@@ -129,6 +135,11 @@
     <div id="tab-create" class="hidden">
       <button class="btn btn-pink btn-create-pitch">💡 Pitch an Idea</button>
       <button class="btn btn-create-event">📋 Submit Formal Event</button>
+    </div>
+
+    <!-- My Stuff Tab -->
+    <div id="tab-mine" class="hidden">
+      <div id="my-submissions-container"></div>
     </div>
 
     <!-- EVENT DETAILS OVERLAY (3 steps) -->
@@ -217,6 +228,10 @@
       </div>
       <div class="overlay-footer"><button class="btn btn-pink btn-submit-rsvp">Confirm RSVP →</button></div>
     </div>
+  </div>
+  <div class="scroll-nav" id="scroll-nav">
+    <button class="scroll-btn" id="scroll-up">⬆</button>
+    <button class="scroll-btn" id="scroll-down">⬇</button>
   </div>
   <script src="app.js"></script>
 </body>

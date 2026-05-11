@@ -55,11 +55,14 @@ export const ApiEndpoint = {
   Home: "/api/home",
   EventDetails: "/api/event-details",
   Rsvp: "/api/rsvp",
+  LeaveEvent: "/api/leave-event",
+  RsvpList: "/api/rsvp-list",
   PitchIdea: "/api/pitch-idea",
   SubmitEvent: "/api/submit-event",
   ApproveEvent: "/api/approve-event",
   PendingEvents: "/api/pending-events",
   PitchedIdeas: "/api/pitched-ideas",
+  MySubmissions: "/api/my-submissions",
 } as const;
 
 export type ApiEndpoint = (typeof ApiEndpoint)[keyof typeof ApiEndpoint];

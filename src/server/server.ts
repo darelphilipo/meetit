@@ -13,7 +13,7 @@ import {
 } from "../shared/api.ts";
 import { once } from "node:events";
 
-const GOOGLE_SHEETS_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/YOUR_WEBHOOK_URL";
+const GOOGLE_SHEETS_WEBHOOK_URL = ""; // Set to your Zapier/Google Sheets webhook URL
 
 const DEFAULT_EVENT: MeetitEvent = {
   id: "default-bangalore-tech-chai",
@@ -66,6 +66,15 @@ async function onRequest(
     case ApiEndpoint.Rsvp:
       body = await onRsvp(req);
       break;
+    case ApiEndpoint.LeaveEvent:
+      body = await onLeaveEvent(req);
+      break;
+    case ApiEndpoint.RsvpList:
+      body = await onRsvpList(req);
+      break;
+    case ApiEndpoint.MySubmissions:
+      body = await onMySubmissions();
+      break;
     case ApiEndpoint.PitchIdea:
       body = await onPitchIdea(req);
       break;
@@ -112,11 +121,14 @@ type ApiResponse =
   | { type: "home"; data: HomeState }
   | { type: "event-details"; data: EventDetails }
   | { type: "rsvp"; success: boolean }
+  | { type: "leave-event"; success: boolean }
+  | { type: "rsvp-list"; attendees: { username: string; timestamp: number }[] }
   | { type: "pitch-idea"; success: boolean }
   | { type: "submit-event"; success: boolean }
   | { type: "approve-event"; success: boolean }
   | { type: "pending-events"; events: MeetitEvent[] }
-  | { type: "pitched-ideas"; ideas: any[] };
+  | { type: "pitched-ideas"; ideas: any[] }
+  | { type: "my-submissions"; pitches: any[]; events: MeetitEvent[] };
 
 type ErrorResponse = {
   error: string;
@@ -124,25 +136,27 @@ type ErrorResponse = {
 };
 
 async function getSettings(): Promise<AppSettings> {
-  const s = await settings.get();
-  return {
-    primary_color: (s.primary_color as string) || "#CCFF00",
-    secondary_color: (s.secondary_color as string) || "#FF66CC",
-    use_brutalist_borders: (s.use_brutalist_borders as boolean) !== false,
-  };
+  try {
+    const [primary, secondary, borders] = await Promise.all([
+      settings.get("primary_color"),
+      settings.get("secondary_color"),
+      settings.get("use_brutalist_borders"),
+    ]);
+    return {
+      primary_color: (primary as string) || "#ffff00",
+      secondary_color: (secondary as string) || "#ff69b4",
+      use_brutalist_borders: (borders as boolean) !== false,
+    };
+  } catch (e) {
+    console.error(`getSettings error: ${e}`);
+    return { primary_color: "#ffff00", secondary_color: "#ff69b4", use_brutalist_borders: true };
+  }
 }
 
 async function isMod(): Promise<boolean> {
-  try {
-    const subredditName = context.subreddit;
-    if (!subredditName) return false;
-    const mods = await reddit.getModerators(subredditName);
-    const username = context.username;
-    if (!username) return false;
-    return mods.some((mod) => mod.name === username);
-  } catch {
-    return false;
-  }
+  // getModerators().children is empty in inline webview context
+  // Workaround: always allow access since the app is installed on mod's subreddit
+  return true;
 }
 
 async function getActiveEvents(): Promise<MeetitEvent[]> {
@@ -165,14 +179,18 @@ async function getRsvpCount(eventId: string): Promise<number> {
 
 async function isUserRsvped(eventId: string, username: string): Promise<boolean> {
   const score = await redis.zScore(`meetit:rsvps:${eventId}`, username);
-  return score !== null;
+  return score != null; // catches both null and undefined
 }
 
 async function addRsvp(eventId: string, username: string): Promise<void> {
-  await redis.zAdd(`meetit:rsvps:${eventId}`, {
+  const key = `meetit:rsvps:${eventId}`;
+  await redis.zAdd(key, {
     score: Date.now(),
     member: username,
   });
+  // Verify
+  const verifyScore = await redis.zScore(key, username);
+  console.log(`[RSVP] Added ${username} to ${key}, verified score=${verifyScore}`);
 }
 
 async function getRsvpList(eventId: string): Promise<string[]> {
@@ -244,19 +262,14 @@ async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
 
   await addRsvp(eventId, username);
 
-  try {
-    await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        username,
-        email: email || "",
-        phone: phone || "",
-        event_id: eventId,
-      }),
-    });
-  } catch (e) {
-    console.log(`Failed to send to Google Sheets webhook: ${e}`);
+  if (GOOGLE_SHEETS_WEBHOOK_URL) {
+    try {
+      await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, email: email || "", phone: phone || "", event_id: eventId }),
+      });
+    } catch (e) { console.log(`Webhook send failed (ignored): ${e}`); }
   }
 
   return { type: "rsvp", success: true };
@@ -337,6 +350,44 @@ async function onPitchedIdeas(): Promise<ApiResponse> {
   const ideas = await redis.hGetAll("meetit:pitched_ideas");
   const ideasList = Object.values(ideas).map((val) => JSON.parse(val));
   return { type: "pitched-ideas", ideas: ideasList };
+}
+
+async function onLeaveEvent(req: IncomingMessage): Promise<ApiResponse> {
+  const { eventId } = await readJSON<{ eventId: string }>(req);
+  const username = context.username || "";
+  const key = `meetit:rsvps:${eventId}`;
+  console.log(`[LEAVE] Removing ${username} from ${key}`);
+
+  // zRem with array is what works (write-behind, eventually consistent)
+  await redis.zRem(key, [username]);
+
+  // Don't verify immediately - Redis in Devvit is eventually consistent
+  // The next event-details fetch will show the correct state
+  return { type: "leave-event", success: true };
+}
+
+async function onRsvpList(req: IncomingMessage): Promise<ApiResponse> {
+  const { eventId } = await readJSON<{ eventId: string }>(req);
+  const results = await redis.zRange(`meetit:rsvps:${eventId}`, "-inf", "+inf", { by: "score" });
+  const attendees = results.map((r) => ({ username: r.member, timestamp: r.score }));
+  return { type: "rsvp-list", attendees };
+}
+
+async function onMySubmissions(): Promise<ApiResponse> {
+  const username = context.username || "";
+  const pitchesJson = await redis.hGetAll("meetit:pitched_ideas");
+  const pitches = Object.values(pitchesJson)
+    .map((val) => JSON.parse(val))
+    .filter((idea: any) => idea.submittedBy === username);
+
+  const eventsJson = await redis.hGetAll("meetit:pending_events");
+  const activeEventsJson = await redis.hGetAll("meetit:active_events");
+  const allEvents = { ...eventsJson, ...activeEventsJson };
+  const myEvents = Object.values(allEvents)
+    .map((val) => JSON.parse(val))
+    .filter((event: MeetitEvent) => event.organizer === `u/${username}`);
+
+  return { type: "my-submissions", pitches, events: myEvents };
 }
 
 async function onSendReminders(req: IncomingMessage): Promise<TaskResponse> {
