@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Meetit</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #fdfae4; --surface: #f2efd9; --primary: #ffff00; --secondary: #ff69b4;
+      --on-surface: #1c1c0f; --muted: #484831; --outline-v: #cac8aa;
+      --border: 4px solid #1c1c0f; --shadow-sm: 4px 4px 0 #1c1c0f;
+      --shadow-md: 6px 6px 0 #1c1c0f; --font: 'Space Grotesk', sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font); background: var(--bg); color: var(--on-surface); padding: 16px; -webkit-font-smoothing: antialiased; }
+    .container { max-width: 600px; margin: 0 auto; }
+
+    .header { background: var(--primary); border: var(--border); padding: 14px 20px; margin-bottom: 16px; box-shadow: var(--shadow-sm); }
+    .header h1 { font-size: 28px; font-weight: 700; }
+    .header .sub { font-size: 14px; font-weight: 500; color: #626200; }
+
+    .tabs { display: flex; margin-bottom: 16px; border: var(--border); background: #fff; }
+    .tab { flex: 1; text-align: center; padding: 12px 8px; font-size: 14px; font-weight: 700; cursor: pointer; border-right: 4px solid #1c1c0f; background: #fff; font-family: var(--font); }
+    .tab:last-child { border-right: none; }
+    .tab.active { background: var(--primary); }
+
+    /* Timeline event card with vertical date */
+    .timeline { position: relative; padding-left: 0; }
+    .event-card { background: #fff; border: var(--border); padding: 16px; margin-bottom: 14px; box-shadow: var(--shadow-md); position: relative; }
+    .event-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+    .event-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; }
+    .event-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; background: var(--surface); border: 3px solid #1c1c0f; padding: 4px 10px; }
+    .event-date-badge { background: var(--primary); border: var(--border); padding: 8px 12px; text-align: center; font-weight: 700; font-size: 13px; margin-bottom: 10px; box-shadow: var(--shadow-sm); display: inline-block; }
+    .event-date-badge .day { font-size: 24px; line-height: 1; font-weight: 700; }
+    .event-date-badge .month { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    .rsvp-success { background: #00ff88; border: var(--border); padding: 16px; text-align: center; font-size: 18px; font-weight: 700; margin-top: 14px; }
+
+    .btn { display: block; width: 100%; background: var(--primary); border: var(--border); border-radius: 9999px; padding: 14px 20px; font-size: 15px; font-weight: 700; font-family: var(--font); cursor: pointer; margin-top: 14px; color: var(--on-surface); box-shadow: var(--shadow-sm); transition: box-shadow 0.1s, transform 0.1s; }
+    .btn:active { box-shadow: 0px 0px 0 #1c1c0f; transform: translate(4px,4px); }
+    .btn-pink { background: var(--secondary); }
+    .btn-green { background: #00ff88; }
+    .btn-black { background: #1c1c0f; color: #fff; }
+    .btn-white { background: #fff; }
+    .btn-sm { width: auto; display: inline-block; padding: 8px 18px; font-size: 14px; margin-top: 0; }
+    .btn-inline { width: auto; display: inline-block; padding: 8px 18px; font-size: 13px; margin-top: 8px; }
+
+    .empty-state { background: #fff; border: var(--border); text-align: center; padding: 40px 20px; box-shadow: var(--shadow-md); }
+    .empty-state .emoji { font-size: 64px; display: block; margin-bottom: 12px; }
+    .empty-state h2 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+    .empty-state p { font-size: 15px; color: var(--muted); margin-bottom: 20px; }
+
+    .overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg); z-index: 1000; flex-direction: column; }
+    .overlay.active { display: flex; }
+    .overlay-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: var(--border); background: var(--primary); }
+    .overlay-header h2 { font-size: 20px; font-weight: 700; }
+    .close-btn { background: #fff; border: var(--border); width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; cursor: pointer; box-shadow: var(--shadow-sm); flex-shrink: 0; }
+    .close-btn:active { box-shadow: none; transform: translate(4px,4px); }
+    .overlay-progress { display: flex; gap: 6px; padding: 12px 16px; border-bottom: var(--border); background: #fff; }
+    .step-dot { flex: 1; height: 6px; background: var(--outline-v); }
+    .step-dot.done { background: var(--primary); }
+    .overlay-body { flex: 1; padding: 20px 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .overlay-footer { padding: 10px 16px; border-top: var(--border); background: #fff; display: flex; align-items: center; gap: 10px; }
+    .footer-btn { padding: 10px 24px; font-size: 14px; font-weight: 700; font-family: var(--font); border: var(--border); border-radius: 9999px; cursor: pointer; box-shadow: var(--shadow-sm); }
+    .footer-btn:active { box-shadow: none; transform: translate(3px,3px); }
+    .footer-btn-prev { background: #fff; color: var(--on-surface); }
+    .footer-btn-next { background: var(--primary); color: var(--on-surface); margin-left: auto; }
+    .footer-btn-rsvp { background: var(--secondary); color: var(--on-surface); width: 100%; }
+
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 4px; color: var(--muted); }
+    .form-group input, .form-group textarea { width: 100%; padding: 12px 14px; border: var(--border); font-family: var(--font); font-size: 16px; font-weight: 500; background: var(--bg); color: var(--on-surface); }
+    .form-group input:focus, .form-group textarea:focus { outline: none; box-shadow: var(--shadow-sm); background: #fff; }
+    .form-group textarea { min-height: 80px; resize: vertical; }
+
+    .mod-section { margin-top: 24px; }
+    .idea-card { background: #ffeaa7; border: var(--border); padding: 18px; margin-bottom: 12px; box-shadow: var(--shadow-sm); }
+    .idea-card h3 { font-size: 18px; font-weight: 700; }
+    .pending-card { background: var(--secondary); border: var(--border); padding: 18px; margin-bottom: 12px; box-shadow: var(--shadow-sm); }
+    .pending-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+    .pending-card .desc { background: #fff; border: var(--border); padding: 10px; margin: 12px 0; font-size: 15px; font-weight: 500; }
+
+    /* Detail view */
+    .detail-header { margin-top: 16px; }
+    .detail-card { background: #fff; border: var(--border); padding: 20px; margin-bottom: 14px; box-shadow: var(--shadow-md); }
+    .detail-card h2 { font-size: 22px; font-weight: 700; margin-bottom: 14px; }
+    .detail-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-weight: 500; font-size: 15px; color: var(--muted); }
+    .detail-label { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin-top: 12px; margin-bottom: 4px; }
+    .detail-desc { background: var(--surface); border: var(--border); padding: 14px; margin-top: 12px; font-size: 15px; font-weight: 500; line-height: 1.5; }
+    .organizer-card { background: var(--surface); border: var(--border); padding: 14px; margin-top: 14px; display: flex; align-items: center; gap: 10px; }
+    .organizer-avatar { background: var(--primary); border: var(--border); width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 700; flex-shrink: 0; }
+    .map-link { background: #fff; border: var(--border); padding: 12px 16px; margin-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .copy-btn { background: var(--primary); border: var(--border); padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: var(--font); border-radius: 9999px; white-space: nowrap; }
+    .copy-btn:active { box-shadow: none; transform: translate(2px,2px); }
+    .toast-copied { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #00ff88; border: var(--border); padding: 10px 20px; font-weight: 700; font-family: var(--font); z-index: 3000; font-size: 14px; }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="container" id="app-container">
+    <div class="header"><h1>⚡ Meetit</h1><div class="sub">Community Meetup Hub</div></div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="events">📅 Events</div>
+      <div class="tab" data-tab="create">✨ Create</div>
+    </div>
+
+    <!-- Events Tab -->
+    <div id="tab-events">
+      <div id="events-container">
+        <div class="event-date-badge"><div class="day">15</div><div class="month">May 2026</div></div>
+        <div class="event-card">
+          <h3>Bangalore Tech &amp; Chai</h3>
+          <div class="event-meta">
+            <span class="event-tag">⏰ 16:00</span>
+            <span class="event-tag">📍 Cubbon Park</span>
+          </div>
+          <button class="btn btn-view-details" data-id="default-bangalore-tech-chai">View Details →</button>
+        </div>
+      </div>
+      <div class="mod-section hidden" id="mod-section">
+        <button class="btn btn-black btn-show-mod">🛡️ Mod Dashboard</button>
+      </div>
+    </div>
+
+    <!-- Create Tab -->
+    <div id="tab-create" class="hidden">
+      <button class="btn btn-pink btn-create-pitch">💡 Pitch an Idea</button>
+      <button class="btn btn-create-event">📋 Submit Formal Event</button>
+    </div>
+
+    <!-- EVENT DETAILS OVERLAY (3 steps) -->
+    <div class="overlay" id="details-overlay">
+      <div class="overlay-header"><h2 id="details-overlay-title">📋 Event Details</h2><div class="close-btn close-overlay">✕</div></div>
+      <div class="overlay-progress">
+        <div class="step-dot done" id="detail-dot-1"></div>
+        <div class="step-dot" id="detail-dot-2"></div>
+        <div class="step-dot" id="detail-dot-3"></div>
+      </div>
+      <div class="overlay-body" id="detail-step-1"></div>
+      <div class="overlay-body hidden" id="detail-step-2"></div>
+      <div class="overlay-body hidden" id="detail-step-3"></div>
+      <div class="overlay-footer">
+        <button class="footer-btn footer-btn-prev hidden" id="detail-prev-btn">← Back</button>
+        <button class="footer-btn footer-btn-next" id="detail-next-btn">Next →</button>
+        <button class="footer-btn footer-btn-rsvp hidden" id="detail-rsvp-btn">🎟️ RSVP Now</button>
+        <div class="rsvp-success hidden" id="detail-rsvped" style="width:100%;text-align:center;">🎉 You're on the list!</div>
+      </div>
+    </div>
+
+    <!-- Mod Dashboard -->
+    <div id="mod-screen" class="hidden">
+      <button class="btn btn-white btn-sm btn-back-home">← Back</button>
+      <div class="header" style="background:#1c1c0f;">
+        <h1 style="color:var(--surface);">🛡️ Mod Dashboard</h1>
+        <div class="sub" style="color:var(--outline-v);">Review & Approve</div>
+      </div>
+      <div id="pending-events-container"></div>
+    </div>
+
+    <!-- PITCH OVERLAY (single step) -->
+    <div class="overlay" id="pitch-overlay">
+      <div class="overlay-header"><h2>💡 Pitch an Idea</h2><div class="close-btn close-overlay">✕</div></div>
+      <div class="overlay-body">
+        <div class="form-group"><label>Meetup Title</label><input type="text" id="pitch-title" placeholder="e.g. Weekend Board Games"></div>
+        <div class="form-group"><label>Brief Description</label><textarea id="pitch-description" placeholder="What do you have in mind?" rows="3"></textarea></div>
+      </div>
+      <div class="overlay-footer">
+        <button class="btn btn-pink" id="pitch-submit-btn">✓ Submit Idea</button>
+      </div>
+    </div>
+
+    <!-- SUBMIT EVENT OVERLAY (4 compact steps) -->
+    <div class="overlay" id="event-overlay">
+      <div class="overlay-header"><h2>📋 Submit Event</h2><div class="close-btn close-overlay">✕</div></div>
+      <div class="overlay-progress">
+        <div class="step-dot done" id="event-dot-1"></div>
+        <div class="step-dot" id="event-dot-2"></div>
+        <div class="step-dot" id="event-dot-3"></div>
+        <div class="step-dot" id="event-dot-4"></div>
+      </div>
+      <div class="overlay-body" id="event-step-1">
+        <div class="form-group"><label>Event Title</label><input type="text" id="event-title" placeholder="e.g. Monthly Dev Meetup"></div>
+        <div class="form-group"><label>Organizer (your Reddit u/)</label><input type="text" id="event-organizer" placeholder="u/yourusername"></div>
+      </div>
+      <div class="overlay-body hidden" id="event-step-2">
+        <div class="form-group"><label>Date (YYYY-MM-DD)</label><input type="text" id="event-date" placeholder="2026-05-15"></div>
+        <div class="form-group"><label>Time (HH:MM)</label><input type="text" id="event-time" placeholder="16:00"></div>
+      </div>
+      <div class="overlay-body hidden" id="event-step-3">
+        <div class="form-group"><label>Location</label><input type="text" id="event-location" placeholder="e.g. Cubbon Park, Bangalore"></div>
+        <div class="form-group"><label>Google Maps Link (optional)</label><input type="text" id="event-map-url" placeholder="https://maps.google.com/..."></div>
+      </div>
+      <div class="overlay-body hidden" id="event-step-4">
+        <div class="form-group"><label>Description</label><textarea id="event-desc" placeholder="What's the plan? What to bring?" rows="3"></textarea></div>
+        <div style="background:var(--surface);border:var(--border);padding:14px;margin-top:8px;">
+          <div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--muted);">Review</div>
+          <div style="font-size:15px;font-weight:700;margin-top:4px;" id="event-review-title-preview"></div>
+          <div style="font-size:13px;color:var(--muted);" id="event-review-meta-preview"></div>
+        </div>
+      </div>
+      <div class="overlay-footer">
+        <button class="footer-btn footer-btn-prev hidden" id="event-prev-btn">← Back</button>
+        <button class="footer-btn footer-btn-next" id="event-next-btn">Next →</button>
+        <button class="footer-btn footer-btn-rsvp hidden" id="event-submit-btn">✓ Submit Event</button>
+      </div>
+    </div>
+
+    <!-- RSVP OVERLAY -->
+    <div class="overlay" id="rsvp-overlay">
+      <div class="overlay-header"><h2>🎟️ RSVP</h2><div class="close-btn close-overlay">✕</div></div>
+      <div class="overlay-body">
+        <div class="form-group"><label>Email (optional)</label><input type="email" id="rsvp-email" placeholder="your@email.com"></div>
+        <div class="form-group"><label>Phone (optional)</label><input type="text" id="rsvp-phone" placeholder="+91 98765 43210"></div>
+      </div>
+      <div class="overlay-footer"><button class="btn btn-pink btn-submit-rsvp">Confirm RSVP →</button></div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
+  "name": "meetup-hub2",
+  "post": {
+    "dir": "public",
+    "entrypoints": {
+      "default": {
+        "entry": "app.html",
+        "height": "tall",
+        "inline": true
+      }
+    }
+  },
+  "server": {
+    "entry": "index.js"
+  },
+  "permissions": {
+    "http": {
+      "enable": true,
+      "domains": [
+        "hooks.zapier.com"
+      ]
+    },
+    "redis": true,
+    "reddit": {
+      "enable": true,
+      "scope": "moderator"
+    }
+  },
+  "menu": {
+    "items": [
+      {
+        "label": "Create Meetit Post",
+        "description": "meetit",
+        "location": "subreddit",
+        "endpoint": "/internal/menu/create-post"
+      }
+    ]
+  },
+  "triggers": {
+    "onAppInstall": "/internal/on-app-install"
+  },
+  "scheduler": {
+    "tasks": {
+      "send_24hr_reminders": {
+        "endpoint": "/internal/scheduler/send-24hr-reminders"
+      }
+    }
+  },
+  "settings": {
+    "subreddit": {
+      "primary_color": {
+        "type": "string",
+        "label": "Primary Color",
+        "defaultValue": "#ffff00"
+      },
+      "secondary_color": {
+        "type": "string",
+        "label": "Secondary Color",
+        "defaultValue": "#ff69b4"
+      },
+      "use_brutalist_borders": {
+        "type": "boolean",
+        "label": "Use Brutalist Borders",
+        "defaultValue": true
+      }
+    }
+  },
+  "scripts": {
+    "dev": "node --experimental-strip-types ./tools/build.ts --watch",
+    "build": "node --experimental-strip-types ./tools/build.ts --minify"
+  },
+  "dev": {
+    "subreddit": "meetup_hub2_dev"
+  }
+}
