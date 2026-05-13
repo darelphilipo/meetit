@@ -382,3 +382,170 @@ import type { PartialJsonValue, UiResponse, TaskRequest, TaskResponse } from "@d
 - [ ] Server builds to CJS (CommonJS), client to ESM
 - [ ] Remember to click "Update" on developer portal after each upload
 - [ ] Check `devvit-cli logs r/yoursubreddit` for debugging
+
+---
+
+## 10. Community Repo Patterns (11 Apps Analyzed)
+
+### 10.1 Redis Patterns
+
+**📌 Redis as TTL-based scheduler** (`only-flairs`)
+Instead of `Devvit.addScheduler`, use `context.redis.expire(key, seconds)`. When a post's restriction expires, the key auto-deletes. On trigger, missing key = feature inactive. Zero infra overhead.
+
+**📌 Modlist caching as CSV string** (`only-flairs`, `mod-mentions`, `admin-tattler`)
+```ts
+// Store mods as comma-separated string (NOT JSON array)
+const mods = await subreddit.getModerators({ pageSize: 500 }).all();
+await redis.set("mods", mods.map(m => m.username).join(","));
+// Retrieve with O(1) lookup
+const isMod = (await redis.get("mods")).split(",").includes(username);
+```
+Invalidate on `AppInstall`, `AppUpgrade`, and `ModAction` triggers.
+
+**📌 Sentinel values for empty/unscored states** (`user-scorer`)
+Use `-1` as "unscored" to distinguish from genuine `0.0`. Avoids `null` vs `0` ambiguity. For hash fields that may not exist, use placeholder values.
+
+**📌 Hash-per-field for concurrent writes** (`user-scorer`)
+When two triggers (`CommentSubmit` + `ModAction`) can fire simultaneously, use Redis hashes with per-field writes (`hSet`) rather than serializing/deserializing the full object — avoids race-condition overwrites.
+
+**📌 Capped arrays via `trimArray`** (`user-scorer`, `mod-mentions`)
+```ts
+function trimArray(arr: string[], max: number): string[] {
+  while (arr.length > max) arr.shift();
+  return arr;
+}
+```
+Prevents unbounded Redis storage. Mod-mentions caps at 50 entries, user-scorer at 1000.
+
+**📌 Eventually consistent writes** (Meetit discovery)
+`zRem` returns 0 immediately after write but the member IS removed — verification reads may show stale data. Trust the write; don't immediately verify. Subsequent reads will be correct.
+
+### 10.2 Trigger Architecture
+
+**📌 Pre-emptive content caching** (`admin-tattler`)
+Cache every post/comment body on `PostSubmit`/`CommentSubmit` with 30-day TTL. When Admin action fires and finds `[ Removed by Reddit ]`, fall back to cache. Avoids racing to fetch content after it's already nuked.
+
+**📌 Race condition handling with delayed scheduler** (`user-scorer`)
+When `ModAction` fires before `CommentSubmit` has tracked the comment, detect the race (`!data`), then schedule a 5-second delayed retry via `scheduler.runJob()`. Human-triggered mod actions on untracked comments are logged; AutoModerator races are retried.
+
+**📌 Grace period on install** (`bot-bouncer`)
+A 7-day `IN_GRACE_PERIOD` key makes the system treat all users as "recently active." Existing flagged users get processed retroactively even without new content.
+
+**📌 Event body recovery for redacted authors** (`bot-bouncer`)
+When Reddit hides author names (`[redacted]`), fetch the post/comment by ID to get the real `authorName`, then proceed normally.
+
+### 10.3 Scheduler Patterns
+
+**📌 Self-chaining jobs** (`bot-bouncer`)
+When work exceeds a single job's time limit (50 users per 15s), the job re-enqueues itself:
+```ts
+if (workRemaining) {
+  await scheduler.runJob({ name: "my-job", runAt: addSeconds(5), data: { cursor } });
+}
+```
+The job "daisy-chains" itself until work is complete. Avoids Devvit's 30-second timeout.
+
+**📌 Randomized cron minutes** (`bot-bouncer`)
+For apps installed on thousands of subreddits:
+```ts
+const minute = Math.floor(Math.random() * 60);
+const cron = `${minute} * * * *`;
+```
+Prevents thundering-herd API spikes when all installations fire simultaneously.
+
+**📌 Dual scheduling (interval + cron)** (`microlympics`)
+Run `setInterval` in addition to Devvit's cron scheduler for redundant coverage. Helps catch missed cron executions.
+
+**📌 Cleanup via sorted-set-based queues** (`bot-bouncer`)
+Instead of cron-scanning all data, add items to a sorted set with cleanup date as score. Cleanup job processes only items with `score < Date.now()`. Efficient at any volume.
+
+### 10.4 Devvit Blocks ↔ WebView Integration
+
+**📌 Splash → WebView funnel** (`template-phaser-devvit`)
+SplashScreen must be Devvit Blocks UI (JSX). WebView can ONLY be mounted from an explicit user action (button click). Never auto-mount the webview.
+
+**📌 postMessage bridge pattern** (`template-phaser-devvit`)
+```ts
+// Devvit → WebView
+ui.webView.postMessage("devvit-message", { type: "INIT", data });
+
+// WebView → Devvit
+window.parent.postMessage({ type: "SAVE_SCORE", score: 100 }, "*");
+```
+All communication between Blocks and WebView goes through this bridge. Use shared TypeScript types for the message contract.
+
+**📌 Runtime environment detection** (`template-phaser-devvit`)
+```ts
+const isEmbedded = window !== window.top; // true = in Devvit webview
+```
+When standalone (Vite dev server), inject mock data. When embedded, request real data via postMessage. Enables local development without Devvit CLI.
+
+**📌 Phaser integration** — Use Vite manual chunking (`rollupOptions.manualChunks`) to separate Phaser into its own bundle. Standard 5-scene flow: Boot → Preloader → Menu → Game → GameOver. `Phaser.Scale.EXPAND` for responsive sizing.
+
+### 10.5 HTTP Fetch & Webhook Patterns
+
+**📌 URL-as-platform-discriminator** (`mod-mail-to-discord`, `admin-tattler`, `mod-mentions`)
+```ts
+if (webhookUrl.startsWith("https://hooks.slack.com/")) { /* Slack payload */ }
+else if (webhookUrl.match(/discord(?:app)?.com\/api\/webhooks/)) { /* Discord payload */ }
+```
+No need for a separate "platform" setting — detect from URL.
+
+**📌 Dual-platform payloads** (`mod-mail-to-discord`)
+- **Slack**: Flat `text` field with MRKDWN syntax (`<url|label>`, `*bold*`)
+- **Discord**: Rich `embeds[]` with author, color, footer. Cap description at 4096 chars (Discord limit) with truncation marker
+
+**📌 Per-channel error isolation** (`admin-tattler`)
+Each notification channel (Modmail, Slack, Discord) fires independently in sequence. One failing webhook doesn't block others.
+
+**📌 Content compression for webhook payloads** (`bot-bouncer`)
+Use `pako.deflate` + base64 for storing large payloads. Fall back to raw storage if compression doesn't save space.
+
+### 10.6 Settings & Configuration
+
+**📌 Settings validation with early throw** (`admin-tattler`, `mod-mentions`)
+```ts
+function getValidatedSettings() {
+  const s = await settings.getAll();
+  if (!s.sendModmail && !s.webhookURL) {
+    throw new Error("At least one notification channel must be enabled");
+  }
+  return s;
+}
+```
+Prevents silent no-ops when all features are disabled.
+
+**📌 `settings.get(key)` — individual key fetch** (Meetit discovery)
+Always use `settings.get("key")` (singular). `settings.get()` without args returns undefined in Devvit Web.
+
+**📌 Wiki-as-database** (`toolbox-team/storage`)
+Store structured data on subreddit wiki pages via `reddit.getWikiPage()`/`updateWikiPage()`. Use `zlib` + base64 for compression to stay under wiki size limits. Schema migration on read ensures backward compatibility.
+
+**📌 Indexed constant arrays** (`toolbox-team/storage`)
+Store arrays of strings (moderators, note types) and reference by integer index (`m: 0`) — saves bytes on wiki pages.
+
+### 10.7 Code Organization Patterns
+
+| Pattern | Example | When to use |
+|---------|---------|-------------|
+| **Single-file** (160 lines) | `Modmail-to-Discord` | Simple event → action apps |
+| **6-file separation** | `only-flairs`, `user-scorer`, `mod-mentions` | Apps with forms, storage, handlers |
+| **Monorepo** (2 packages) | `toolbox-team/storage` | Library + Devvit wrapper |
+| **Express + Devvit hybrid** | `microlympics` | Complex apps needing Express routing |
+| **Scene-based** (Phaser) | `template-phaser-devvit` | Games with multiple screens |
+
+### 10.8 Platform Quirks & Workarounds
+
+| Quirk | Discovery | Workaround |
+|-------|-----------|------------|
+| Redis writes eventually consistent | Meetit `zRem` returns 0, then works | Don't immediately verify writes |
+| `getModerators()` returns `{children}` not array | Meetit mod detection | Access `.children` property |
+| `getModerators()` returns 0 in inline webview | Meetit dev | Not reliable for inline posts |
+| `settings.get()` w/o args returns undefined | Meetit settings crash | Always pass key: `settings.get("key")` |
+| `zScore` returns `undefined` not `null` | Meetit leave check | Use `!= null` (loose equality) |
+| Inline onclick blocked by CSP | Meetit UI | Use `addEventListener` |
+| `scheduler.on()` doesn't exist in Devvit Web | Meetit scheduler | Endpoint-based scheduler |
+| `modMail.createConversation()` unavailable | Meetit modmail | Save to Redis instead |
+| `sendPrivateMessage` error sniffing | `bot-reply-msg` | Catch `"NOT_WHITELISTED_BY_USER"` string |
+| `[ Removed by Reddit ]` content loss | `admin-tattler` | Pre-emptive caching on submit |
+| Dual `CommentSubmit`+`ModAction` race | `user-scorer` | Delayed retry via scheduler |
