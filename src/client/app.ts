@@ -117,12 +117,13 @@ function deletePitch(id: string) {
 
 function deleteEvent(id: string, type: string) {
   console.log("[UI] Deleting", type, "event:", id);
-  // Immediately remove card from DOM to prevent double-click
+  // Immediately dim card
   var card = document.querySelector('[data-id="' + id + '"].btn-decline-event, [data-id="' + id + '"].btn-delete-published');
-  if (card) { var parent = card.closest(".pending-card,.event-card"); if (parent) parent.style.opacity = "0.3"; }
+  var parent = card ? card.closest(".pending-card,.event-card") as HTMLElement : null;
+  if (parent) parent.style.opacity = "0.3";
   var endpoint = type === "pending" ? "/api/delete-pending" : "/api/delete-published";
   fetch(API_BASE + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) })
-    .then(function () { showToast("Deleted", "success"); loadModTab(type === "pending" ? "pending" : "published"); })
+    .then(function () { showToast("Deleted", "success"); setTimeout(function () { loadModTab(type === "pending" ? "pending" : "published"); }, 300); })
     .catch(function () { showToast("Error deleting", "error"); if (parent) parent.style.opacity = "1"; });
 }
 
@@ -319,7 +320,8 @@ async function approveEvent(id: string) {
   try {
     await fetch(API_BASE + "/api/approve-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
     showToast("Event approved!", "success");
-    loadModTab("pending");
+    // Small delay for Redis eventual consistency, then refresh
+    setTimeout(function () { loadModTab("pending"); }, 300);
   } catch (e) { showToast("Error", "error"); }
 }
 async function viewRsvps(eventId: string) {
@@ -459,6 +461,9 @@ function bindButtons() {
   // Scroll arrows
   document.querySelectorAll("#scroll-up").forEach(function (b) { b.addEventListener("click", function () { window.scrollBy({ top: -200, behavior: "smooth" }); }); });
   document.querySelectorAll("#scroll-down").forEach(function (b) { b.addEventListener("click", function () { window.scrollBy({ top: 200, behavior: "smooth" }); }); });
+  // Jump to top/bottom
+  document.querySelectorAll("#scroll-top").forEach(function (b) { b.addEventListener("click", function () { window.scrollTo({ top: 0, behavior: "smooth" }); }); });
+  document.querySelectorAll("#scroll-bottom").forEach(function (b) { b.addEventListener("click", function () { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); }); });
   // Public attendee viewer - usernames only, no contact details
   document.querySelectorAll(".btn-view-attendees").forEach(function (b) { b.addEventListener("click", function () {
     var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return;

@@ -315,7 +315,8 @@ async function onPitchIdea(req: IncomingMessage): Promise<ApiResponse> {
   const idea = { id: ideaId, title, description, submittedBy: username, submittedAt: new Date().toISOString() };
   await redis.hSet("meetit:pitched_ideas", { [ideaId]: JSON.stringify(idea) });
 
-  await notifyMods(`💡 New pitch idea from u/${username}:\n\n**${title}**\n\n${description}\n\n---\nReview in the Mod Dashboard`);
+  // Notification comment disabled - submitComment not available in Devvit Web
+  // await notifyMods(`💡 New pitch idea...`);
   return { type: "pitch-idea", success: true };
 }
 
@@ -333,7 +334,10 @@ async function notifyMods(message: string): Promise<void> {
 }
 
 async function onSendEventAnnouncement(req: IncomingMessage): Promise<TaskResponse> {
+  console.log(`[SCHEDULER] send_event_announcement FIRED at ${new Date().toISOString()}`);
   try {
+    const raw = await readRaw(req);
+    console.log(`[SCHEDULER] Announce raw body: ${raw.substring(0, 200)}`);
     const body = await readJSON<TaskRequest<{ eventTitle: string; eventDate: string; eventTime: string; eventLocation: string; eventDescription: string }>>(req);
     const d = body.data;
     if (!d) return { status: "ok" };
@@ -366,7 +370,7 @@ async function onSubmitEvent(req: IncomingMessage): Promise<ApiResponse> {
   };
 
   await redis.hSet("meetit:pending_events", { [eventId]: JSON.stringify(event) });
-  await notifyMods(`📋 New event submitted by u/${context.username || "unknown"}:\n\n**${formData.title}**\n📅 ${formData.date} at ${formData.time}\n📍 ${formData.location}\n\n---\nApprove in Mod Dashboard`);
+  // await notifyMods(`📋 New event submitted...`);
 
   return { type: "submit-event", success: true };
 }
@@ -392,8 +396,8 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
     const announceDate = new Date(eventDate.getTime() - 172800000);
     console.log(`[APPROVE] Announcement scheduled: ${announceDate.toISOString()}`);
     try { await scheduler.runJob({ name: "send_event_announcement", data: { eventTitle: event.title, eventDate: event.date, eventTime: event.time, eventLocation: event.location, eventDescription: event.description }, runAt: announceDate }); } catch (e) { console.error(`[APPROVE] Announce sched failed: ${e}`); }
-    // Notification comment
-    await notifyMods(`✅ Event approved: **${event.title}**\n📅 ${event.date} at ${event.time}`);
+    // Notification comment disabled - submitComment not available in Devvit Web
+    // await notifyMods(`✅ Event approved: ...`);
   }
 
   return { type: "approve-event", success: true };
@@ -490,7 +494,10 @@ async function onMySubmissions(): Promise<ApiResponse> {
 }
 
 async function onSendReminders(req: IncomingMessage): Promise<TaskResponse> {
+  console.log(`[SCHEDULER] send_24hr_reminders FIRED at ${new Date().toISOString()}`);
   try {
+    const raw = await readRaw(req);
+    console.log(`[SCHEDULER] Reminder raw body: ${raw.substring(0, 200)}`);
     const body = await readJSON<TaskRequest<{ eventId: string }>>(req);
     const eventId = body.data?.eventId;
     if (!eventId) {
@@ -557,9 +564,14 @@ function writeJSON<T extends PartialJsonValue>(
   rsp.end(body);
 }
 
-async function readJSON<T>(req: IncomingMessage): Promise<T> {
+async function readRaw(req: IncomingMessage): Promise<string> {
   const chunks: Uint8Array[] = [];
   req.on("data", (chunk) => chunks.push(chunk));
   await once(req, "end");
-  return JSON.parse(`${Buffer.concat(chunks)}`);
+  return `${Buffer.concat(chunks)}`;
+}
+
+async function readJSON<T>(req: IncomingMessage): Promise<T> {
+  const raw = await readRaw(req);
+  return JSON.parse(raw);
 }
