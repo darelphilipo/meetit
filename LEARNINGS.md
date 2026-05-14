@@ -549,3 +549,140 @@ Store arrays of strings (moderators, note types) and reference by integer index 
 | `sendPrivateMessage` error sniffing | `bot-reply-msg` | Catch `"NOT_WHITELISTED_BY_USER"` string |
 | `[ Removed by Reddit ]` content loss | `admin-tattler` | Pre-emptive caching on submit |
 | Dual `CommentSubmit`+`ModAction` race | `user-scorer` | Delayed retry via scheduler |
+
+---
+
+## 11. Meetit-Specific Deep Debugging Learnings
+
+### 11.1 Redis API Gotchas (Confirmed by Debugging)
+
+**📌 `hDel` requires array format (same as `zRem`)**
+```ts
+// ❌ Silent failure - does NOT delete
+await redis.hDel("myhash", fieldName);
+
+// ✅ Correct - wraps field in array
+await redis.hDel("myhash", [fieldName]);
+```
+Confirmed: `hDel` with single string argument silently succeeds but doesn't delete. Always wrap in array.
+
+**📌 `zScore` returns `undefined` (not `null`) for missing members**
+```ts
+// ❌ Wrong - undefined !== null evaluates to TRUE
+if (score !== null) { /* Thinks member exists */ }
+
+// ✅ Correct - loose equality catches both null and undefined
+if (score != null) { /* Accurate */ }
+```
+
+**📌 `zRem` eventually consistent**
+`zRem` returns 0 immediately but the member IS removed. Don't verify immediately after write. First read may show stale data, second read shows truth.
+
+**📌 Redis writes across all operations are eventually consistent**
+Confirmed for `hDel`, `hSet`, `zAdd`, `zRem`. Writes succeed but reads immediately after may return stale data. Trust the write, skip verification.
+
+### 11.2 Devvit Web API Limitations (Confirmed)
+
+**📌 `reddit.submitComment()` fails in inline webview**
+Error: `ERR_INVALID_ARG_TYPE: "string" argument ... Received undefined`. Even with `postId: "t3_xxx"`, `text: "message"`, and `runAs: "APP"`. Not available in Devvit Web inline context.
+
+**📌 `reddit.modMail.createConversation()` not available in Devvit Web**
+Workaround: Save data to Redis and display in Mod Dashboard.
+
+**📌 `reddit.sendPrivateMessage()` - untested, likely unavailable**
+The 24hr reminder scheduler uses it but hasn't been tested live. Community apps use it in Blocks API, not Devvit Web.
+
+**📌 `reddit.getModerators()` returns `{children: []}` in playtest subreddits**
+Both in inline webview AND trigger context. Works on real production subreddits. Modlist cache pattern (AppInstall/AppUpgrade trigger → cache in Redis) works in production.
+
+### 11.3 Browser API Blockers (CSP in Devvit Web)
+
+**📌 `confirm()` blocked by CSP**
+```ts
+// ❌ Silently returns false in Devvit webview
+if (!confirm("Are you sure?")) return;
+```
+Use in-app UI confirmation or direct actions without browser dialogs.
+
+**📌 `onclick="fn()"` inline handlers blocked**
+Same CSP restriction. Always use `addEventListener` with CSS class-based selectors.
+
+### 11.4 Context Object Differences
+
+**📌 `context.subredditName` vs `context.subreddit`**
+Devvit Web docs use `context.subredditName`. Our `context.subreddit` was always `undefined`. Use `context.subredditName || context.subreddit` for safety.
+
+**📌 `context.postId` available in webview API calls**
+Returns raw ID like `1t9207d` (not `t3_` prefixed). Some APIs need the `t3_` prefix, so check: `postId.startsWith("t3_") ? postId : "t3_" + postId`.
+
+### 11.5 Scheduler Gotchas
+
+**📌 `setDate()` mutates Date objects causing timestamp overflow**
+```ts
+// ❌ Can produce out-of-range timestamps
+const d = new Date(dateStr);
+d.setDate(d.getDate() - 1); // 7332383865600 → proto overflow!
+
+// ✅ Safe - use getTime arithmetic
+const d = new Date(dateStr + "T00:00:00Z");
+const dayBefore = new Date(d.getTime() - 86400000);
+```
+Always use `getTime() - milliseconds` arithmetic. Never mutate Date objects with setDate/setMonth.
+
+**📌 Scheduler `runAt` expects proper Date objects**
+Must be a valid future date within protobuf range. Past dates or dates too far in future (>year 2100) cause "seconds out of range" errors.
+
+**📌 Always wrap `scheduler.runJob()` in try-catch**
+Scheduler failures are common (date range errors, quota limits). Never let them block the main operation flow.
+
+**📌 `scheduler.on()` doesn't exist in Devvit Web**
+Use endpoint-based scheduler: define tasks in `devvit.json`, handle via `/internal/scheduler/*` endpoints.
+
+### 11.6 Settings API
+
+**📌 `settings.get()` without arguments returns `undefined`**
+```ts
+// ❌ Returns undefined - crashes with "Cannot read properties of undefined"
+const s = await settings.get();
+
+// ✅ Fetch individual keys
+const primary = await settings.get("primary_color");
+```
+Always use `settings.get("keyName")` per key.
+
+**📌 Settings must be defined in `devvit.json` under `settings.subreddit`**
+With `type`, `label`, and `defaultValue` per setting.
+
+### 11.7 Client-Side Architecture Patterns
+
+**📌 Tab debouncing prevents API flood**
+```ts
+var tabLoading = false;
+function switchTab(tab: string) {
+  if (tabLoading || tab === currentTab) return;
+  tabLoading = true;
+  // ... fetch
+  tabLoading = false;
+}
+```
+Without debouncing in inline webview, rapid clicks fire multiple parallel API calls causing sluggishness.
+
+**📌 `bindButtons()` called after every DOM mutation**
+After any `innerHTML = ...` call that creates new buttons, call `bindButtons()` to attach event listeners. CSP blocks inline onclick, so listeners must be re-bound.
+
+**📌 Pass parameters via `data-*` attributes**
+```html
+<button data-id="event_123">Click</button>
+```
+```js
+var id = btn.getAttribute("data-id");
+```
+
+### 11.8 Privacy Pattern
+
+**📌 Split RSVP views by audience**
+```
+Public:  "👥 Who's Going? (5)"  → shows u/username only
+Mod:     "👥 View Attendees"    → shows u/username + email + phone + CSV export
+```
+Email/phone are ONLY shown in Mod Dashboard. Public view shows only Reddit usernames.
