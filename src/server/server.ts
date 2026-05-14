@@ -316,15 +316,13 @@ async function onPitchIdea(req: IncomingMessage): Promise<ApiResponse> {
 // Helper: post notification comment on the app post
 async function notifyMods(message: string): Promise<void> {
   const postId = context.postId;
-  if (!postId) { console.log("No postId for notification"); return; }
+  console.log(`[NOTIFY] postId=${postId}, msgLen=${message?.length}`);
+  if (!postId) { console.log("[NOTIFY] No postId"); return; }
   try {
-    await reddit.submitComment({
-      postId: postId.startsWith("t3_") ? postId : "t3_" + postId,
-      text: message,
-    });
-    console.log("Mod notification posted on post " + postId);
+    await reddit.submitComment({ postId: postId.startsWith("t3_") ? postId : "t3_" + postId, text: message });
+    console.log("[NOTIFY] Comment posted");
   } catch (e) {
-    console.error(`Failed to post notification: ${e}`);
+    console.error(`[NOTIFY] Failed: ${e}`);
   }
 }
 
@@ -378,20 +376,18 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
     await redis.hDel("meetit:pending_events", eventId);
 
     const event = JSON.parse(eventJson) as MeetitEvent;
-    const eventDate = new Date(event.date);
-    // 24hr reminder (day before)
-    const reminderDate = new Date(eventDate);
-    reminderDate.setDate(reminderDate.getDate() - 1);
-    await scheduler.runJob({ name: "send_24hr_reminders", data: { eventId }, runAt: reminderDate });
-    // Announcement post (2 days before)
-    const announceDate = new Date(eventDate);
-    announceDate.setDate(announceDate.getDate() - 2);
-    await scheduler.runJob({ name: "send_event_announcement", data: {
-      eventTitle: event.title, eventDate: event.date, eventTime: event.time,
-      eventLocation: event.location, eventDescription: event.description,
-    }, runAt: announceDate });
-    // Notify mods
-    await notifyMods(`✅ Event approved: **${event.title}**\n📅 ${event.date} at ${event.time}\n\nReminder DMs scheduled for 24h before. Announcement post scheduled for 2 days before.`);
+    const eventDate = new Date(event.date + "T00:00:00Z");
+    console.log(`[APPROVE] Event: ${event.title}, date: ${event.date}, parsed: ${eventDate.toISOString()}`);
+    // 24hr reminder (day before event) - use getTime arithmetic to avoid Date mutation bugs
+    const reminderDate = new Date(eventDate.getTime() - 86400000);
+    console.log(`[APPROVE] Reminder scheduled: ${reminderDate.toISOString()}`);
+    try { await scheduler.runJob({ name: "send_24hr_reminders", data: { eventId }, runAt: reminderDate }); } catch (e) { console.error(`[APPROVE] Reminder sched failed: ${e}`); }
+    // Announcement (2 days before)
+    const announceDate = new Date(eventDate.getTime() - 172800000);
+    console.log(`[APPROVE] Announcement scheduled: ${announceDate.toISOString()}`);
+    try { await scheduler.runJob({ name: "send_event_announcement", data: { eventTitle: event.title, eventDate: event.date, eventTime: event.time, eventLocation: event.location, eventDescription: event.description }, runAt: announceDate }); } catch (e) { console.error(`[APPROVE] Announce sched failed: ${e}`); }
+    // Notification comment
+    await notifyMods(`✅ Event approved: **${event.title}**\n📅 ${event.date} at ${event.time}`);
   }
 
   return { type: "approve-event", success: true };
