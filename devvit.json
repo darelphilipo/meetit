@@ -43,11 +43,9 @@
   },
   "scheduler": {
     "tasks": {
-      "send_24hr_reminders": {
-        "endpoint": "/internal/scheduler/send-24hr-reminders"
-      },
-      "send_event_announcement": {
-        "endpoint": "/internal/scheduler/send-event-announcement"
+      "check-events": {
+        "endpoint": "/internal/scheduler/check-events",
+        "cron": "*/5 * * * *"
       }
     }
   },

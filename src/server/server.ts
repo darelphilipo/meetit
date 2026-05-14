@@ -115,11 +115,8 @@ async function onRequest(
     case InternalEndpoint.OnAppUpgrade:
       body = await onAppUpgrade();
       break;
-    case InternalEndpoint.SendReminders:
-      body = await onSendReminders(req);
-      break;
-    case InternalEndpoint.SendEventAnnouncement:
-      body = await onSendEventAnnouncement(req);
+    case InternalEndpoint.CheckEvents:
+      body = await onCheckEvents(req);
       break;
     default:
       endpoint satisfies never;
@@ -134,8 +131,7 @@ const InternalEndpoint = {
   OnPostCreate: "/internal/menu/create-post",
   OnAppInstall: "/internal/on-app-install",
   OnAppUpgrade: "/internal/on-app-upgrade",
-  SendReminders: "/internal/scheduler/send-24hr-reminders",
-  SendEventAnnouncement: "/internal/scheduler/send-event-announcement",
+  CheckEvents: "/internal/scheduler/check-events",
 } as const;
 
 type InternalEndpoint = (typeof InternalEndpoint)[keyof typeof InternalEndpoint];
@@ -385,19 +381,10 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
     });
     await redis.hDel("meetit:pending_events", eventId);
 
-    const event = JSON.parse(eventJson) as MeetitEvent;
-    const eventDate = new Date(event.date + "T00:00:00Z");
-    console.log(`[APPROVE] Event: ${event.title}, date: ${event.date}, parsed: ${eventDate.toISOString()}`);
-    // 24hr reminder (day before event) - use getTime arithmetic to avoid Date mutation bugs
-    const reminderDate = new Date(eventDate.getTime() - 86400000);
-    console.log(`[APPROVE] Reminder scheduled: ${reminderDate.toISOString()}`);
-    try { await scheduler.runJob({ name: "send_24hr_reminders", data: { eventId }, runAt: reminderDate }); } catch (e) { console.error(`[APPROVE] Reminder sched failed: ${e}`); }
-    // Announcement (2 days before)
-    const announceDate = new Date(eventDate.getTime() - 172800000);
-    console.log(`[APPROVE] Announcement scheduled: ${announceDate.toISOString()}`);
-    try { await scheduler.runJob({ name: "send_event_announcement", data: { eventTitle: event.title, eventDate: event.date, eventTime: event.time, eventLocation: event.location, eventDescription: event.description }, runAt: announceDate }); } catch (e) { console.error(`[APPROVE] Announce sched failed: ${e}`); }
-    // Notification comment disabled - submitComment not available in Devvit Web
-    // await notifyMods(`✅ Event approved: ...`);
+    // Move event to active, skip scheduler (not supported in Devvit Web inline)
+    await redis.hSet("meetit:active_events", { [eventId]: eventJson });
+    await redis.hDel("meetit:pending_events", eventId);
+    console.log(`[APPROVE] Event ${event.title} published (${event.date})`);
   }
 
   return { type: "approve-event", success: true };
@@ -569,6 +556,39 @@ async function readRaw(req: IncomingMessage): Promise<string> {
   req.on("data", (chunk) => chunks.push(chunk));
   await once(req, "end");
   return `${Buffer.concat(chunks)}`;
+}
+
+async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
+  console.log(`[CRON] check-events FIRED at ${new Date().toISOString()}`);
+  try {
+    const allEvents = await redis.hGetAll("meetit:active_events");
+    const now = new Date();
+    const tomorrow = new Date(now.getTime() + 86400000);
+    for (const [eventId, eventJson] of Object.entries(allEvents)) {
+      const event = JSON.parse(eventJson);
+      const eventDate = new Date(event.date + "T00:00:00Z");
+      if (eventDate.getTime() > tomorrow.getTime() || eventDate.getTime() < now.getTime()) continue;
+      const remindedKey = `meetit:reminded:${eventId}`;
+      if (await redis.get(remindedKey)) continue;
+      console.log(`[CRON] Processing ${event.title} (${event.date})`);
+      try {
+        await reddit.submitCustomPost({ title: `📢 Reminder: ${event.title} - ${event.date}`, userGeneratedContent: { text: `**${event.title}**\n\n📅 ${event.date}\n⏰ ${event.time}\n📍 ${event.location}\n\n${event.description}` } });
+        console.log(`[CRON] Post created for ${event.title}`);
+      } catch (e) { console.error(`[CRON] Post failed: ${e}`); }
+      const attendees = await getRsvpList(eventId);
+      for (const username of attendees) {
+        try { await reddit.sendPrivateMessage({ subject: `Reminder: ${event.title} tomorrow!`, body: `Hey u/${username}! **${event.title}** is tomorrow!\n\n📅 ${event.date}\n⏰ ${event.time}\n📍 ${event.location}`, to: username }); }
+        catch (e) { console.log(`[CRON] DM to ${username} failed: ${e}`); }
+      }
+      await redis.set(remindedKey, "true");
+      await redis.expire(remindedKey, 86400);
+    }
+    console.log(`[CRON] check-events complete`);
+    return { status: "ok" };
+  } catch (e) {
+    console.error(`[CRON] Error: ${e}`);
+    return { status: "error", message: e instanceof Error ? e.message : "Unknown error" };
+  }
 }
 
 async function readJSON<T>(req: IncomingMessage): Promise<T> {
