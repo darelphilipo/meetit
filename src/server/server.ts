@@ -424,23 +424,26 @@ async function onAllApprovedEvents(): Promise<ApiResponse> {
 
 async function onDismissIdea(req: IncomingMessage): Promise<ApiResponse> {
   const { ideaId } = await readJSON<{ ideaId: string }>(req);
-  await redis.hDel("meetit:pitched_ideas", ideaId);
-  console.log(`[DISMISS] Idea ${ideaId} removed`);
-  return { type: "dismiss-idea", success: true };
+  await redis.hDel("meetit:pitched_ideas", [ideaId]);
+  const ok = !(await redis.hGet("meetit:pitched_ideas", ideaId));
+  console.log(`[DISMISS] Idea ${ideaId} removed: ${ok}`);
+  return { type: "dismiss-idea", success: ok };
 }
 
 async function onDeletePending(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
-  await redis.hDel("meetit:pending_events", eventId);
-  console.log(`[DELETE] Pending event ${eventId} removed`);
-  return { type: "dismiss-idea", success: true };
+  await redis.hDel("meetit:pending_events", [eventId]);
+  const ok = !(await redis.hGet("meetit:pending_events", eventId));
+  console.log(`[DEL-PEND] Event ${eventId} removed: ${ok}`);
+  return { type: "dismiss-idea", success: ok };
 }
 
 async function onDeletePublished(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
-  await redis.hDel("meetit:active_events", eventId);
-  console.log(`[DELETE] Published event ${eventId} removed`);
-  return { type: "dismiss-idea", success: true };
+  await redis.hDel("meetit:active_events", [eventId]);
+  const ok = !(await redis.hGet("meetit:active_events", eventId));
+  console.log(`[DEL-PUB] Event ${eventId} removed: ${ok}`);
+  return { type: "dismiss-idea", success: ok };
 }
 
 async function onLeaveEvent(req: IncomingMessage): Promise<ApiResponse> {

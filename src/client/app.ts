@@ -112,10 +112,13 @@ function deletePitch(id: string) {
 
 function deleteEvent(id: string, type: string) {
   console.log("[UI] Deleting", type, "event:", id);
+  // Immediately remove card from DOM to prevent double-click
+  var card = document.querySelector('[data-id="' + id + '"].btn-decline-event, [data-id="' + id + '"].btn-delete-published');
+  if (card) { var parent = card.closest(".pending-card,.event-card"); if (parent) parent.style.opacity = "0.3"; }
   var endpoint = type === "pending" ? "/api/delete-pending" : "/api/delete-published";
   fetch(API_BASE + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) })
     .then(function () { showToast("Deleted", "success"); loadModTab(type === "pending" ? "pending" : "published"); })
-    .catch(function () { showToast("Error deleting", "error"); });
+    .catch(function () { showToast("Error deleting", "error"); if (parent) parent.style.opacity = "1"; });
 }
 
 // ======= EVENT DETAILS =======
