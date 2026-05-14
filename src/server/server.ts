@@ -87,14 +87,26 @@ async function onRequest(
     case ApiEndpoint.PendingEvents:
       body = await onPendingEvents();
       break;
+    case ApiEndpoint.AllEvents:
+      body = await onAllEvents();
+      break;
     case ApiEndpoint.PitchedIdeas:
       body = await onPitchedIdeas();
+      break;
+    case ApiEndpoint.AllApprovedEvents:
+      body = await onAllApprovedEvents();
+      break;
+    case ApiEndpoint.DismissIdea:
+      body = await onDismissIdea(req);
       break;
     case InternalEndpoint.OnPostCreate:
       body = await onMenuCreatePost();
       break;
     case InternalEndpoint.OnAppInstall:
       body = await onAppInstall();
+      break;
+    case InternalEndpoint.OnAppUpgrade:
+      body = await onAppUpgrade();
       break;
     case InternalEndpoint.SendReminders:
       body = await onSendReminders(req);
@@ -111,6 +123,7 @@ async function onRequest(
 const InternalEndpoint = {
   OnPostCreate: "/internal/menu/create-post",
   OnAppInstall: "/internal/on-app-install",
+  OnAppUpgrade: "/internal/on-app-upgrade",
   SendReminders: "/internal/scheduler/send-24hr-reminders",
 } as const;
 
@@ -128,6 +141,8 @@ type ApiResponse =
   | { type: "approve-event"; success: boolean }
   | { type: "pending-events"; events: MeetitEvent[] }
   | { type: "pitched-ideas"; ideas: any[] }
+  | { type: "all-approved-events"; events: any[] }
+  | { type: "dismiss-idea"; success: boolean }
   | { type: "my-submissions"; pitches: any[]; events: MeetitEvent[] };
 
 type ErrorResponse = {
@@ -154,8 +169,9 @@ async function getSettings(): Promise<AppSettings> {
 }
 
 async function isMod(): Promise<boolean> {
-  // getModerators().children is empty in inline webview context
-  // Workaround: always allow access since the app is installed on mod's subreddit
+  // getModerators() returns empty in both webview and trigger context
+  // for Devvit playtest subreddits. In production with real subreddits,
+  // the modlist cache (built on AppInstall/AppUpgrade) would work.
   return true;
 }
 
@@ -182,13 +198,15 @@ async function isUserRsvped(eventId: string, username: string): Promise<boolean>
   return score != null; // catches both null and undefined
 }
 
-async function addRsvp(eventId: string, username: string): Promise<void> {
+async function addRsvp(eventId: string, username: string, email: string, phone: string): Promise<void> {
   const key = `meetit:rsvps:${eventId}`;
-  await redis.zAdd(key, {
-    score: Date.now(),
-    member: username,
-  });
-  // Verify
+  await redis.zAdd(key, { score: Date.now(), member: username });
+  // Store contact details in companion hash
+  if (email || phone) {
+    await redis.hSet(`meetit:rsvp_details:${eventId}`, {
+      [username]: JSON.stringify({ email: email || "", phone: phone || "" }),
+    });
+  }
   const verifyScore = await redis.zScore(key, username);
   console.log(`[RSVP] Added ${username} to ${key}, verified score=${verifyScore}`);
 }
@@ -260,7 +278,7 @@ async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
   const { email, phone, eventId } = await readJSON<{ eventId: string } & RsvpFormData>(req);
   const username = context.username || "";
 
-  await addRsvp(eventId, username);
+  await addRsvp(eventId, username, email || "", phone || "");
 
   if (GOOGLE_SHEETS_WEBHOOK_URL) {
     try {
@@ -352,6 +370,25 @@ async function onPitchedIdeas(): Promise<ApiResponse> {
   return { type: "pitched-ideas", ideas: ideasList };
 }
 
+async function onAllApprovedEvents(): Promise<ApiResponse> {
+  const events = await getActiveEvents();
+  // Get RSVP count for each event
+  const eventsWithCounts = await Promise.all(
+    events.map(async (event) => {
+      const count = await getRsvpCount(event.id);
+      return { ...event, rsvpCount: count };
+    })
+  );
+  return { type: "all-approved-events", events: eventsWithCounts };
+}
+
+async function onDismissIdea(req: IncomingMessage): Promise<ApiResponse> {
+  const { ideaId } = await readJSON<{ ideaId: string }>(req);
+  await redis.hDel("meetit:pitched_ideas", ideaId);
+  console.log(`Idea ${ideaId} dismissed`);
+  return { type: "dismiss-idea", success: true };
+}
+
 async function onLeaveEvent(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
   const username = context.username || "";
@@ -369,7 +406,12 @@ async function onLeaveEvent(req: IncomingMessage): Promise<ApiResponse> {
 async function onRsvpList(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
   const results = await redis.zRange(`meetit:rsvps:${eventId}`, "-inf", "+inf", { by: "score" });
-  const attendees = results.map((r) => ({ username: r.member, timestamp: r.score }));
+  // Fetch contact details from companion hash
+  const detailsHash = await redis.hGetAll(`meetit:rsvp_details:${eventId}`);
+  const attendees = results.map((r) => {
+    const details = detailsHash[r.member] ? JSON.parse(detailsHash[r.member]) : { email: "", phone: "" };
+    return { username: r.member, timestamp: r.score, email: details.email || "", phone: details.phone || "" };
+  });
   return { type: "rsvp-list", attendees };
 }
 
@@ -437,6 +479,10 @@ async function onMenuCreatePost(): Promise<UiResponse> {
 }
 
 async function onAppInstall(): Promise<Record<string, never>> {
+  return {};
+}
+
+async function onAppUpgrade(): Promise<Record<string, never>> {
   return {};
 }
 

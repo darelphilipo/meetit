@@ -1,5 +1,6 @@
 var API_BASE = "";
 var currentEventId: string | null = null;
+var currentUsername: string | null = null;
 var eventStep = 1;
 var detailStep = 1;
 
@@ -68,7 +69,7 @@ function renderHome(state: { eventsByDate: Record<string, any[]>; isMod: boolean
 // ======= MY SUBMISSIONS =======
 async function loadMySubmissions() {
   var c = document.getElementById("my-submissions-container")!;
-  c.innerHTML = '<div class="empty-state"><span class="emoji">⏳</span><h2>Loading...</h2></div>';
+  if (!c.classList.contains("loading")) { c.classList.add("loading"); c.innerHTML = '<div class="empty-state"><span class="emoji">⏳</span><h2>Loading...</h2></div>'; }
   try {
     var res = await fetch(API_BASE + "/api/my-submissions");
     var data = await res.json();
@@ -83,7 +84,7 @@ async function loadMySubmissions() {
         html += '<div class="date-header" style="background:#ffeaa7;color:#1c1c0f;">💡 My Pitches (' + pitches.length + ')</div>';
         for (var i = 0; i < pitches.length; i++) {
           var p = pitches[i];
-          html += '<div class="idea-card"><h3>💡 ' + escapeHtml(p.title) + '</h3><div class="event-row" style="color:var(--muted);">' + escapeHtml(p.description).substring(0, 150) + '</div></div>';
+          html += '<div class="idea-card"><h3>💡 ' + escapeHtml(p.title) + '</h3><div class="event-row" style="color:var(--muted);">' + escapeHtml(p.description).substring(0, 150) + '</div><button class="btn btn-white btn-sm btn-delete-pitch" data-id="' + p.id + '" style="margin-top:8px;">🗑️ Delete</button></div>';
         }
       }
       if (events.length > 0) {
@@ -95,8 +96,16 @@ async function loadMySubmissions() {
         }
       }
       c.innerHTML = html;
+      c.classList.remove("loading");
     }
-  } catch (e) { console.error(e); c.innerHTML = '<div class="empty-state"><span class="emoji">❌</span><h2>Could not load</h2></div>'; }
+  } catch (e) { console.error(e); c.innerHTML = '<div class="empty-state"><span class="emoji">❌</span><h2>Could not load</h2></div>'; c.classList.remove("loading"); }
+}
+
+function deletePitch(id: string) {
+  if (!confirm("Permanently delete this pitch idea?")) return;
+  fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) })
+    .then(function () { showToast("Deleted", "success"); loadMySubmissions(); })
+    .catch(function () { showToast("Error deleting", "error"); });
 }
 
 // ======= EVENT DETAILS =======
@@ -130,9 +139,15 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   s2 += "</div>";
   document.getElementById("detail-step-2")!.innerHTML = s2;
 
-  document.getElementById("detail-step-3")!.innerHTML = d.hasRsvped
-    ? '<div class="detail-card"><div class="rsvp-success">🎉 You\'re on the list!</div><button class="btn btn-white btn-leave-event" data-id="' + e.id + '" style="margin-top:14px;">❌ Leave Event</button></div>'
-    : '<div class="detail-card"><div style="text-align:center;"><div style="font-size:48px;">🎟️</div><div style="font-size:20px;font-weight:700;margin:12px 0;">Ready to join?</div><div style="font-size:15px;color:var(--muted);margin-bottom:20px;">' + d.rsvpCount + ' people are going</div></div></div>';
+  // Step 3: RSVP + Who's Going
+  var s3 = '<div class="detail-card">';
+  s3 += d.hasRsvped
+    ? '<div class="rsvp-success">🎉 You\'re on the list!</div><button class="btn btn-white btn-leave-event" data-id="' + e.id + '" style="margin-top:10px;">❌ Leave Event</button>'
+    : '<div style="text-align:center;"><div style="font-size:36px;">🎟️</div><div style="font-size:18px;font-weight:700;margin:8px 0;">Ready to join?</div></div>';
+  s3 += '<button class="btn btn-white btn-sm btn-view-attendees" data-id="' + e.id + '" style="margin-top:12px;width:100%;">👥 Who\'s Going? (' + d.rsvpCount + ')</button>';
+  s3 += '<div class="rsvp-attendees hidden" id="rsvps-public-' + e.id + '" style="background:#fff;border:var(--border);padding:8px;margin-top:6px;max-height:180px;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>';
+  s3 += "</div>";
+  document.getElementById("detail-step-3")!.innerHTML = s3;
 
   detailStep = 1;
   ["detail-dot-1","detail-dot-2","detail-dot-3"].forEach(function(id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });
@@ -211,39 +226,83 @@ function showModDashboard() {
   document.getElementById("tab-create")!.classList.add("hidden");
   document.getElementById("tab-mine")!.classList.add("hidden");
   document.getElementById("mod-screen")!.classList.remove("hidden");
-  loadPending();
+  loadModTab("pending");
 }
-async function loadPending() {
-  try {
-    var [pr, ir] = await Promise.all([fetch(API_BASE + "/api/pending-events"), fetch(API_BASE + "/api/pitched-ideas")]);
-    var pd = await pr.json(); var idata = await ir.json();
-    renderPendingAndIdeas(pd.type === "pending-events" ? pd.events : [], idata.type === "pitched-ideas" ? idata.ideas : []);
-  } catch (e) { console.error(e); }
+
+function switchModTab(tab: string) {
+  document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) { t.classList.toggle("active", (t as HTMLElement).dataset.mtab === tab); });
+  loadModTab(tab);
 }
-function renderPendingAndIdeas(events: any[], ideas: any[]) {
+
+async function loadModTab(tab: string) {
   var c = document.getElementById("pending-events-container")!;
-  var h = "";
-  if (events.length === 0 && ideas.length === 0) { c.innerHTML = '<div class="empty-state" style="margin-top:16px;"><span class="emoji">📋</span><h2>Nothing to review</h2></div>'; bindButtons(); return; }
-  if (ideas.length > 0) {
-    h += '<div class="date-header" style="background:#ffeaa7;color:#1c1c0f;">💡 Pitched Ideas</div>';
-    for (var i = 0; i < ideas.length; i++) {
-      var idea = ideas[i];
-      h += '<div class="idea-card"><h3>💡 ' + escapeHtml(idea.title) + '</h3><div class="detail-row">👤 u/' + escapeHtml(idea.submittedBy) + '</div><div class="detail-row">📅 ' + escapeHtml(new Date(idea.submittedAt).toLocaleString()) + '</div><div class="desc">' + escapeHtml(idea.description) + '</div></div>';
-    }
+  if (tab === "pending") {
+    try {
+      var [pr, ir] = await Promise.all([fetch(API_BASE + "/api/pending-events"), fetch(API_BASE + "/api/pitched-ideas")]);
+      var pd = await pr.json(); var idata = await ir.json();
+      renderModPending(pd.type === "pending-events" ? pd.events : []);
+    } catch (e) { console.error(e); }
+  } else if (tab === "published") {
+    try {
+      var res = await fetch(API_BASE + "/api/all-approved-events");
+      var data = await res.json();
+      renderModPublished(data.type === "all-approved-events" ? data.events : []);
+    } catch (e) { console.error(e); }
+  } else if (tab === "pitches") {
+    try {
+      var res = await fetch(API_BASE + "/api/pitched-ideas");
+      var data = await res.json();
+      renderModPitches(data.type === "pitched-ideas" ? data.ideas : []);
+    } catch (e) { console.error(e); }
   }
-  if (events.length > 0) {
-    h += '<div class="date-header">📋 Pending Events</div>';
-    for (var j = 0; j < events.length; j++) {
-      var e = events[j];
-      h += '<div class="pending-card"><h3>' + escapeHtml(e.title) + '</h3><div class="detail-row">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div><div class="detail-row">📍 ' + escapeHtml(e.location) + '</div><div class="desc">' + escapeHtml(e.description) + '</div><button class="btn btn-green btn-approve-event" data-id="' + e.id + '">✅ Approve & Publish</button><button class="btn btn-white btn-sm btn-view-rsvps" data-id="' + e.id + '" style="margin-top:8px;">👥 View RSVPs</button><div class="rsvp-attendees hidden" id="rsvps-' + e.id + '" style="background:#fff;border:var(--border);padding:12px;margin-top:8px;"></div></div>';
-    }
+}
+
+function renderModPending(events: any[]) {
+  var c = document.getElementById("pending-events-container")!;
+  if (events.length === 0) { c.innerHTML = '<div class="empty-state" style="margin-top:16px;"><span class="emoji">📋</span><h2>No pending events</h2></div>'; bindButtons(); return; }
+  var h = "";
+  for (var j = 0; j < events.length; j++) {
+    var e = events[j];
+    h += '<div class="pending-card"><h3>' + escapeHtml(e.title) + '</h3><div class="detail-row">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div><div class="detail-row">📍 ' + escapeHtml(e.location) + '</div><div class="desc">' + escapeHtml(e.description) + '</div><button class="btn btn-green btn-approve-event" data-id="' + e.id + '">✅ Approve & Publish</button><button class="btn btn-white btn-sm btn-view-rsvps" data-id="' + e.id + '" style="margin-top:8px;">👥 View RSVPs</button><div class="rsvp-attendees hidden" id="rsvps-' + e.id + '" style="background:#fff;border:var(--border);padding:12px;margin-top:8px;"></div></div>';
   }
   c.innerHTML = h; bindButtons();
 }
+
+function renderModPublished(events: any[]) {
+  var c = document.getElementById("pending-events-container")!;
+  if (events.length === 0) { c.innerHTML = '<div class="empty-state" style="margin-top:16px;"><span class="emoji">✅</span><h2>No published events</h2></div>'; bindButtons(); return; }
+  var h = "";
+  for (var j = 0; j < events.length; j++) {
+    var e = events[j];
+    h += '<div class="event-card"><h3>' + escapeHtml(e.title) + '</h3><div class="event-meta"><span class="event-tag">📅 ' + escapeHtml(e.date) + '</span><span class="event-tag">⏰ ' + escapeHtml(e.time) + '</span></div><div style="font-weight:700;margin-top:8px;">👥 ' + (e.rsvpCount || 0) + ' RSVPs</div><button class="btn btn-white btn-sm btn-view-rsvps" data-id="' + e.id + '" style="margin-top:8px;">👥 View Attendees</button><div class="rsvp-attendees hidden" id="rsvps-' + e.id + '" style="background:#fff;border:var(--border);padding:10px;margin-top:6px;"></div></div>';
+  }
+  c.innerHTML = h; bindButtons();
+}
+
+function renderModPitches(ideas: any[]) {
+  var c = document.getElementById("pending-events-container")!;
+  if (ideas.length === 0) { c.innerHTML = '<div class="empty-state" style="margin-top:16px;"><span class="emoji">💡</span><h2>No pitched ideas</h2></div>'; bindButtons(); return; }
+  var h = "";
+  for (var i = 0; i < ideas.length; i++) {
+    var idea = ideas[i];
+    h += '<div class="idea-card"><h3>💡 ' + escapeHtml(idea.title) + '</h3><div class="detail-row">👤 u/' + escapeHtml(idea.submittedBy) + '</div><div class="detail-row">📅 ' + escapeHtml(new Date(idea.submittedAt).toLocaleString()) + '</div><div class="desc">' + escapeHtml(idea.description) + '</div><button class="btn btn-white btn-sm btn-dismiss-idea" data-id="' + idea.id + '">🗑️ Dismiss</button></div>';
+  }
+  c.innerHTML = h; bindButtons();
+}
+
+async function dismissIdea(id: string) {
+  try {
+    await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) });
+    showToast("Idea dismissed", "success");
+    loadModTab("pitches");
+  } catch (e) { showToast("Error", "error"); }
+}
+
 async function approveEvent(id: string) {
   try {
     await fetch(API_BASE + "/api/approve-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
-    showToast("Event approved!", "success"); loadPending();
+    showToast("Event approved!", "success");
+    loadModTab("pending");
   } catch (e) { showToast("Error", "error"); }
 }
 async function viewRsvps(eventId: string) {
@@ -254,13 +313,17 @@ async function viewRsvps(eventId: string) {
     var data = await res.json();
     if (data.type === "rsvp-list") {
       var attendees = data.attendees || [];
-      if (attendees.length === 0) { el.innerHTML = '<div style="color:var(--muted);font-size:14px;">No RSVPs yet</div>'; }
+      if (attendees.length === 0) { el.innerHTML = '<div style="font-size:13px;">No RSVPs yet</div>'; }
       else {
-        var list = '<div style="font-weight:700;font-size:12px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">' + attendees.length + ' Attendees</div>';
+        var list = '<div style="font-weight:700;font-size:11px;margin-bottom:8px;">' + attendees.length + ' Attendees</div>';
         for (var i = 0; i < attendees.length; i++) {
-          list += '<div style="font-size:14px;font-weight:600;padding:4px 0;border-bottom:1px solid var(--outline-v);">👤 u/' + escapeHtml(attendees[i].username) + '</div>';
+          var a = attendees[i];
+          list += '<div style="font-size:13px;font-weight:600;padding:6px 0;border-bottom:1px solid var(--outline-v);">👤 u/' + escapeHtml(a.username);
+          if (a.email) list += '<span style="font-weight:400;color:var(--muted);"> ✉️ ' + escapeHtml(a.email) + '</span>';
+          if (a.phone) list += '<span style="font-weight:400;color:var(--muted);"> 📱 ' + escapeHtml(a.phone) + '</span>';
+          list += '</div>';
         }
-        list += '<button class="copy-btn btn-copy-rsvp" data-rsvps="' + escapeHtml(JSON.stringify(attendees)) + '" style="margin-top:8px;background:var(--primary);">📋 Copy All</button>';
+        list += '<button class="copy-btn btn-copy-rsvp" data-rsvps="' + escapeHtml(JSON.stringify(attendees)) + '" style="margin-top:8px;background:var(--primary);padding:6px 14px;font-size:12px;">📋 Copy CSV</button>';
         el.innerHTML = list;
       }
       el.classList.remove("hidden");
@@ -298,7 +361,7 @@ function eventPrev() {
 }
 function eventNext() {
   if (eventStep === 1) { var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var org = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); if (!title || !org) { showToast("Fill all fields", "error"); return; } document.getElementById("event-dot-2")!.classList.add("done"); document.getElementById("event-step-1")!.classList.add("hidden"); document.getElementById("event-step-2")!.classList.remove("hidden"); document.getElementById("event-prev-btn")!.classList.remove("hidden"); eventStep = 2; }
-  else if (eventStep === 2) { var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); if (!date || !time) { showToast("Fill all fields", "error"); return; } document.getElementById("event-dot-3")!.classList.add("done"); document.getElementById("event-step-2")!.classList.add("hidden"); document.getElementById("event-step-3")!.classList.remove("hidden"); eventStep = 3; }
+  else if (eventStep === 2) { var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); if (!date || !time) { showToast("Fill all fields", "error"); return; } if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { showToast("Date must be YYYY-MM-DD", "error"); return; } if (!/^\d{2}:\d{2}$/.test(time)) { showToast("Time must be HH:MM (24h)", "error"); return; } document.getElementById("event-dot-3")!.classList.add("done"); document.getElementById("event-step-2")!.classList.add("hidden"); document.getElementById("event-step-3")!.classList.remove("hidden"); eventStep = 3; }
   else if (eventStep === 3) { var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); if (!loc) { showToast("Location is required", "error"); return; } document.getElementById("event-dot-4")!.classList.add("done"); document.getElementById("event-step-3")!.classList.add("hidden"); document.getElementById("event-step-4")!.classList.remove("hidden"); document.getElementById("event-next-btn")!.classList.add("hidden"); document.getElementById("event-submit-btn")!.classList.remove("hidden"); document.getElementById("event-review-title-preview")!.textContent = (document.getElementById("event-title") as HTMLInputElement).value; document.getElementById("event-review-meta-preview")!.textContent = (document.getElementById("event-date") as HTMLInputElement).value + " at " + (document.getElementById("event-time") as HTMLInputElement).value + " · " + loc; eventStep = 4; }
 }
 async function submitEvent() {
@@ -339,17 +402,28 @@ function closeAllOverlays() { document.querySelectorAll(".overlay").forEach(func
 
 // ======= BIND ALL =======
 function bindButtons() {
-  document.querySelectorAll(".tab").forEach(function (b) { b.addEventListener("click", function () { switchTab((b as HTMLElement).dataset.tab!); }); });
+  document.querySelectorAll(".tab").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var tab = (b as HTMLElement).dataset.tab;
+      if (tab === "events" || tab === "create" || tab === "mine") switchTab(tab);
+    });
+  });
   document.querySelectorAll(".btn-view-details").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) showEventDetails(id); }); });
   document.querySelectorAll(".btn-back-home").forEach(function (b) { b.addEventListener("click", showHome); });
   document.querySelectorAll(".btn-show-mod").forEach(function (b) { b.addEventListener("click", showModDashboard); });
   document.querySelectorAll(".btn-approve-event").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) approveEvent(id); }); });
   document.querySelectorAll(".btn-view-rsvps").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) viewRsvps(id); }); });
+  // Mod dashboard tabs (data-mtab, not data-tab to avoid main tab conflict)
+  document.querySelectorAll(".mod-tab").forEach(function (b) { b.addEventListener("click", function () { var mt = (b as HTMLElement).dataset.mtab; if (mt) switchModTab(mt); }); });
+  // Dismiss idea
+  document.querySelectorAll(".btn-dismiss-idea").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) dismissIdea(id); }); });
+  // Delete pitch from My Stuff
+  document.querySelectorAll(".btn-delete-pitch").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) deletePitch(id); }); });
   document.querySelectorAll(".btn-rsvp-now").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) showRsvpOverlay(id); }); });
   document.querySelectorAll(".btn-leave-event").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) leaveEvent(id); }); });
   document.querySelectorAll(".btn-submit-rsvp").forEach(function (b) { b.addEventListener("click", submitRsvp); });
   document.querySelectorAll(".btn-create-pitch").forEach(function (b) { b.addEventListener("click", function () { openOverlay("pitch-overlay"); }); });
-  document.querySelectorAll(".btn-create-event").forEach(function (b) { b.addEventListener("click", function () { resetEventForm(); openOverlay("event-overlay"); }); });
+  document.querySelectorAll(".btn-create-event").forEach(function (b) { b.addEventListener("click", function () { resetEventForm(); prefillOrganizer(); openOverlay("event-overlay"); }); });
   document.querySelectorAll("#pitch-submit-btn").forEach(function (b) { b.addEventListener("click", submitPitch); });
   document.querySelectorAll("#event-next-btn").forEach(function (b) { b.addEventListener("click", eventNext); });
   document.querySelectorAll("#event-prev-btn").forEach(function (b) { b.addEventListener("click", eventPrev); });
@@ -363,6 +437,40 @@ function bindButtons() {
   // Scroll arrows
   document.querySelectorAll("#scroll-up").forEach(function (b) { b.addEventListener("click", function () { window.scrollBy({ top: -200, behavior: "smooth" }); }); });
   document.querySelectorAll("#scroll-down").forEach(function (b) { b.addEventListener("click", function () { window.scrollBy({ top: 200, behavior: "smooth" }); }); });
+  // Public attendee viewer - usernames only, no contact details
+  document.querySelectorAll(".btn-view-attendees").forEach(function (b) { b.addEventListener("click", function () {
+    var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return;
+    var el = document.getElementById("rsvps-public-" + id); if (!el) return;
+    if (!el.classList.contains("hidden")) { el.classList.add("hidden"); return; }
+    fetch(API_BASE + "/api/rsvp-list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.type === "rsvp-list") {
+          var attendees = data.attendees || [];
+          if (attendees.length === 0) { el.innerHTML = '<div style="font-size:13px;">No one yet</div>'; }
+          else {
+            var html = '<div style="font-weight:700;font-size:11px;margin-bottom:6px;">' + attendees.length + ' going</div>';
+            for (var i = 0; i < attendees.length; i++) {
+              html += '<div style="font-size:13px;font-weight:600;padding:4px 0;border-bottom:1px solid var(--outline-v);">👤 u/' + escapeHtml(attendees[i].username) + '</div>';
+            }
+            el.innerHTML = html;
+          }
+          el.classList.remove("hidden");
+        }
+      });
+  }); });
+}
+
+async function prefillOrganizer() {
+  if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; }
+  try {
+    var res = await fetch(API_BASE + "/api/init");
+    var data = await res.json();
+    if (data.type === "init" && data.username) {
+      currentUsername = data.username;
+      (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username;
+    }
+  } catch (e) { console.error(e); }
 }
 
 document.addEventListener("DOMContentLoaded", function () { bindButtons(); loadHome(); });
