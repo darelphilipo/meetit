@@ -51,6 +51,7 @@ async function onRequest(
   }
 
   const endpoint = url as ApiEndpoint | InternalEndpoint;
+  console.log(`[API] ${req.method || "POST"} ${endpoint}`);
 
   let body: ApiResponse | UiResponse | ErrorResponse | TaskResponse;
   switch (endpoint) {
@@ -236,8 +237,10 @@ async function onInit(): Promise<ApiResponse> {
 }
 
 async function onHome(): Promise<ApiResponse> {
+  console.log(`[HOME] Loading events for user ${context.username}`);
   const events = await getActiveEvents();
   const modStatus = await isMod();
+  console.log(`[HOME] Found ${events.length} events, isMod=${modStatus}`);
   const appSettings = await getSettings();
 
   const eventsByDate: Record<string, MeetitEvent[]> = {};
@@ -281,7 +284,7 @@ async function onEventDetails(req: IncomingMessage): Promise<ApiResponse> {
 async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
   const { email, phone, eventId } = await readJSON<{ eventId: string } & RsvpFormData>(req);
   const username = context.username || "";
-
+  console.log(`[RSVP] ${username} → ${eventId} (email=${email ? "yes" : "no"}, phone=${phone ? "yes" : "no"})`);
   await addRsvp(eventId, username, email || "", phone || "");
 
   if (GOOGLE_SHEETS_WEBHOOK_URL) {
@@ -300,19 +303,11 @@ async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
 async function onPitchIdea(req: IncomingMessage): Promise<ApiResponse> {
   const { title, description } = await readJSON<PitchFormData>(req);
   const username = context.username || "unknown";
+  console.log(`[PITCH] "${title}" by u/${username}`);
 
   const ideaId = `idea_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-  const idea = {
-    id: ideaId,
-    title,
-    description,
-    submittedBy: username,
-    submittedAt: new Date().toISOString(),
-  };
-
-  await redis.hSet("meetit:pitched_ideas", {
-    [ideaId]: JSON.stringify(idea),
-  });
+  const idea = { id: ideaId, title, description, submittedBy: username, submittedAt: new Date().toISOString() };
+  await redis.hSet("meetit:pitched_ideas", { [ideaId]: JSON.stringify(idea) });
 
   await notifyMods(`💡 New pitch idea from u/${username}:\n\n**${title}**\n\n${description}\n\n---\nReview in the Mod Dashboard`);
   return { type: "pitch-idea", success: true };
@@ -323,10 +318,32 @@ async function notifyMods(message: string): Promise<void> {
   const postId = context.postId;
   if (!postId) { console.log("No postId for notification"); return; }
   try {
-    await reddit.submitComment({ postId, text: message });
-    console.log("Mod notification posted");
+    await reddit.submitComment({
+      postId: postId.startsWith("t3_") ? postId : "t3_" + postId,
+      text: message,
+    });
+    console.log("Mod notification posted on post " + postId);
   } catch (e) {
     console.error(`Failed to post notification: ${e}`);
+  }
+}
+
+async function onSendEventAnnouncement(req: IncomingMessage): Promise<TaskResponse> {
+  try {
+    const body = await readJSON<TaskRequest<{ eventTitle: string; eventDate: string; eventTime: string; eventLocation: string; eventDescription: string }>>(req);
+    const d = body.data;
+    if (!d) return { status: "ok" };
+    const postId = context.postId;
+    if (!postId) { console.log("No postId for announcement comment"); return { status: "ok" }; }
+    await reddit.submitComment({
+      postId: postId.startsWith("t3_") ? postId : "t3_" + postId,
+      text: `📢 **Event Reminder: ${d.eventTitle}**\n\n📅 ${d.eventDate}\n⏰ ${d.eventTime}\n📍 ${d.eventLocation}\n\n${d.eventDescription}\n\nRSVP on the app! 🎉`,
+    });
+    console.log(`Announcement comment posted for ${d.eventTitle}`);
+    return { status: "ok" };
+  } catch (e) {
+    console.error(`Announcement error: ${e}`);
+    return { status: "error", message: e instanceof Error ? e.message : "Unknown error" };
   }
 }
 

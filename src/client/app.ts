@@ -18,6 +18,7 @@ function escapeHtml(s: string | undefined | null) { var d = document.createEleme
 
 // ======= TABS =======
 function switchTab(tab: string) {
+  console.log("[UI] Switching to tab:", tab);
   document.querySelectorAll(".tab").forEach(function (el) { el.classList.toggle("active", (el as HTMLElement).dataset.tab === tab); });
   document.getElementById("tab-events")!.classList.toggle("hidden", tab !== "events");
   document.getElementById("tab-create")!.classList.toggle("hidden", tab !== "create");
@@ -35,6 +36,7 @@ function showHome() {
 
 // ======= HOME =======
 async function loadHome() {
+  console.log("[UI] Loading home...");
   try {
     var res = await fetch(API_BASE + "/api/home");
     var data = await res.json();
@@ -334,6 +336,7 @@ async function viewRsvps(eventId: string) {
 
 // ======= PITCH (single step) =======
 async function submitPitch() {
+  console.log("[UI] Submitting pitch...");
   var title = (document.getElementById("pitch-title") as HTMLInputElement).value.trim();
   var desc = (document.getElementById("pitch-description") as HTMLTextAreaElement).value.trim();
   if (!title || !desc) { showToast("Fill all fields", "error"); return; }
