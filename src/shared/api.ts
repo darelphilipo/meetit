@@ -64,6 +64,8 @@ export const ApiEndpoint = {
   PitchedIdeas: "/api/pitched-ideas",
   AllApprovedEvents: "/api/all-approved-events",
   DismissIdea: "/api/dismiss-idea",
+  DeletePending: "/api/delete-pending",
+  DeletePublished: "/api/delete-published",
   MySubmissions: "/api/my-submissions",
 } as const;
 

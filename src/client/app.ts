@@ -104,9 +104,17 @@ async function loadMySubmissions() {
 }
 
 function deletePitch(id: string) {
-  if (!confirm("Permanently delete this pitch idea?")) return;
+  console.log("[UI] Deleting pitch:", id);
   fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) })
     .then(function () { showToast("Deleted", "success"); loadMySubmissions(); })
+    .catch(function () { showToast("Error deleting", "error"); });
+}
+
+function deleteEvent(id: string, type: string) {
+  console.log("[UI] Deleting", type, "event:", id);
+  var endpoint = type === "pending" ? "/api/delete-pending" : "/api/delete-published";
+  fetch(API_BASE + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) })
+    .then(function () { showToast("Deleted", "success"); loadModTab(type === "pending" ? "pending" : "published"); })
     .catch(function () { showToast("Error deleting", "error"); });
 }
 
@@ -232,6 +240,7 @@ function showModDashboard() {
 }
 
 function switchModTab(tab: string) {
+  console.log("[UI] Mod tab:", tab);
   document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) { t.classList.toggle("active", (t as HTMLElement).dataset.mtab === tab); });
   loadModTab(tab);
 }
@@ -265,7 +274,7 @@ function renderModPending(events: any[]) {
   var h = "";
   for (var j = 0; j < events.length; j++) {
     var e = events[j];
-    h += '<div class="pending-card"><h3>' + escapeHtml(e.title) + '</h3><div class="detail-row">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div><div class="detail-row">📍 ' + escapeHtml(e.location) + '</div><div class="desc">' + escapeHtml(e.description) + '</div><button class="btn btn-green btn-approve-event" data-id="' + e.id + '">✅ Approve & Publish</button><button class="btn btn-white btn-sm btn-view-rsvps" data-id="' + e.id + '" style="margin-top:8px;">👥 View RSVPs</button><div class="rsvp-attendees hidden" id="rsvps-' + e.id + '" style="background:#fff;border:var(--border);padding:12px;margin-top:8px;"></div></div>';
+    h += '<div class="pending-card"><h3>' + escapeHtml(e.title) + '</h3><div class="detail-row">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div><div class="detail-row">📍 ' + escapeHtml(e.location) + '</div><div class="desc">' + escapeHtml(e.description) + '</div><button class="btn btn-green btn-approve-event" data-id="' + e.id + '">✅ Approve & Publish</button><button class="btn btn-white btn-sm btn-decline-event" data-id="' + e.id + '" style="margin-top:8px;">🗑️ Decline</button><button class="btn btn-white btn-sm btn-view-rsvps" data-id="' + e.id + '" style="margin-top:8px;">👥 View RSVPs</button><div class="rsvp-attendees hidden" id="rsvps-' + e.id + '" style="background:#fff;border:var(--border);padding:12px;margin-top:8px;"></div></div>';
   }
   c.innerHTML = h; bindButtons();
 }
@@ -276,7 +285,7 @@ function renderModPublished(events: any[]) {
   var h = "";
   for (var j = 0; j < events.length; j++) {
     var e = events[j];
-    h += '<div class="event-card"><h3>' + escapeHtml(e.title) + '</h3><div class="event-meta"><span class="event-tag">📅 ' + escapeHtml(e.date) + '</span><span class="event-tag">⏰ ' + escapeHtml(e.time) + '</span></div><div style="font-weight:700;margin-top:8px;">👥 ' + (e.rsvpCount || 0) + ' RSVPs</div><button class="btn btn-white btn-sm btn-view-rsvps" data-id="' + e.id + '" style="margin-top:8px;">👥 View Attendees</button><div class="rsvp-attendees hidden" id="rsvps-' + e.id + '" style="background:#fff;border:var(--border);padding:10px;margin-top:6px;"></div></div>';
+    h += '<div class="event-card"><h3>' + escapeHtml(e.title) + '</h3><div class="event-meta"><span class="event-tag">📅 ' + escapeHtml(e.date) + '</span><span class="event-tag">⏰ ' + escapeHtml(e.time) + '</span></div><div style="font-weight:700;margin-top:8px;">👥 ' + (e.rsvpCount || 0) + ' RSVPs</div><button class="btn btn-white btn-sm btn-view-rsvps" data-id="' + e.id + '" style="margin-top:8px;">👥 View Attendees</button><button class="btn btn-white btn-sm btn-delete-published" data-id="' + e.id + '" style="margin-top:6px;">🗑️ Delete</button><div class="rsvp-attendees hidden" id="rsvps-' + e.id + '" style="background:#fff;border:var(--border);padding:10px;margin-top:6px;"></div></div>';
   }
   c.innerHTML = h; bindButtons();
 }
@@ -422,6 +431,10 @@ function bindButtons() {
   document.querySelectorAll(".btn-dismiss-idea").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) dismissIdea(id); }); });
   // Delete pitch from My Stuff
   document.querySelectorAll(".btn-delete-pitch").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) deletePitch(id); }); });
+  // Decline pending event
+  document.querySelectorAll(".btn-decline-event").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) deleteEvent(id, "pending"); }); });
+  // Delete published event
+  document.querySelectorAll(".btn-delete-published").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) deleteEvent(id, "published"); }); });
   document.querySelectorAll(".btn-rsvp-now").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) showRsvpOverlay(id); }); });
   document.querySelectorAll(".btn-leave-event").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) leaveEvent(id); }); });
   document.querySelectorAll(".btn-submit-rsvp").forEach(function (b) { b.addEventListener("click", submitRsvp); });

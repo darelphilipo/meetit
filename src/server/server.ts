@@ -100,6 +100,12 @@ async function onRequest(
     case ApiEndpoint.DismissIdea:
       body = await onDismissIdea(req);
       break;
+    case ApiEndpoint.DeletePending:
+      body = await onDeletePending(req);
+      break;
+    case ApiEndpoint.DeletePublished:
+      body = await onDeletePublished(req);
+      break;
     case InternalEndpoint.OnPostCreate:
       body = await onMenuCreatePost();
       break;
@@ -319,7 +325,7 @@ async function notifyMods(message: string): Promise<void> {
   console.log(`[NOTIFY] postId=${postId}, msgLen=${message?.length}`);
   if (!postId) { console.log("[NOTIFY] No postId"); return; }
   try {
-    await reddit.submitComment({ postId: postId.startsWith("t3_") ? postId : "t3_" + postId, text: message });
+    await reddit.submitComment({ postId: postId.startsWith("t3_") ? postId : "t3_" + postId, text: message, runAs: "APP" });
     console.log("[NOTIFY] Comment posted");
   } catch (e) {
     console.error(`[NOTIFY] Failed: ${e}`);
@@ -419,7 +425,21 @@ async function onAllApprovedEvents(): Promise<ApiResponse> {
 async function onDismissIdea(req: IncomingMessage): Promise<ApiResponse> {
   const { ideaId } = await readJSON<{ ideaId: string }>(req);
   await redis.hDel("meetit:pitched_ideas", ideaId);
-  console.log(`Idea ${ideaId} dismissed`);
+  console.log(`[DISMISS] Idea ${ideaId} removed`);
+  return { type: "dismiss-idea", success: true };
+}
+
+async function onDeletePending(req: IncomingMessage): Promise<ApiResponse> {
+  const { eventId } = await readJSON<{ eventId: string }>(req);
+  await redis.hDel("meetit:pending_events", eventId);
+  console.log(`[DELETE] Pending event ${eventId} removed`);
+  return { type: "dismiss-idea", success: true };
+}
+
+async function onDeletePublished(req: IncomingMessage): Promise<ApiResponse> {
+  const { eventId } = await readJSON<{ eventId: string }>(req);
+  await redis.hDel("meetit:active_events", eventId);
+  console.log(`[DELETE] Published event ${eventId} removed`);
   return { type: "dismiss-idea", success: true };
 }
 
