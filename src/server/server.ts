@@ -111,6 +111,9 @@ async function onRequest(
     case InternalEndpoint.SendReminders:
       body = await onSendReminders(req);
       break;
+    case InternalEndpoint.SendEventAnnouncement:
+      body = await onSendEventAnnouncement(req);
+      break;
     default:
       endpoint satisfies never;
       body = { error: "not found", status: 404 };
@@ -125,6 +128,7 @@ const InternalEndpoint = {
   OnAppInstall: "/internal/on-app-install",
   OnAppUpgrade: "/internal/on-app-upgrade",
   SendReminders: "/internal/scheduler/send-24hr-reminders",
+  SendEventAnnouncement: "/internal/scheduler/send-event-announcement",
 } as const;
 
 type InternalEndpoint = (typeof InternalEndpoint)[keyof typeof InternalEndpoint];
@@ -310,8 +314,20 @@ async function onPitchIdea(req: IncomingMessage): Promise<ApiResponse> {
     [ideaId]: JSON.stringify(idea),
   });
 
-  console.log(`Pitch idea saved: ${title} by ${username}`);
+  await notifyMods(`💡 New pitch idea from u/${username}:\n\n**${title}**\n\n${description}\n\n---\nReview in the Mod Dashboard`);
   return { type: "pitch-idea", success: true };
+}
+
+// Helper: post notification comment on the app post
+async function notifyMods(message: string): Promise<void> {
+  const postId = context.postId;
+  if (!postId) { console.log("No postId for notification"); return; }
+  try {
+    await reddit.submitComment({ postId, text: message });
+    console.log("Mod notification posted");
+  } catch (e) {
+    console.error(`Failed to post notification: ${e}`);
+  }
 }
 
 async function onSubmitEvent(req: IncomingMessage): Promise<ApiResponse> {
@@ -328,9 +344,8 @@ async function onSubmitEvent(req: IncomingMessage): Promise<ApiResponse> {
     mapUrl: formData.mapUrl,
   };
 
-  await redis.hSet("meetit:pending_events", {
-    [eventId]: JSON.stringify(event),
-  });
+  await redis.hSet("meetit:pending_events", { [eventId]: JSON.stringify(event) });
+  await notifyMods(`📋 New event submitted by u/${context.username || "unknown"}:\n\n**${formData.title}**\n📅 ${formData.date} at ${formData.time}\n📍 ${formData.location}\n\n---\nApprove in Mod Dashboard`);
 
   return { type: "submit-event", success: true };
 }
@@ -347,13 +362,19 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
 
     const event = JSON.parse(eventJson) as MeetitEvent;
     const eventDate = new Date(event.date);
-    eventDate.setDate(eventDate.getDate() - 1);
-
-    await scheduler.runJob({
-      name: "send_24hr_reminders",
-      data: { eventId },
-      runAt: eventDate,
-    });
+    // 24hr reminder (day before)
+    const reminderDate = new Date(eventDate);
+    reminderDate.setDate(reminderDate.getDate() - 1);
+    await scheduler.runJob({ name: "send_24hr_reminders", data: { eventId }, runAt: reminderDate });
+    // Announcement post (2 days before)
+    const announceDate = new Date(eventDate);
+    announceDate.setDate(announceDate.getDate() - 2);
+    await scheduler.runJob({ name: "send_event_announcement", data: {
+      eventTitle: event.title, eventDate: event.date, eventTime: event.time,
+      eventLocation: event.location, eventDescription: event.description,
+    }, runAt: announceDate });
+    // Notify mods
+    await notifyMods(`✅ Event approved: **${event.title}**\n📅 ${event.date} at ${event.time}\n\nReminder DMs scheduled for 24h before. Announcement post scheduled for 2 days before.`);
   }
 
   return { type: "approve-event", success: true };
