@@ -69,7 +69,11 @@ function renderHome(state: { eventsByDate: Record<string, any[]>; isMod: boolean
 }
 
 // ======= MY SUBMISSIONS =======
+var myStuffLoading = false;
+
 async function loadMySubmissions() {
+  if (myStuffLoading) return; // Debounce
+  myStuffLoading = true;
   var c = document.getElementById("my-submissions-container")!;
   if (!c.classList.contains("loading")) { c.classList.add("loading"); c.innerHTML = '<div class="empty-state"><span class="emoji">⏳</span><h2>Loading...</h2></div>'; }
   try {
@@ -101,6 +105,7 @@ async function loadMySubmissions() {
       c.classList.remove("loading");
     }
   } catch (e) { console.error(e); c.innerHTML = '<div class="empty-state"><span class="emoji">❌</span><h2>Could not load</h2></div>'; c.classList.remove("loading"); }
+  myStuffLoading = false;
 }
 
 function deletePitch(id: string) {
@@ -234,41 +239,39 @@ async function leaveEvent(id: string) {
 }
 
 // ======= MOD DASHBOARD =======
+var modTab = "pending";
+var modTabLoading = false;
+
 function showModDashboard() {
   document.getElementById("tab-events")!.classList.add("hidden");
   document.getElementById("tab-create")!.classList.add("hidden");
   document.getElementById("tab-mine")!.classList.add("hidden");
   document.getElementById("mod-screen")!.classList.remove("hidden");
+  modTab = "pending";
+  modTabLoading = false;
   loadModTab("pending");
 }
 
 function switchModTab(tab: string) {
-  console.log("[UI] Mod tab:", tab);
+  if (modTabLoading || tab === modTab) return; // Debounce + no-op if already on tab
+  modTab = tab;
   document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) { t.classList.toggle("active", (t as HTMLElement).dataset.mtab === tab); });
   loadModTab(tab);
 }
 
 async function loadModTab(tab: string) {
-  var c = document.getElementById("pending-events-container")!;
+  modTabLoading = true;
   if (tab === "pending") {
-    try {
-      var [pr, ir] = await Promise.all([fetch(API_BASE + "/api/pending-events"), fetch(API_BASE + "/api/pitched-ideas")]);
-      var pd = await pr.json(); var idata = await ir.json();
-      renderModPending(pd.type === "pending-events" ? pd.events : []);
-    } catch (e) { console.error(e); }
+    try { var pr = await fetch(API_BASE + "/api/pending-events"); var pd = await pr.json(); renderModPending(pd.type === "pending-events" ? pd.events : []); }
+    catch (e) { console.error(e); }
   } else if (tab === "published") {
-    try {
-      var res = await fetch(API_BASE + "/api/all-approved-events");
-      var data = await res.json();
-      renderModPublished(data.type === "all-approved-events" ? data.events : []);
-    } catch (e) { console.error(e); }
+    try { var res = await fetch(API_BASE + "/api/all-approved-events"); var data = await res.json(); renderModPublished(data.type === "all-approved-events" ? data.events : []); }
+    catch (e) { console.error(e); }
   } else if (tab === "pitches") {
-    try {
-      var res = await fetch(API_BASE + "/api/pitched-ideas");
-      var data = await res.json();
-      renderModPitches(data.type === "pitched-ideas" ? data.ideas : []);
-    } catch (e) { console.error(e); }
+    try { var res = await fetch(API_BASE + "/api/pitched-ideas"); var data = await res.json(); renderModPitches(data.type === "pitched-ideas" ? data.ideas : []); }
+    catch (e) { console.error(e); }
   }
+  modTabLoading = false;
 }
 
 function renderModPending(events: any[]) {
