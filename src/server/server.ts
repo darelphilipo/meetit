@@ -185,9 +185,6 @@ async function isMod(): Promise<boolean> {
 async function getActiveEvents(): Promise<MeetitEvent[]> {
   const events = await redis.hGetAll("meetit:active_events");
   const eventList = Object.values(events).map((val) => JSON.parse(val));
-  if (eventList.length === 0) {
-    return [DEFAULT_EVENT];
-  }
   return eventList.sort((a, b) => a.date.localeCompare(b.date));
 }
 

@@ -16,6 +16,24 @@ function showCopyToast() {
 }
 function escapeHtml(s: string | undefined | null) { var d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
 
+// Smart scroll: scroll overlay body if active, else window
+function getScrollTarget(): HTMLElement {
+  var overlays = document.querySelectorAll(".overlay.active");
+  if (overlays.length > 0) {
+    var body = overlays[0].querySelector(".overlay-body") as HTMLElement;
+    if (body) return body;
+  }
+  return document.body;
+}
+function scrollBy(amount: number) {
+  var t = getScrollTarget();
+  t.scrollBy({ top: amount, behavior: "smooth" });
+}
+function scrollTo(pos: number) {
+  var t = getScrollTarget();
+  t.scrollTo({ top: pos, behavior: "smooth" });
+}
+
 // ======= TABS =======
 function switchTab(tab: string) {
   console.log("[UI] Switching to tab:", tab);
@@ -52,7 +70,7 @@ function renderHome(state: { eventsByDate: Record<string, any[]>; isMod: boolean
   c.innerHTML = "";
   var dates = Object.keys(state.eventsByDate).sort();
   if (dates.length === 0) {
-    c.innerHTML = '<div class="empty-state"><span class="emoji">🤝</span><h2>No meetups yet!</h2><p>Switch to ✨ Create tab to pitch an idea</p></div>';
+    c.innerHTML = '<div class="empty-state"><span class="emoji">🐱</span><h2>Wow, so empty!</h2><p>Switch to ✨ Create tab to pitch an idea</p><button class="btn btn-pink btn-create-pitch" style="margin-top:16px;">💡 Pitch an Idea</button></div>';
   } else {
     for (var di = 0; di < dates.length; di++) {
       var dk = dates[di];
@@ -488,11 +506,11 @@ function bindButtons() {
     function fallbackCopy() { var ta = document.createElement("textarea"); ta.value = csv; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); showToast("Copied!", "success"); }
   }); });
   // Scroll arrows
-  document.querySelectorAll("#scroll-up").forEach(function (b) { b.addEventListener("click", function () { window.scrollBy({ top: -200, behavior: "smooth" }); }); });
-  document.querySelectorAll("#scroll-down").forEach(function (b) { b.addEventListener("click", function () { window.scrollBy({ top: 200, behavior: "smooth" }); }); });
-  // Jump to top/bottom
-  document.querySelectorAll("#scroll-top").forEach(function (b) { b.addEventListener("click", function () { window.scrollTo({ top: 0, behavior: "smooth" }); }); });
-  document.querySelectorAll("#scroll-bottom").forEach(function (b) { b.addEventListener("click", function () { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); }); });
+  // Scroll buttons - smart: scroll overlay body if overlay is open, else window
+  document.querySelectorAll("#scroll-up").forEach(function (b) { b.addEventListener("click", function () { scrollBy(-200); }); });
+  document.querySelectorAll("#scroll-down").forEach(function (b) { b.addEventListener("click", function () { scrollBy(200); }); });
+  document.querySelectorAll("#scroll-top").forEach(function (b) { b.addEventListener("click", function () { scrollTo(0); }); });
+  document.querySelectorAll("#scroll-bottom").forEach(function (b) { b.addEventListener("click", function () { scrollTo(99999); }); });
   // Public attendee viewer - usernames only, no contact details
   document.querySelectorAll(".btn-view-attendees").forEach(function (b) { b.addEventListener("click", function () {
     var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return;
