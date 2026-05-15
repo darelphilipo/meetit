@@ -124,7 +124,7 @@ async function onRequest(
       break;
   }
 
-  writeJSON<PartialJsonValue>("status" in body ? body.status : 200, body, rsp);
+  writeJSON<PartialJsonValue>(typeof (body as any).status === "number" ? (body as any).status : 200, body, rsp);
 }
 
 const InternalEndpoint = {
