@@ -617,26 +617,34 @@ Returns raw ID like `1t9207d` (not `t3_` prefixed). Some APIs need the `t3_` pre
 
 ### 11.5 Scheduler Gotchas
 
-**📌 `setDate()` mutates Date objects causing timestamp overflow**
-```ts
-// ❌ Can produce out-of-range timestamps
-const d = new Date(dateStr);
-d.setDate(d.getDate() - 1); // 7332383865600 → proto overflow!
+**📌 `scheduler.runJob()` — one-shot jobs NEVER fire in Devvit Web inline context**
+Jobs are scheduled (logs confirm `[APPROVE] Reminder scheduled: 2026-05-14T00:00:00.000Z`) but never execute. No `[SCHEDULER] FIRED` log ever appears. Use CRON-based scheduler instead.
 
-// ✅ Safe - use getTime arithmetic
-const d = new Date(dateStr + "T00:00:00Z");
-const dayBefore = new Date(d.getTime() - 86400000);
+**📌 CRON-based scheduler WORKS in Devvit Web — tested and confirmed**
+```json
+"scheduler": { "tasks": { "check-events": { "endpoint": "/internal/scheduler/check-events", "cron": "*/5 * * * *" } } }
 ```
-Always use `getTime() - milliseconds` arithmetic. Never mutate Date objects with setDate/setMonth.
+The CRON job fires reliably every 5 minutes. Confirmed by `[CRON] check-events FIRED at 2026-05-15T07:40:31.244Z` in production logs. This is the ONLY scheduler pattern that works in Devvit Web inline context.
 
-**📌 Scheduler `runAt` expects proper Date objects**
-Must be a valid future date within protobuf range. Past dates or dates too far in future (>year 2100) cause "seconds out of range" errors.
+**📌 CRON jobs run in a different execution context than webview requests**
+- CRON context has `redis`, `reddit.submitCustomPost()` (confirmed working)
+- CRON context does NOT have `context.postId` (triggers from server, not user post)
+- CRON context MAY have `reddit.sendPrivateMessage()` (untested but attempts logged)
+- CRON context does NOT have `reddit.submitComment()` (same limitation)
 
-**📌 Always wrap `scheduler.runJob()` in try-catch**
-Scheduler failures are common (date range errors, quota limits). Never let them block the main operation flow.
+**📌 Hybrid architecture: Beautiful UI + CRON backend**
+```
+Devvit Web (HTML/CSS/JS) → User-facing UI (events, RSVPs, forms, mod dashboard)
+CRON scheduler (*/5)       → Background tasks (scan events, create reminder posts, send DMs)
+Redis                     → Shared data layer between both contexts
+```
+This bridges the gap between Devvit Web's rich UI and Blocks API's backend capabilities. The CRON job runs server-side, independent of the webview iframe.
 
-**📌 `scheduler.on()` doesn't exist in Devvit Web**
-Use endpoint-based scheduler: define tasks in `devvit.json`, handle via `/internal/scheduler/*` endpoints.
+**📌 CRON job best practices from this project:**
+- Use Redis TTL flags (`meetit:reminded:${eventId}` with 24h TTL) to prevent duplicate processing on next cron tick
+- Wrap `submitCustomPost` and `sendPrivateMessage` in individual try-catch blocks so one failure doesn't stop the loop
+- Log every event processed with `[CRON]` prefix for easy filtering in logs
+- Return `{ status: "ok" }` with HTTP 200 (not string status code)
 
 ### 11.6 Settings API
 
