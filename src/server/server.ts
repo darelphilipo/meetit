@@ -376,14 +376,10 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
   const eventJson = await redis.hGet("meetit:pending_events", eventId);
 
   if (eventJson) {
-    await redis.hSet("meetit:active_events", {
-      [eventId]: eventJson,
-    });
-    await redis.hDel("meetit:pending_events", eventId);
-
     // Move event to active, skip scheduler (not supported in Devvit Web inline)
     await redis.hSet("meetit:active_events", { [eventId]: eventJson });
     await redis.hDel("meetit:pending_events", eventId);
+    const event = JSON.parse(eventJson) as MeetitEvent;
     console.log(`[APPROVE] Event ${event.title} published (${event.date})`);
   }
 
@@ -572,7 +568,12 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
       if (await redis.get(remindedKey)) continue;
       console.log(`[CRON] Processing ${event.title} (${event.date})`);
       try {
-        await reddit.submitCustomPost({ title: `📢 Reminder: ${event.title} - ${event.date}`, userGeneratedContent: { text: `**${event.title}**\n\n📅 ${event.date}\n⏰ ${event.time}\n📍 ${event.location}\n\n${event.description}` } });
+        await reddit.submitCustomPost({
+          title: `📢 Event Reminder: ${event.title} is happening ${event.date}!`,
+          userGeneratedContent: {
+            text: `# ${event.title}\n\n## 🗓️ ${event.date} at ${event.time}\n\n## 📍 ${event.location}\n\n${event.description}\n\n---\n\n**Organized by:** ${event.organizer || "the community"}\n\nSearch 'Meetit' in this subreddit to join!`,
+          },
+        });
         console.log(`[CRON] Post created for ${event.title}`);
       } catch (e) { console.error(`[CRON] Post failed: ${e}`); }
       const attendees = await getRsvpList(eventId);
