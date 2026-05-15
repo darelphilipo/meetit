@@ -151,7 +151,16 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
     var initial = e.organizer.replace("u/", "").charAt(0).toUpperCase();
     s2 += '<div class="organizer-card" style="padding:10px;margin-bottom:10px;"><div class="organizer-avatar">' + initial + '</div><div><div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:15px;">' + escapeHtml(e.organizer) + '</div></div></div>';
   }
-  s2 += '<div class="detail-desc" style="padding:10px;font-size:14px;margin-top:0;">' + escapeHtml(descText) + '</div>';
+  var descFull = e.description || "";
+  var descShort = descFull.substring(0, 100);
+  var hasMore = descFull.length > 100;
+  s2 += '<div class="detail-desc" style="padding:10px;font-size:14px;margin-top:0;">';
+  s2 += '<span id="desc-short-' + e.id + '">' + escapeHtml(descShort) + (hasMore ? '...' : '') + '</span>';
+  if (hasMore) {
+    s2 += '<span id="desc-full-' + e.id + '" style="display:none;">' + escapeHtml(descFull) + '</span>';
+    s2 += '<button class="btn btn-white btn-sm btn-read-more" data-id="' + e.id + '" style="margin-top:6px;width:auto;display:inline-block;">Read more ↓</button>';
+  }
+  s2 += '</div>';
   if (e.mapUrl) {
     s2 += '<div class="map-link" style="padding:10px;margin-top:10px;"><span style="flex:1;font-size:13px;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-url="' + escapeHtml(e.mapUrl) + '" style="margin-left:6px;background:#fff;font-size:12px;">📋 Copy</button></div>';
   }
@@ -320,8 +329,7 @@ async function approveEvent(id: string) {
   try {
     await fetch(API_BASE + "/api/approve-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
     showToast("Event approved!", "success");
-    // Small delay for Redis eventual consistency, then refresh
-    setTimeout(function () { loadModTab("pending"); }, 300);
+    setTimeout(function () { modTab = "published"; switchModTab("published"); }, 300);
   } catch (e) { showToast("Error", "error"); }
 }
 async function viewRsvps(eventId: string) {
@@ -457,7 +465,28 @@ function bindButtons() {
   document.querySelectorAll("#detail-rsvp-btn").forEach(function (b) { b.addEventListener("click", function () { if (currentEventId) showRsvpOverlay(currentEventId); }); });
   document.querySelectorAll(".close-overlay").forEach(function (b) { b.addEventListener("click", closeAllOverlays); });
   document.querySelectorAll(".btn-copy-link").forEach(function (b) { b.addEventListener("click", function () { var url = (b as HTMLElement).getAttribute("data-url") || ""; if (navigator.clipboard) { navigator.clipboard.writeText(url); } else { var ta = document.createElement("textarea"); ta.value = url; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); } showCopyToast(); }); });
-  document.querySelectorAll(".btn-copy-rsvp").forEach(function (b) { b.addEventListener("click", function () { var raw = (b as HTMLElement).getAttribute("data-rsvps") || "[]"; var arr = JSON.parse(raw); var csv = "username,timestamp\n"; for (var i = 0; i < arr.length; i++) { csv += arr[i].username + "," + arr[i].timestamp + "\n"; } if (navigator.clipboard) { navigator.clipboard.writeText(csv); } else { var ta = document.createElement("textarea"); ta.value = csv; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); } showToast("RSVP list copied!", "success"); }); });
+  // Read more toggle
+  document.querySelectorAll(".btn-read-more").forEach(function (b) { b.addEventListener("click", function () {
+    var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return;
+    var s = document.getElementById("desc-short-" + id), f = document.getElementById("desc-full-" + id);
+    if (!s || !f) return; var x = f.style.display !== "none";
+    f.style.display = x ? "none" : "block"; s.style.display = x ? "inline" : "none";
+    b.textContent = x ? "Read more ↓" : "Read less ↑";
+  }); });
+  document.querySelectorAll(".btn-copy-rsvp").forEach(function (b) { b.addEventListener("click", function () {
+    var raw = (b as HTMLElement).getAttribute("data-rsvps") || "[]";
+    var arr = JSON.parse(raw);
+    var csv = "username,email,phone,timestamp\n";
+    for (var i = 0; i < arr.length; i++) {
+      csv += arr[i].username + "," + (arr[i].email || "") + "," + (arr[i].phone || "") + "," + (arr[i].timestamp || "") + "\n";
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(csv).then(function () { showToast("Copied!", "success"); }).catch(fallbackCopy);
+      } else { fallbackCopy(); }
+    } catch (e) { fallbackCopy(); }
+    function fallbackCopy() { var ta = document.createElement("textarea"); ta.value = csv; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); showToast("Copied!", "success"); }
+  }); });
   // Scroll arrows
   document.querySelectorAll("#scroll-up").forEach(function (b) { b.addEventListener("click", function () { window.scrollBy({ top: -200, behavior: "smooth" }); }); });
   document.querySelectorAll("#scroll-down").forEach(function (b) { b.addEventListener("click", function () { window.scrollBy({ top: 200, behavior: "smooth" }); }); });

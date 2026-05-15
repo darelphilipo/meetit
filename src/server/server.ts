@@ -399,9 +399,10 @@ async function onPitchedIdeas(): Promise<ApiResponse> {
 
 async function onAllApprovedEvents(): Promise<ApiResponse> {
   const events = await getActiveEvents();
-  // Get RSVP count for each event
+  // Filter out hardcoded default event
+  const realEvents = events.filter(e => e.id !== "default-bangalore-tech-chai");
   const eventsWithCounts = await Promise.all(
-    events.map(async (event) => {
+    realEvents.map(async (event) => {
       const count = await getRsvpCount(event.id);
       return { ...event, rsvpCount: count };
     })
