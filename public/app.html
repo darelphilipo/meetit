@@ -13,7 +13,16 @@
       --shadow-md: 6px 6px 0 #1c1c0f; --font: 'Space Grotesk', sans-serif;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: var(--font); background: var(--bg); color: var(--on-surface); padding: 16px; -webkit-font-smoothing: antialiased; overflow-y: auto; -webkit-overflow-scrolling: touch; min-height: 100vh; }
+    body { font-family: var(--font); background: var(--bg); color: var(--on-surface); padding: 16px; -webkit-font-smoothing: antialiased; overflow-y: auto; -webkit-overflow-scrolling: touch; min-height: 100vh; position: relative; }
+    body::before {
+      content: "💖 🥰 🙌 🎉 💖 🥰 🙌 🎉 💖 🥰 🙌 🎉 💖 🥰 🙌 🎉";
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      display: flex; flex-wrap: wrap; align-content: flex-start;
+      font-size: 60px; line-height: 80px; letter-spacing: 20px;
+      opacity: 0.04; pointer-events: none; z-index: 0;
+      white-space: normal; word-break: break-all;
+    }
+    .container { max-width: 600px; margin: 0 auto; position: relative; z-index: 1; }
     .container { max-width: 600px; margin: 0 auto; }
 
     .header { background: var(--primary); border: var(--border); padding: 14px 20px; margin-bottom: 16px; box-shadow: var(--shadow-sm); }
