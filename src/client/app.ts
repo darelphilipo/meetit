@@ -510,8 +510,8 @@ function showRsvpOverlay(id: string) { currentEventId = id; (document.getElement
 
 // ======= OVERLAY HELPERS =======
 function openOverlay(id: string) { document.getElementById(id)!.classList.add("active"); }
-function closeOverlay(id: string) { document.getElementById(id)!.classList.remove("active"); resetEventForm(); }
-function closeAllOverlays() { document.querySelectorAll(".overlay").forEach(function (el) { el.classList.remove("active"); }); resetEventForm(); }
+function closeOverlay(id: string) { document.getElementById(id)!.classList.remove("active"); resetEventForm(); updateScrollButtons(); }
+function closeAllOverlays() { document.querySelectorAll(".overlay").forEach(function (el) { el.classList.remove("active"); }); resetEventForm(); updateScrollButtons(); }
 
 // ======= BIND ALL =======
 function bindButtons() {
