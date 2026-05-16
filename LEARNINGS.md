@@ -819,6 +819,26 @@ Validate on each step transition, not on final submit. Catches errors early.
 **📌 Server marks each event with `status: "pending"` or `status: "published"`**
 Don't rely on client-side ID prefixes (`event_` vs other) to determine status. The server checks `pending_events` vs `active_events` hashes and attaches the status field to each event before sending to client.
 
+### 12.8 V1.0 Final Patterns
+
+**📌 Distributed lock on approve via `hSetNX`**
+Prevent double-approve race conditions server-side, even if the client guard misses:
+```ts
+const lockAcquired = await redis.hSetNX(`meetit:approve_lock:${eventId}`, "status", "approving");
+if (!lockAcquired) { console.log("Already being approved"); return { success: true }; }
+await redis.expire(lockKey, 10); // 10s TTL prevents deadlock
+```
+More reliable than client-side `actionInProgress` flag alone.
+
+**📌 Optimistic RSVP updates**
+Show success toast immediately, close overlays, return to home — all before the API call completes. Fire fetch in background. On failure, show error toast:
+```ts
+showToast("RSVP confirmed!", "success");
+closeOverlay("rsvp-overlay"); closeOverlay("details-overlay"); showHome();
+fetch("/api/rsvp", {...}).catch(() => showToast("Failed - retry", "error"));
+```
+This removes the perceived latency of RSVP confirmation.
+
 ### 12.8 Manual Mod Whitelist via Settings (Reliable)
 
 **📌 When `getModerators()` fails, let mods self-configure**
