@@ -295,7 +295,6 @@ async function leaveEvent(id: string) {
 
 // ======= MOD DASHBOARD =======
 var modTab = "pending";
-var modTabLoading = false;
 
 function showModDashboard() {
   document.getElementById("tab-events")!.classList.add("hidden");
@@ -303,19 +302,25 @@ function showModDashboard() {
   document.getElementById("tab-mine")!.classList.add("hidden");
   document.getElementById("mod-screen")!.classList.remove("hidden");
   modTab = "pending";
-  modTabLoading = false;
   loadModTab("pending");
 }
 
 function switchModTab(tab: string) {
-  if (modTabLoading || tab === modTab) return; // Debounce + no-op if already on tab
+  if (tab === modTab) return;
   modTab = tab;
   document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) { t.classList.toggle("active", (t as HTMLElement).dataset.mtab === tab); });
   loadModTab(tab);
 }
 
+function setModLoading(loading: boolean) {
+  var c = document.getElementById("pending-events-container");
+  if (c) c.style.opacity = loading ? "0.4" : "1";
+  var tabs = document.getElementById("mod-tabs");
+  if (tabs) tabs.style.pointerEvents = loading ? "none" : "auto";
+}
+
 async function loadModTab(tab: string) {
-  modTabLoading = true;
+  setModLoading(true);
   if (tab === "pending") {
     try { var pr = await fetch(API_BASE + "/api/pending-events"); var pd = await pr.json(); renderModPending(pd.type === "pending-events" ? pd.events : []); }
     catch (e) { console.error(e); }
@@ -326,7 +331,7 @@ async function loadModTab(tab: string) {
     try { var res = await fetch(API_BASE + "/api/pitched-ideas"); var data = await res.json(); renderModPitches(data.type === "pitched-ideas" ? data.ideas : []); }
     catch (e) { console.error(e); }
   }
-  modTabLoading = false;
+  setModLoading(false);
 }
 
 function renderModPending(events: any[]) {

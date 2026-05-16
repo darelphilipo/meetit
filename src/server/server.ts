@@ -375,7 +375,7 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
   if (eventJson) {
     // Move event to active, skip scheduler (not supported in Devvit Web inline)
     await redis.hSet("meetit:active_events", { [eventId]: eventJson });
-    await redis.hDel("meetit:pending_events", eventId);
+    await redis.hDel("meetit:pending_events", [eventId]);
     const event = JSON.parse(eventJson) as MeetitEvent;
     console.log(`[APPROVE] Event ${event.title} published (${event.date})`);
   }
