@@ -205,14 +205,11 @@ async function isUserRsvped(eventId: string, username: string): Promise<boolean>
 async function addRsvp(eventId: string, username: string, email: string, phone: string): Promise<void> {
   const key = `meetit:rsvps:${eventId}`;
   await redis.zAdd(key, { score: Date.now(), member: username });
-  // Store contact details in companion hash
   if (email || phone) {
-    await redis.hSet(`meetit:rsvp_details:${eventId}`, {
-      [username]: JSON.stringify({ email: email || "", phone: phone || "" }),
-    });
+    await redis.hSet(`meetit:rsvp_details:${eventId}`, { [username]: JSON.stringify({ email: email || "", phone: phone || "" }) });
   }
   const verifyScore = await redis.zScore(key, username);
-  console.log(`[RSVP] Added ${username} to ${key}, verified score=${verifyScore}`);
+  console.log(`[RSVP] ${username} → ${eventId} | score=${verifyScore} | email=${!!email} phone=${!!phone}`);
 }
 
 async function getRsvpList(eventId: string): Promise<string[]> {
@@ -363,9 +360,9 @@ async function onSubmitEvent(req: IncomingMessage): Promise<ApiResponse> {
   };
 
   await redis.hSet("meetit:pending_events", { [eventId]: JSON.stringify(event) });
-  // await notifyMods(`📋 New event submitted...`);
-
-  return { type: "submit-event", success: true };
+  const saved = !!(await redis.hGet("meetit:pending_events", eventId));
+  console.log(`[SUBMIT] "${event.title}" by ${context.username} | saved=${saved} | id=${eventId}`);
+  return { type: "submit-event", success: saved };
 }
 
 async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
@@ -373,11 +370,13 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
   const eventJson = await redis.hGet("meetit:pending_events", eventId);
 
   if (eventJson) {
-    // Move event to active, skip scheduler (not supported in Devvit Web inline)
     await redis.hSet("meetit:active_events", { [eventId]: eventJson });
     await redis.hDel("meetit:pending_events", [eventId]);
+    // Verify the move
+    const inActive = !!(await redis.hGet("meetit:active_events", eventId));
+    const inPending = !!(await redis.hGet("meetit:pending_events", eventId));
     const event = JSON.parse(eventJson) as MeetitEvent;
-    console.log(`[APPROVE] Event ${event.title} published (${event.date})`);
+    console.log(`[APPROVE] ${event.title} | active=${inActive} pending=${inPending}${inPending ? " ⚠️ STILL IN PENDING!" : " ✅"}`);
   }
 
   return { type: "approve-event", success: true };
@@ -419,7 +418,7 @@ async function onDeletePending(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
   await redis.hDel("meetit:pending_events", [eventId]);
   const ok = !(await redis.hGet("meetit:pending_events", eventId));
-  console.log(`[DEL-PEND] Event ${eventId} removed: ${ok}`);
+  console.log(`[DEL-PEND] ${eventId} | removed=${ok}${!ok ? " ⚠️ FAILED!" : ""}`);
   return { type: "dismiss-idea", success: ok };
 }
 
@@ -427,7 +426,7 @@ async function onDeletePublished(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
   await redis.hDel("meetit:active_events", [eventId]);
   const ok = !(await redis.hGet("meetit:active_events", eventId));
-  console.log(`[DEL-PUB] Event ${eventId} removed: ${ok}`);
+  console.log(`[DEL-PUB] ${eventId} | removed=${ok}${!ok ? " ⚠️ FAILED!" : ""}`);
   return { type: "dismiss-idea", success: ok };
 }
 
