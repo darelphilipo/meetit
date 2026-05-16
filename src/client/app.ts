@@ -498,13 +498,18 @@ async function submitRsvp() {
   if (!currentEventId) return;
   var email = (document.getElementById("rsvp-email") as HTMLInputElement).value;
   var phone = (document.getElementById("rsvp-phone") as HTMLInputElement).value;
+  // Optimistic: show success immediately
+  showToast("RSVP confirmed! 🎉", "success");
+  closeOverlay("rsvp-overlay");
+  closeOverlay("details-overlay");
+  showHome();
+  // Fire API in background - rollback toast on failure
   try {
     await fetch(API_BASE + "/api/rsvp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: currentEventId, email: email, phone: phone }) });
-    showToast("RSVP confirmed! 🎉", "success");
-    closeOverlay("rsvp-overlay");
-    closeOverlay("details-overlay");
-    showHome();
-  } catch (e) { showToast("Error", "error"); }
+  } catch (e) {
+    showToast("RSVP failed - please retry", "error");
+    console.error(e);
+  }
 }
 function showRsvpOverlay(id: string) { currentEventId = id; (document.getElementById("rsvp-email") as HTMLInputElement).value = ""; (document.getElementById("rsvp-phone") as HTMLInputElement).value = ""; openOverlay("rsvp-overlay"); }
 

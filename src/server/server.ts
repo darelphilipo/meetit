@@ -377,6 +377,15 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
   const eventJson = await redis.hGet("meetit:pending_events", eventId);
 
   if (eventJson) {
+    // Distributed lock: prevent double-approve race conditions
+    const lockKey = `meetit:approve_lock:${eventId}`;
+    const lockAcquired = await redis.hSetNX(lockKey, "status", "approving");
+    if (!lockAcquired) {
+      console.log(`[APPROVE] ${eventId} already being approved - skipping`);
+      return { type: "approve-event", success: true };
+    }
+    await redis.expire(lockKey, 10); // 10s TTL prevents deadlock
+
     await redis.hSet("meetit:active_events", { [eventId]: eventJson });
     await redis.hDel("meetit:pending_events", [eventId]);
     // Verify the move
