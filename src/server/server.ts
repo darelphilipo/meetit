@@ -566,30 +566,48 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
     const allEvents = await redis.hGetAll("meetit:active_events");
     const now = new Date();
     const tomorrow = new Date(now.getTime() + 86400000);
+
+    // === 1. Reminder posts for upcoming events ===
     for (const [eventId, eventJson] of Object.entries(allEvents)) {
       const event = JSON.parse(eventJson);
       const eventDate = new Date(event.date + "T00:00:00Z");
       if (eventDate.getTime() > tomorrow.getTime() || eventDate.getTime() < now.getTime()) continue;
       const remindedKey = `meetit:reminded:${eventId}`;
       if (await redis.get(remindedKey)) continue;
-      console.log(`[CRON] Processing ${event.title} (${event.date})`);
+      console.log(`[CRON] Reminder post for ${event.title}`);
       try {
-        await reddit.submitCustomPost({
-          title: `📢 Event Reminder: ${event.title} is happening ${event.date}!`,
-          userGeneratedContent: {
-            text: `# ${event.title}\n\n## 🗓️ ${event.date} at ${event.time}\n\n## 📍 ${event.location}\n\n${event.description}\n\n---\n\n**Organized by:** ${event.organizer || "the community"}\n\nSearch 'Meetit' in this subreddit to join!`,
-          },
-        });
-        console.log(`[CRON] Post created for ${event.title}`);
+        await reddit.submitCustomPost({ title: `📢 Event Reminder: ${event.title} is happening ${event.date}!`, userGeneratedContent: { text: `# ${event.title}\n\n## 🗓️ ${event.date} at ${event.time}\n\n## 📍 ${event.location}\n\n${event.description}\n\n---\n\n**Organized by:** ${event.organizer || "the community"}\n\nSearch 'Meetit' in this subreddit to join!` } });
       } catch (e) { console.error(`[CRON] Post failed: ${e}`); }
-      const attendees = await getRsvpList(eventId);
-      for (const username of attendees) {
-        try { await reddit.sendPrivateMessage({ subject: `Reminder: ${event.title} tomorrow!`, body: `Hey u/${username}! **${event.title}** is tomorrow!\n\n📅 ${event.date}\n⏰ ${event.time}\n📍 ${event.location}`, to: username }); }
-        catch (e) { console.log(`[CRON] DM to ${username} failed: ${e}`); }
-      }
       await redis.set(remindedKey, "true");
       await redis.expire(remindedKey, 86400);
     }
+
+    // === 2. Mod alerts for new pending items ===
+    const pendingKey = "meetit:last_alert_check";
+    const lastCheck = await redis.get(pendingKey) || "0";
+    const nowTs = Date.now().toString();
+    const pendingEvents = await redis.hGetAll("meetit:pending_events");
+    const pitchedIdeas = await redis.hGetAll("meetit:pitched_ideas");
+    let newItems = 0;
+    for (const [, json] of Object.entries({ ...pendingEvents, ...pitchedIdeas })) {
+      const item = JSON.parse(json);
+      const submittedAt = new Date(item.submittedAt || item.submittedAt || 0).getTime();
+      if (submittedAt > parseInt(lastCheck)) newItems++;
+    }
+    if (newItems > 0) {
+      console.log(`[CRON] ${newItems} new items since last check`);
+      // Attempt to notify via message to subreddit
+      try {
+        await reddit.sendPrivateMessage({ subject: `Meetit: ${newItems} new item(s) await review`, body: `There are ${newItems} new pending event(s) or pitch(es) to review.\n\nOpen the Meetit app in r/${context.subredditName} to manage them.`, to: `/r/${context.subredditName}` });
+        console.log(`[CRON] Mod alert sent`);
+      } catch (e) { console.log(`[CRON] Mod alert failed (may not be supported): ${e}`); }
+      // Also try creating an alert post as fallback
+      try {
+        await reddit.submitCustomPost({ title: `🔔 Meetit: ${newItems} new item(s) need review`, userGeneratedContent: { text: `Open the Meetit app to review ${newItems} new pending event(s) or pitch(es).` } });
+      } catch (e2) { console.log(`[CRON] Alert post failed: ${e2}`); }
+    }
+    await redis.set(pendingKey, nowTs);
+
     console.log(`[CRON] check-events complete`);
     return { status: "ok" };
   } catch (e) {
