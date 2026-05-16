@@ -464,13 +464,21 @@ async function onMySubmissions(): Promise<ApiResponse> {
     .map((val) => JSON.parse(val))
     .filter((idea: any) => idea.submittedBy === username);
 
-  const eventsJson = await redis.hGetAll("meetit:pending_events");
-  const activeEventsJson = await redis.hGetAll("meetit:active_events");
-  const allEvents = { ...eventsJson, ...activeEventsJson };
-  const myEvents = Object.values(allEvents)
+  // Check pending
+  const pendingJson = await redis.hGetAll("meetit:pending_events");
+  const pendingEvents = Object.values(pendingJson)
     .map((val) => JSON.parse(val))
-    .filter((event: MeetitEvent) => event.organizer === `u/${username}`);
+    .filter((event: MeetitEvent) => event.organizer === `u/${username}`)
+    .map(e => ({ ...e, status: "pending" }));
 
+  // Check active
+  const activeJson = await redis.hGetAll("meetit:active_events");
+  const activeEvents = Object.values(activeJson)
+    .map((val) => JSON.parse(val))
+    .filter((event: MeetitEvent) => event.organizer === `u/${username}`)
+    .map(e => ({ ...e, status: "published" }));
+
+  const myEvents = [...pendingEvents, ...activeEvents];
   return { type: "my-submissions", pitches, events: myEvents };
 }
 

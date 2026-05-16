@@ -142,8 +142,8 @@ async function loadMySubmissions() {
         html += '<div class="date-header">📋 My Events (' + events.length + ')</div>';
         for (var j = 0; j < events.length; j++) {
           var e = events[j];
-          var statusLabel = e.id.startsWith("event_") ? "⏳ Pending Review" : "✅ Published";
-          html += '<div class="pending-card" style="background:' + (e.id.startsWith("event_") ? "var(--secondary)" : "#00ff88") + ';"><h3>' + escapeHtml(e.title) + '</h3><div class="event-row">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div><div class="event-row">📍 ' + escapeHtml(e.location) + '</div><div style="font-weight:700;margin-top:6px;">' + statusLabel + '</div></div>';
+          var statusLabel = e.status === "published" ? "✅ Published" : "⏳ Pending Review";
+          html += '<div class="pending-card" style="background:' + (e.status === "published" ? "#00ff88" : "var(--secondary)") + ';"><h3>' + escapeHtml(e.title) + '</h3><div class="event-row">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div><div class="event-row">📍 ' + escapeHtml(e.location) + '</div><div style="font-weight:700;margin-top:6px;">' + statusLabel + '</div></div>';
         }
       }
       c.innerHTML = html;
