@@ -576,8 +576,14 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
     // === 1. Reminder posts for upcoming events ===
     for (const [eventId, eventJson] of Object.entries(allEvents)) {
       const event = JSON.parse(eventJson);
-      const eventDate = new Date(event.date + "T00:00:00Z");
-      if (eventDate.getTime() > tomorrow.getTime() || eventDate.getTime() < now.getTime()) continue;
+      // Parse date+time together for accurate reminder timing
+      const eventDateTime = new Date(event.date + "T" + (event.time || "00:00") + ":00Z");
+      const eventTs = eventDateTime.getTime();
+      const nowTs = Date.now();
+      const reminderHours = Number(await settings.get("reminder_hours")) || 24;
+      const hoursUntilEvent = (eventTs - nowTs) / 3600000;
+
+      if (hoursUntilEvent > reminderHours || hoursUntilEvent < 0) continue;
       const remindedKey = `meetit:reminded:${eventId}`;
       if (await redis.get(remindedKey)) continue;
       console.log(`[CRON] Reminder post for ${event.title}`);

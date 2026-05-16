@@ -70,6 +70,11 @@
         "type": "string",
         "label": "Moderator Usernames (comma-separated)",
         "defaultValue": ""
+      },
+      "reminder_hours": {
+        "type": "number",
+        "label": "Reminder: Hours Before Event (e.g. 24 = 1 day before)",
+        "defaultValue": 24
       }
     }
   },
