@@ -81,12 +81,25 @@ function showHome() {
 
 // ======= HOME =======
 async function loadHome() {
-  console.log("[UI] Loading home...");
+  // Animate loading bar
+  var bar = document.getElementById("loading-bar");
+  var msg = document.getElementById("loading-msg");
+  if (bar) bar.style.width = "30%";
+  if (msg) msg.textContent = "Fetching events...";
   try {
     var res = await fetch(API_BASE + "/api/home");
+    if (bar) bar.style.width = "70%";
+    if (msg) msg.textContent = "Almost there...";
     var data = await res.json();
-    if (data.type === "home") renderHome(data.data);
-  } catch (e) { console.error(e); }
+    if (bar) bar.style.width = "100%";
+    if (msg) msg.textContent = "Ready!";
+    if (data.type === "home") {
+      setTimeout(function () { renderHome(data.data); }, 200);
+    }
+  } catch (e) {
+    console.error(e);
+    if (msg) msg.textContent = "Could not load. Check connection.";
+  }
 }
 function formatDateBadge(dateStr: string): string {
   var d = new Date(dateStr + "T00:00:00");

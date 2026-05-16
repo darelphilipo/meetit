@@ -97,6 +97,15 @@
 
     .hidden { display: none !important; }
 
+    /* Loading screen */
+    .loading-state { text-align: center; padding: 40px 20px; }
+    .loading-bar-container { background: #fff; border: var(--border); padding: 4px; margin: 24px auto; max-width: 300px; }
+    .loading-bar-fill { background: var(--primary); height: 8px; width: 0%; transition: width 0.8s ease; }
+    .loading-emoji-bg { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 100px; opacity: 0.05; pointer-events: none; z-index: 0; }
+    .loading-message { font-size: 14px; color: var(--muted); font-weight: 500; margin-top: 12px; }
+    .loading-status { display: flex; gap: 16px; justify-content: center; margin-top: 20px; }
+    .loading-stat { background: #fff; border: var(--border); padding: 8px 14px; font-size: 11px; font-weight: 700; box-shadow: var(--shadow-sm); }
+
     /* Scroll buttons */
     .scroll-nav { position: fixed; right: 4px; top: 50%; transform: translateY(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 4px; }
     .scroll-btn { width: 32px; height: 32px; background: var(--primary); border: var(--border); font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); font-family: var(--font); }
@@ -115,7 +124,24 @@
 
     <!-- Events Tab -->
     <div id="tab-events">
-      <div id="events-container"></div>
+      <div id="events-container">
+        <div class="loading-state">
+          <div style="position:relative;">
+            <div class="loading-emoji-bg">💖</div>
+            <div style="font-size:48px;margin-bottom:12px;position:relative;z-index:1;">⚡</div>
+          </div>
+          <h2 style="font-size:20px;font-weight:700;position:relative;z-index:1;">Meetit</h2>
+          <p style="font-size:13px;color:var(--muted);margin-top:4px;">Building Better Connections</p>
+          <div class="loading-bar-container" style="position:relative;z-index:1;">
+            <div class="loading-bar-fill" id="loading-bar"></div>
+          </div>
+          <p class="loading-message" id="loading-msg">Curating wholesome vibes...</p>
+          <div class="loading-status" style="position:relative;z-index:1;">
+            <div class="loading-stat">🟢 Online</div>
+            <div class="loading-stat">⚡ Ready</div>
+          </div>
+        </div>
+      </div>
       <div class="mod-section hidden" id="mod-section">
         <button class="btn btn-black btn-show-mod">🛡️ Mod Dashboard</button>
       </div>
