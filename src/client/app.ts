@@ -376,13 +376,15 @@ async function dismissIdea(id: string) {
 }
 
 async function approveEvent(id: string) {
+  // Disable button immediately to prevent double-click
+  var btn = document.querySelector('[data-id="' + id + '"].btn-approve-event') as HTMLElement;
+  if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; }
   try {
     await fetch(API_BASE + "/api/approve-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
     showToast("Event approved!", "success");
-    // Refresh pending first (event disappears), then switch to published
     setTimeout(function () { loadModTab("pending"); }, 200);
     setTimeout(function () { modTab = "published"; document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) { t.classList.toggle("active", (t as HTMLElement).dataset.mtab === "published"); }); loadModTab("published"); }, 500);
-  } catch (e) { showToast("Error", "error"); }
+  } catch (e) { showToast("Error", "error"); if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } }
 }
 async function viewRsvps(eventId: string) {
   var el = document.getElementById("rsvps-" + eventId)!;
@@ -569,13 +571,18 @@ function bindButtons() {
   }); });
 }
 
+// Cache username to avoid repeated API calls
+var usernameCached: string | null = null;
+
 async function prefillOrganizer() {
   if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; }
+  if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; }
   try {
     var res = await fetch(API_BASE + "/api/init");
     var data = await res.json();
     if (data.type === "init" && data.username) {
       currentUsername = data.username;
+      usernameCached = data.username;
       (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username;
     }
   } catch (e) { console.error(e); }
