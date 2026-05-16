@@ -161,6 +161,8 @@ function deletePitch(id: string) {
 }
 
 function deleteEvent(id: string, type: string) {
+  if (actionInProgress) return;
+  actionInProgress = true;
   var sel = type === "pending" ? ".btn-decline-event" : ".btn-delete-published";
   var btn = document.querySelector('[data-id="' + id + '"]' + sel) as HTMLElement;
   if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; }
@@ -170,6 +172,7 @@ function deleteEvent(id: string, type: string) {
   fetch(API_BASE + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) })
     .then(function () { showToast("Deleted", "success"); setTimeout(function () { loadModTab(type === "pending" ? "pending" : "published"); }, 300); })
     .catch(function () { showToast("Error", "error"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } });
+  setTimeout(function () { actionInProgress = false; }, 500);
 }
 
 // ======= EVENT DETAILS =======
@@ -275,20 +278,17 @@ function detailPrev() {
 
 // ======= LEAVE EVENT =======
 async function leaveEvent(id: string) {
-  console.log("[CLIENT] Leaving event:", id);
   try {
     var res = await fetch(API_BASE + "/api/leave-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
     var data = await res.json();
-    console.log("[CLIENT] Leave response:", data);
     if (data.type === "leave-event" && data.success) {
       showToast("You've left the event", "success");
       closeOverlay("details-overlay");
-      showEventDetails(id);
+      showHome();
     } else {
       showToast("Failed to leave event", "error");
     }
   } catch (e) {
-    console.error("[CLIENT] Leave error:", e);
     showToast("Error leaving", "error");
   }
 }
@@ -375,7 +375,11 @@ async function dismissIdea(id: string) {
   } catch (e) { showToast("Error", "error"); }
 }
 
+var actionInProgress = false;
+
 async function approveEvent(id: string) {
+  if (actionInProgress) return;
+  actionInProgress = true;
   var btn = document.querySelector('[data-id="' + id + '"].btn-approve-event') as HTMLElement;
   if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; btn.textContent = "⏳ Approving..."; }
   try {
@@ -383,6 +387,7 @@ async function approveEvent(id: string) {
     showToast("Event approved!", "success");
     setTimeout(function () { loadModTab("pending"); }, 300);
   } catch (e) { showToast("Error", "error"); if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; btn.textContent = "✅ Approve & Publish"; } }
+  setTimeout(function () { actionInProgress = false; }, 500);
 }
 async function viewRsvps(eventId: string) {
   var el = document.getElementById("rsvps-" + eventId)!;
@@ -470,7 +475,7 @@ async function submitRsvp() {
     showToast("RSVP confirmed! 🎉", "success");
     closeOverlay("rsvp-overlay");
     closeOverlay("details-overlay");
-    showEventDetails(currentEventId);
+    showHome();
   } catch (e) { showToast("Error", "error"); }
 }
 function showRsvpOverlay(id: string) { currentEventId = id; (document.getElementById("rsvp-email") as HTMLInputElement).value = ""; (document.getElementById("rsvp-phone") as HTMLInputElement).value = ""; openOverlay("rsvp-overlay"); }

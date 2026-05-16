@@ -694,3 +694,127 @@ Public:  "👥 Who's Going? (5)"  → shows u/username only
 Mod:     "👥 View Attendees"    → shows u/username + email + phone + CSV export
 ```
 Email/phone are ONLY shown in Mod Dashboard. Public view shows only Reddit usernames.
+
+---
+
+## 12. Meetit Production Patterns (Final Session)
+
+### 12.1 Redis Write Verification Logging
+
+**📌 Verify every Redis write with an immediate read**
+Every `hSet`, `hDel`, `zAdd`, `zRem` call should be followed by a verification read. This catches silent failures:
+```ts
+await redis.hDel("key", [field]);
+const stillThere = await redis.hGet("key", field);
+console.log(`removed=${!stillThere}${stillThere ? " ⚠️ FAILED!" : ""}`);
+```
+Without verification, the `hDel` array-format bug would have gone unnoticed indefinitely.
+
+**📌 `hDel` requires array format — confirmed by verification**
+```ts
+// ❌ Silent failure — event stays in pending forever
+await redis.hDel("meetit:pending_events", eventId);
+// ✅ Works — verified by immediate hGet read
+await redis.hDel("meetit:pending_events", [eventId]);
+```
+This was the root cause of the "last event stuck in pending" bug. Every other delete handler already used array format — only the approve handler had the single-string variant.
+
+**📌 `zAdd` verification confirms RSVP writes**
+```ts
+await redis.zAdd(key, { score: Date.now(), member: username });
+const verifyScore = await redis.zScore(key, username);
+console.log(`[RSVP] score=${verifyScore} | email=${!!email} phone=${!!phone}`);
+```
+
+### 12.2 Client-Side Action Guards
+
+**📌 `actionInProgress` global lock prevents double-taps**
+DOM-based button disabling (opacity + pointer-events) isn't fast enough on mobile Reddit app. A 500ms global lock that blocks ALL actions is more reliable:
+```ts
+var actionInProgress = false;
+async function approveEvent(id: string) {
+  if (actionInProgress) return;
+  actionInProgress = true;
+  // ... action ...
+  setTimeout(function () { actionInProgress = false; }, 500);
+}
+```
+
+**📌 `prefillLoading` guard prevents parallel API fetches**
+When a user rapidly opens/closes the event form, `prefillOrganizer()` fires multiple times. Without a guard, each call starts a new `/api/init` fetch before the first one completes:
+```ts
+var prefillLoading = false;
+async function prefillOrganizer() {
+  if (usernameCached) { /* use cache */ return; }
+  if (prefillLoading) return; // Prevent parallel
+  prefillLoading = true;
+  // ... fetch ...
+  prefillLoading = false;
+}
+```
+
+### 12.3 Mod Dashboard Patterns
+
+**📌 Visual loading feedback (grey out + disable tabs)**
+Replace blocking debounce locks with visual feedback:
+```ts
+function setModLoading(loading: boolean) {
+  container.style.opacity = loading ? "0.4" : "1";
+  tabs.style.pointerEvents = loading ? "none" : "auto";
+}
+```
+This communicates "work in progress" without blocking user intent.
+
+**📌 Stay on tab after action**
+After approving the last event in pending, DON'T auto-switch to published tab. Stay on pending so the user sees the empty queue and knows they're still on the right tab. User switches manually.
+
+### 12.4 UX Patterns
+
+**📌 RSVP and Leave both return to home**
+After RSVP confirmation or leaving an event, close the details overlay and go back to the home page. Don't re-open the event details. Consistent return-to-home behavior.
+
+**📌 Empty state with CTA**
+When the events list is empty, show a cat emoji with a pitch idea button:
+```html
+<div class="empty-state">
+  <span class="emoji">🐱</span>
+  <h2>Wow, so empty!</h2>
+  <p>Switch to ✨ Create tab to pitch an idea</p>
+  <button>💡 Pitch an Idea</button>
+</div>
+```
+
+### 12.5 CRON Notification System (Final State)
+
+**Working:**
+- CRON fires every 5 minutes, scans active events
+- Creates reminder posts (`submitCustomPost`) for events within 24h
+- Detects new pending items since last check
+- Creates alert posts as fallback when DM fails
+
+**Not working (Devvit Web limitation):**
+- `sendPrivateMessage` fails with `ERR_INVALID_ARG_TYPE` from all contexts (webview, CRON, scheduler)
+- `submitComment` fails from all contexts
+- `modMail.createConversation` not available in Devvit Web
+
+**Hybrid architecture:**
+```
+Beautiful UI (Devvit Web) → Users interact with events, RSVPs, forms
+CRON (*/5 min)            → Background: reminder posts, alert posts, DM attempts
+Redis                     → Shared data between both
+Mod Dashboard             → In-app notification center for mods
+```
+
+### 12.6 Date/Time Validation
+
+**📌 Simple regex validation in form multi-step**
+```ts
+if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { showToast("Date must be YYYY-MM-DD", "error"); return; }
+if (!/^\d{2}:\d{2}$/.test(time)) { showToast("Time must be HH:MM (24h)", "error"); return; }
+```
+Validate on each step transition, not on final submit. Catches errors early.
+
+### 12.7 My Stuff Status Tracking
+
+**📌 Server marks each event with `status: "pending"` or `status: "published"`**
+Don't rely on client-side ID prefixes (`event_` vs other) to determine status. The server checks `pending_events` vs `active_events` hashes and attaches the status field to each event before sending to client.
