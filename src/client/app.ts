@@ -16,22 +16,49 @@ function showCopyToast() {
 }
 function escapeHtml(s: string | undefined | null) { var d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
 
-// Smart scroll: scroll overlay body if active, else window
+var overlayActive = false;
+// Smart scroll: scroll visible overlay body if active, else window
 function getScrollTarget(): HTMLElement {
   var overlays = document.querySelectorAll(".overlay.active");
   if (overlays.length > 0) {
-    var body = overlays[0].querySelector(".overlay-body") as HTMLElement;
-    if (body) return body;
+    overlayActive = true;
+    var bodies = overlays[0].querySelectorAll(".overlay-body");
+    for (var i = 0; i < bodies.length; i++) {
+      if (!bodies[i].classList.contains("hidden")) return bodies[i] as HTMLElement;
+    }
+    return overlays[0] as HTMLElement;
   }
+  overlayActive = false;
   return document.body;
 }
+var scrollAnimId: number | null = null;
 function scrollBy(amount: number) {
   var t = getScrollTarget();
-  t.scrollBy({ top: amount, behavior: "smooth" });
+  if (scrollAnimId) cancelAnimationFrame(scrollAnimId);
+  var step = overlayActive ? 30 : 80;
+  var dir = amount > 0 ? 1 : -1;
+  var target = Math.max(0, t.scrollTop + step * dir);
+  animateScroll(t, target);
 }
 function scrollTo(pos: number) {
   var t = getScrollTarget();
-  t.scrollTo({ top: pos, behavior: "smooth" });
+  if (scrollAnimId) cancelAnimationFrame(scrollAnimId);
+  animateScroll(t, pos);
+}
+function animateScroll(el: HTMLElement, target: number) {
+  var start = el.scrollTop;
+  var distance = target - start;
+  var duration = 150; // ms
+  var startTime = performance.now();
+  function step(currentTime: number) {
+    var elapsed = currentTime - startTime;
+    var progress = Math.min(elapsed / duration, 1);
+    var ease = progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress; // easeInOutQuad
+    el.scrollTop = start + distance * ease;
+    if (progress < 1) { scrollAnimId = requestAnimationFrame(step); }
+    else { scrollAnimId = null; }
+  }
+  scrollAnimId = requestAnimationFrame(step);
 }
 
 // ======= TABS =======
@@ -347,7 +374,9 @@ async function approveEvent(id: string) {
   try {
     await fetch(API_BASE + "/api/approve-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
     showToast("Event approved!", "success");
-    setTimeout(function () { modTab = "published"; switchModTab("published"); }, 300);
+    // Refresh pending first (event disappears), then switch to published
+    setTimeout(function () { loadModTab("pending"); }, 200);
+    setTimeout(function () { modTab = "published"; document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) { t.classList.toggle("active", (t as HTMLElement).dataset.mtab === "published"); }); loadModTab("published"); }, 500);
   } catch (e) { showToast("Error", "error"); }
 }
 async function viewRsvps(eventId: string) {

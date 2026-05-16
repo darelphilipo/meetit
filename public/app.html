@@ -51,7 +51,7 @@
     .empty-state h2 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
     .empty-state p { font-size: 15px; color: var(--muted); margin-bottom: 20px; }
 
-    .overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg); z-index: 1000; flex-direction: column; }
+    .overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg); z-index: 1000; flex-direction: column; overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .overlay.active { display: flex; }
     .overlay-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: var(--border); background: var(--primary); }
     .overlay-header h2 { font-size: 20px; font-weight: 700; }
