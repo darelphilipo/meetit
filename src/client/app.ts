@@ -161,15 +161,15 @@ function deletePitch(id: string) {
 }
 
 function deleteEvent(id: string, type: string) {
-  console.log("[UI] Deleting", type, "event:", id);
-  // Immediately dim card
-  var card = document.querySelector('[data-id="' + id + '"].btn-decline-event, [data-id="' + id + '"].btn-delete-published');
-  var parent = card ? card.closest(".pending-card,.event-card") as HTMLElement : null;
+  var sel = type === "pending" ? ".btn-decline-event" : ".btn-delete-published";
+  var btn = document.querySelector('[data-id="' + id + '"]' + sel) as HTMLElement;
+  if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; }
+  var parent = btn ? btn.closest(".pending-card,.event-card") as HTMLElement : null;
   if (parent) parent.style.opacity = "0.3";
   var endpoint = type === "pending" ? "/api/delete-pending" : "/api/delete-published";
   fetch(API_BASE + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) })
     .then(function () { showToast("Deleted", "success"); setTimeout(function () { loadModTab(type === "pending" ? "pending" : "published"); }, 300); })
-    .catch(function () { showToast("Error deleting", "error"); if (parent) parent.style.opacity = "1"; });
+    .catch(function () { showToast("Error", "error"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } });
 }
 
 // ======= EVENT DETAILS =======
@@ -376,15 +376,13 @@ async function dismissIdea(id: string) {
 }
 
 async function approveEvent(id: string) {
-  // Disable button immediately to prevent double-click
   var btn = document.querySelector('[data-id="' + id + '"].btn-approve-event') as HTMLElement;
-  if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; }
+  if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; btn.textContent = "⏳ Approving..."; }
   try {
     await fetch(API_BASE + "/api/approve-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
     showToast("Event approved!", "success");
-    setTimeout(function () { loadModTab("pending"); }, 200);
-    setTimeout(function () { modTab = "published"; document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) { t.classList.toggle("active", (t as HTMLElement).dataset.mtab === "published"); }); loadModTab("published"); }, 500);
-  } catch (e) { showToast("Error", "error"); if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } }
+    setTimeout(function () { loadModTab("pending"); }, 300);
+  } catch (e) { showToast("Error", "error"); if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; btn.textContent = "✅ Approve & Publish"; } }
 }
 async function viewRsvps(eventId: string) {
   var el = document.getElementById("rsvps-" + eventId)!;
@@ -573,10 +571,13 @@ function bindButtons() {
 
 // Cache username to avoid repeated API calls
 var usernameCached: string | null = null;
+var prefillLoading = false;
 
 async function prefillOrganizer() {
   if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; }
   if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; }
+  if (prefillLoading) return; // Prevent parallel fetches
+  prefillLoading = true;
   try {
     var res = await fetch(API_BASE + "/api/init");
     var data = await res.json();
@@ -586,6 +587,7 @@ async function prefillOrganizer() {
       (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username;
     }
   } catch (e) { console.error(e); }
+  prefillLoading = false;
 }
 
 document.addEventListener("DOMContentLoaded", function () { bindButtons(); loadHome(); });
