@@ -42,8 +42,15 @@ function scrollBy(amount: number) {
 }
 function scrollTo(pos: number) {
   var t = getScrollTarget();
-  if (scrollAnimId) cancelAnimationFrame(scrollAnimId);
-  animateScroll(t, pos);
+  t.scrollTop = pos;
+}
+
+function updateScrollButtons() {
+  var nav = document.getElementById("scroll-nav");
+  if (!nav) return;
+  var t = getScrollTarget();
+  var overflow = t.scrollHeight > t.clientHeight + 20;
+  nav.style.display = overflow ? "flex" : "none";
 }
 function animateScroll(el: HTMLElement, target: number) {
   var start = el.scrollTop;
@@ -124,6 +131,7 @@ function renderHome(state: { eventsByDate: Record<string, any[]>; isMod: boolean
   }
   document.getElementById("mod-section")!.classList.toggle("hidden", !state.isMod);
   bindButtons();
+  updateScrollButtons();
 }
 
 // ======= MY SUBMISSIONS =======
@@ -164,6 +172,7 @@ async function loadMySubmissions() {
     }
   } catch (e) { console.error(e); c.innerHTML = '<div class="empty-state"><span class="emoji">❌</span><h2>Could not load</h2></div>'; c.classList.remove("loading"); }
   myStuffLoading = false;
+  updateScrollButtons();
 }
 
 function deletePitch(id: string) {
@@ -251,6 +260,7 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   }
   openOverlay("details-overlay");
   bindButtons();
+  setTimeout(updateScrollButtons, 100);
 }
 
 function detailNext() {
@@ -260,6 +270,7 @@ function detailNext() {
     document.getElementById("detail-step-2")!.classList.remove("hidden");
     document.getElementById("detail-prev-btn")!.classList.remove("hidden");
     detailStep = 2;
+    updateScrollButtons();
   } else if (detailStep === 2) {
     document.getElementById("detail-dot-3")!.classList.add("done");
     document.getElementById("detail-step-2")!.classList.add("hidden");
@@ -270,6 +281,7 @@ function detailNext() {
       document.getElementById("detail-rsvp-btn")!.classList.remove("hidden");
     }
     detailStep = 3;
+    updateScrollButtons();
   }
 }
 function detailPrev() {
@@ -279,6 +291,7 @@ function detailPrev() {
     document.getElementById("detail-step-1")!.classList.remove("hidden");
     document.getElementById("detail-prev-btn")!.classList.add("hidden");
     detailStep = 1;
+    updateScrollButtons();
   } else if (detailStep === 3) {
     document.getElementById("detail-dot-3")!.classList.remove("done");
     document.getElementById("detail-step-3")!.classList.add("hidden");
@@ -286,6 +299,7 @@ function detailPrev() {
     document.getElementById("detail-next-btn")!.classList.remove("hidden");
     document.getElementById("detail-rsvp-btn")!.classList.add("hidden");
     detailStep = 2;
+    updateScrollButtons();
   }
 }
 
@@ -345,6 +359,7 @@ async function loadModTab(tab: string) {
     catch (e) { console.error(e); }
   }
   setModLoading(false);
+  updateScrollButtons();
 }
 
 function renderModPending(events: any[]) {
