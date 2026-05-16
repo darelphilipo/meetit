@@ -65,6 +65,11 @@
         "type": "boolean",
         "label": "Use Brutalist Borders",
         "defaultValue": true
+      },
+      "mod_usernames": {
+        "type": "string",
+        "label": "Moderator Usernames (comma-separated)",
+        "defaultValue": ""
       }
     }
   },

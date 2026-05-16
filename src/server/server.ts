@@ -176,9 +176,16 @@ async function getSettings(): Promise<AppSettings> {
 }
 
 async function isMod(): Promise<boolean> {
-  // getModerators() returns empty in both webview and trigger context
-  // for Devvit playtest subreddits. In production with real subreddits,
-  // the modlist cache (built on AppInstall/AppUpgrade) would work.
+  const username = context.username;
+  if (!username) return false;
+  try {
+    const modList = await settings.get("mod_usernames");
+    if (modList) {
+      const mods = (modList as string).split(",").map(s => s.trim().toLowerCase());
+      return mods.includes(username.toLowerCase());
+    }
+  } catch (e) { console.error(`isMod error: ${e}`); }
+  // Fallback: if no mod list configured, allow access (first install)
   return true;
 }
 
