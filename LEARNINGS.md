@@ -818,3 +818,17 @@ Validate on each step transition, not on final submit. Catches errors early.
 
 **📌 Server marks each event with `status: "pending"` or `status: "published"`**
 Don't rely on client-side ID prefixes (`event_` vs other) to determine status. The server checks `pending_events` vs `active_events` hashes and attaches the status field to each event before sending to client.
+
+### 12.8 Manual Mod Whitelist via Settings (Reliable)
+
+**📌 When `getModerators()` fails, let mods self-configure**
+Added a `mod_usernames` settings field (comma-separated string). Mods enter their usernames in the Developer Portal settings. `isMod()` reads this settings field:
+```ts
+const modList = await settings.get("mod_usernames");
+if (modList) {
+  return (modList as string).split(",").map(s => s.trim().toLowerCase())
+    .includes(username.toLowerCase());
+}
+return true; // No list configured → open to everyone (first install)
+```
+This is 100% reliable — no API dependency, no Redis cache, no trigger context limitations. Works in Devvit Web, playtest, and production identically.
