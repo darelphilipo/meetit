@@ -305,6 +305,8 @@ async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
 
 async function onPitchIdea(req: IncomingMessage): Promise<ApiResponse> {
   const { title, description } = await readJSON<PitchFormData>(req);
+  if (!title || title.length > 200) return { error: "Title too long", status: 400 };
+  if (!description || description.length > 2000) return { error: "Description too long", status: 400 };
   const username = context.username || "unknown";
   console.log(`[PITCH] "${title}" by u/${username}`);
 
@@ -354,6 +356,9 @@ async function onSendEventAnnouncement(req: IncomingMessage): Promise<TaskRespon
 
 async function onSubmitEvent(req: IncomingMessage): Promise<ApiResponse> {
   const formData = await readJSON<SubmitEventFormData>(req);
+  if (!formData.title || formData.title.length > 200) return { error: "Title too long", status: 400 };
+  if (!formData.desc || formData.desc.length > 2000) return { error: "Description too long", status: 400 };
+  if (!formData.location || formData.location.length > 200) return { error: "Location too long", status: 400 };
   const eventId = `event_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   const event: MeetitEvent = {
     id: eventId,
@@ -475,22 +480,24 @@ async function onRsvpList(req: IncomingMessage): Promise<ApiResponse> {
 async function onMySubmissions(): Promise<ApiResponse> {
   const username = context.username || "";
   const pitchesJson = await redis.hGetAll("meetit:pitched_ideas");
+  const normUser = (context.username || "").toLowerCase();
+  const matchOrg = (org: string) => org?.toLowerCase().replace(/^u\//, "") === normUser;
   const pitches = Object.values(pitchesJson)
     .map((val) => JSON.parse(val))
-    .filter((idea: any) => idea.submittedBy === username);
+    .filter((idea: any) => (idea.submittedBy || "").toLowerCase() === normUser);
 
   // Check pending
   const pendingJson = await redis.hGetAll("meetit:pending_events");
   const pendingEvents = Object.values(pendingJson)
     .map((val) => JSON.parse(val))
-    .filter((event: MeetitEvent) => event.organizer === `u/${username}`)
+    .filter((event: MeetitEvent) => matchOrg(event.organizer || ""))
     .map(e => ({ ...e, status: "pending" }));
 
   // Check active
   const activeJson = await redis.hGetAll("meetit:active_events");
   const activeEvents = Object.values(activeJson)
     .map((val) => JSON.parse(val))
-    .filter((event: MeetitEvent) => event.organizer === `u/${username}`)
+    .filter((event: MeetitEvent) => matchOrg(event.organizer || ""))
     .map(e => ({ ...e, status: "published" }));
 
   const myEvents = [...pendingEvents, ...activeEvents];
@@ -595,12 +602,12 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
       if (hoursUntilEvent > reminderHours || hoursUntilEvent < 0) continue;
       const remindedKey = `meetit:reminded:${eventId}`;
       if (await redis.get(remindedKey)) continue;
+      await redis.set(remindedKey, "true");
+      await redis.expire(remindedKey, 86400);
       console.log(`[CRON] Reminder post for ${event.title}`);
       try {
         await reddit.submitCustomPost({ title: `📢 Event Reminder: ${event.title} is happening ${event.date}!`, userGeneratedContent: { text: `# ${event.title}\n\n## 🗓️ ${event.date} at ${event.time}\n\n## 📍 ${event.location}\n\n${event.description}\n\n---\n\n**Organized by:** ${event.organizer || "the community"}\n\nSearch 'Meetit' in this subreddit to join!` } });
       } catch (e) { console.error(`[CRON] Post failed: ${e}`); }
-      await redis.set(remindedKey, "true");
-      await redis.expire(remindedKey, 86400);
     }
 
     // === 2. Mod alerts for new pending items ===
