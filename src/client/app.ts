@@ -75,7 +75,7 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
       (count > 1 ? '<div style="display:flex;gap:6px;margin-top:10px;"><button class="btn btn-white btn-sm btn-home-prev" style="flex:1;padding:8px;font-size:13px;">← Prev</button><button class="btn btn-white btn-sm btn-home-next" style="flex:1;padding:8px;font-size:13px;">Next →</button></div>' : '') +
       '</div>';
   }
-  document.getElementById("mod-section")!.classList.toggle("hidden", !state.isMod);
+  document.getElementById("mod-btn")!.classList.toggle("hidden", !state.isMod);
   bindButtons();
 }
 
