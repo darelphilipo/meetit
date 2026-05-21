@@ -852,3 +852,17 @@ if (modList) {
 return true; // No list configured → open to everyone (first install)
 ```
 This is 100% reliable — no API dependency, no Redis cache, no trigger context limitations. Works in Devvit Web, playtest, and production identically.
+
+### 12.9 Safe Refactoring (Critical Lesson)
+
+**📌 Never delete server code that lives near helper functions without checking dependencies**
+Deleting "dead" functions (`onSendReminders`, `onSendEventAnnouncement`, `notifyMods`) also deleted `writeJSON`, `readJSON`, `readRaw` — fundamental plumbing. App crashed completely with `ReferenceError: writeJSON is not defined`.
+
+**📌 Safe approach: one edit, one build, one test**
+Apply ONE change → build → verify. Never batch-delete blocks that span multiple function boundaries. Search for references before touching any function.
+
+**📌 Incremental fixes that worked:**
+- CRON flag order swap (2 lines)
+- rAF cancel on close (1 line added)
+- Input validation (3 lines per handler, no deletions)
+- Organizer normalization (local variable + regex match)
