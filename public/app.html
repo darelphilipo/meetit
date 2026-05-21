@@ -159,19 +159,15 @@
       </div>
     </div>
 
-    <!-- Mod Dashboard -->
-    <div id="mod-screen" class="hidden">
-      <button class="btn btn-white btn-sm btn-back-home">← Back</button>
-      <div class="header" style="background:#1c1c0f;">
-        <h1 style="color:var(--surface);">🛡️ Mod Dashboard</h1>
-        <div class="sub" style="color:var(--outline-v);">Review & Manage</div>
-      </div>
-      <div class="tabs" id="mod-tabs">
+    <!-- Mod Dashboard Overlay -->
+    <div class="overlay" id="mod-screen">
+      <div class="overlay-header" style="background:#1c1c0f;"><h2 style="color:var(--surface);">🛡️ Mod Dashboard</h2><div class="close-btn close-overlay">✕</div></div>
+      <div class="tabs" id="mod-tabs" style="border-bottom:var(--border);">
         <div class="tab mod-tab active" data-mtab="pending">📋 Pending</div>
         <div class="tab mod-tab" data-mtab="published">✅ Published</div>
         <div class="tab mod-tab" data-mtab="pitches">💡 Pitches</div>
       </div>
-      <div id="pending-events-container"></div>
+      <div class="overlay-body" id="pending-events-container" style="padding:0 16px;"></div>
     </div>
 
     <!-- PITCH OVERLAY (single step) -->

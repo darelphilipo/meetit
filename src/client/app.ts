@@ -57,22 +57,22 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
     var dateStr = event._date ? new Date(event._date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) : "";
 
     c.innerHTML =
-      '<div class="event-card" style="padding:24px;min-height:280px;">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
-      '<div style="font-size:12px;font-weight:700;background:var(--surface);border:var(--border);padding:4px 12px;">' + (homeCardIndex + 1) + ' of ' + count + '</div>' +
-      '<div class="event-tag">📅 ' + dateStr + '</div>' +
+      '<div class="event-card" style="padding:24px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
+      '<div style="font-size:12px;font-weight:700;background:var(--surface);border:var(--border);padding:4px 12px;">' + (homeCardIndex + 1) + '/' + count + '</div>' +
+      '<div style="font-size:13px;font-weight:700;color:var(--muted);">📅 ' + dateStr + '</div>' +
       '</div>' +
-      '<h3 style="font-size:22px;font-weight:700;margin-bottom:8px;">' + escapeHtml(event.title) + '</h3>' +
-      '<div class="event-meta" style="margin-bottom:16px;">' +
+      '<h3 style="font-size:22px;font-weight:700;margin-bottom:12px;">' + escapeHtml(event.title) + '</h3>' +
+      '<div class="event-meta" style="margin-bottom:20px;">' +
       '<span class="event-tag">⏰ ' + escapeHtml(event.time) + '</span>' +
       '<span class="event-tag">📍 ' + escapeHtml(event.location) + '</span>' +
+      '<span class="event-tag" style="background:var(--primary);">👥 ' + (event.rsvpCount || 0) + '</span>' +
       '</div>' +
-      '<div style="font-size:14px;color:var(--muted);margin-bottom:16px;line-height:1.5;">' + escapeHtml((event.description || "").substring(0, 150)) + ((event.description || "").length > 150 ? "..." : "") + '</div>' +
-      '<div style="display:flex;gap:8px;margin-bottom:12px;">' +
-      '<button class="btn btn-view-details" data-id="' + event.id + '" style="flex:1;">View Details →</button>' +
-      '<button class="btn btn-pink btn-inline btn-rsvp-card" data-id="' + event.id + '" style="flex:1;">🎟️ RSVP</button>' +
+      '<div style="display:flex;gap:10px;">' +
+      '<button class="btn btn-view-details" data-id="' + event.id + '" style="flex:1;margin-top:0;font-size:14px;padding:12px;">View Details →</button>' +
+      '<button class="btn btn-pink btn-inline btn-rsvp-card" data-id="' + event.id + '" style="flex:1;margin-top:0;font-size:14px;padding:12px;">🎟️ RSVP</button>' +
       '</div>' +
-      (count > 1 ? '<div style="display:flex;gap:8px;margin-top:8px;"><button class="btn btn-white btn-sm btn-home-prev" style="flex:1;">← Prev</button><button class="btn btn-white btn-sm btn-home-next" style="flex:1;">Next →</button></div>' : '') +
+      (count > 1 ? '<div style="display:flex;gap:6px;margin-top:10px;"><button class="btn btn-white btn-sm btn-home-prev" style="flex:1;padding:8px;font-size:13px;">← Prev</button><button class="btn btn-white btn-sm btn-home-next" style="flex:1;padding:8px;font-size:13px;">Next →</button></div>' : '') +
       '</div>';
   }
   document.getElementById("mod-section")!.classList.toggle("hidden", !state.isMod);
@@ -131,10 +131,11 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   if (hasMore) { s2 += '<span id="desc-full-' + e.id + '" style="display:none;">' + escapeHtml(descFull) + '</span><button class="btn btn-white btn-sm btn-read-more" data-id="' + e.id + '" style="margin-top:6px;width:auto;display:inline-block;">Read more ↓</button>'; }
   s2 += '</div>';
   if (e.mapUrl) s2 += '<div class="map-link" style="padding:10px;margin-top:10px;"><span style="flex:1;font-size:13px;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-url="' + escapeHtml(e.mapUrl) + '" style="margin-left:6px;background:#fff;font-size:12px;">📋 Copy</button></div>';
-  s2 += '<button class="btn btn-white btn-sm btn-view-attendees" data-id="' + e.id + '" style="margin-top:10px;width:100%;">👥 Who\'s Going? (' + d.rsvpCount + ')</button><div class="rsvp-attendees hidden" id="rsvps-public-' + e.id + '" style="background:#fff;border:var(--border);padding:10px;margin-top:6px;"></div></div>';
+  s2 += '<button class="btn btn-white btn-sm btn-view-attendees" data-id="' + e.id + '" style="margin-top:10px;width:100%;">👥 Who\'s Going? (' + d.rsvpCount + ')</button><div class="rsvp-attendees hidden" id="rsvps-public-' + e.id + '" style="background:#fff;border:var(--border);padding:10px;margin-top:6px;max-height:150px;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div></div>';
   document.getElementById("detail-step-2")!.innerHTML = s2;
-  var s3 = '<div class="detail-card">' + (d.hasRsvped ? '<div class="rsvp-success">🎉 You\'re on the list!</div><button class="btn btn-white btn-leave-event" data-id="' + e.id + '" style="margin-top:10px;">❌ Leave Event</button>' : '<div style="text-align:center;"><div style="font-size:36px;">🎟️</div><div style="font-size:18px;font-weight:700;margin:8px 0;">Ready to join?</div></div>') + '<button class="btn btn-white btn-sm btn-view-attendees" data-id="' + e.id + '" style="margin-top:12px;width:100%;">👥 Who\'s Going? (' + d.rsvpCount + ')</button><div class="rsvp-attendees hidden" id="rsvps-public-' + e.id + '" style="background:#fff;border:var(--border);padding:8px;margin-top:6px;max-height:180px;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div></div>';
-  document.getElementById("detail-step-3")!.innerHTML = s3;
+  document.getElementById("detail-step-3")!.innerHTML = d.hasRsvped && d.hasRsvped
+    ? '<div class="detail-card" style="text-align:center;padding:40px 20px;"><div class="rsvp-success" style="margin-bottom:12px;">🎉 You\'re on the list!</div><button class="btn btn-white btn-leave-event" data-id="' + e.id + '" style="margin-top:8px;">❌ Leave Event</button></div>'
+    : '<div class="detail-card" style="text-align:center;padding:40px 20px;"><div style="font-size:48px;margin-bottom:8px;">🎟️</div><div style="font-size:20px;font-weight:700;margin-bottom:4px;">Ready to join?</div><div style="font-size:14px;color:var(--muted);margin-bottom:16px;">' + d.rsvpCount + ' people are going</div></div>';
   detailStep = 1; ["detail-dot-1", "detail-dot-2", "detail-dot-3"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });
   ["detail-step-1", "detail-step-2", "detail-step-3"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("hidden", i !== 0); });
   document.getElementById("detail-next-btn")!.classList.remove("hidden"); document.getElementById("detail-prev-btn")!.classList.add("hidden");
@@ -147,7 +148,7 @@ function detailPrev() { if (detailStep === 2) { document.getElementById("detail-
 
 // ======= MOD DASHBOARD =======
 var modTab = "pending";
-function showModDashboard() { document.getElementById("mod-screen")!.classList.remove("hidden"); loadModTab("pending"); }
+function showModDashboard() { openOverlay("mod-screen"); loadModTab("pending"); }
 function switchModTab(tab: string) { if (tab === modTab) return; modTab = tab; document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) { t.classList.toggle("active", (t as HTMLElement).dataset.mtab === tab); }); loadModTab(tab); }
 function setModLoading(l: boolean) { var c = document.getElementById("pending-events-container"); if (c) c.style.opacity = l ? "0.4" : "1"; var t = document.getElementById("mod-tabs"); if (t) t.style.pointerEvents = l ? "none" : "auto"; }
 async function loadModTab(tab: string) { setModLoading(true); if (tab === "pending") { try { var pr = await fetch(API_BASE + "/api/pending-events"); var pd = await pr.json(); renderModPending(pd.type === "pending-events" ? pd.events : []); } catch (e) { console.error(e); } } else if (tab === "published") { try { var res = await fetch(API_BASE + "/api/all-approved-events"); var d = await res.json(); renderModPublished(d.type === "all-approved-events" ? d.events : []); } catch (e) { console.error(e); } } else if (tab === "pitches") { try { var res = await fetch(API_BASE + "/api/pitched-ideas"); var d = await res.json(); renderModPitches(d.type === "pitched-ideas" ? d.ideas : []); } catch (e) { console.error(e); } } setModLoading(false); }
