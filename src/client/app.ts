@@ -29,7 +29,8 @@ function getScrollTarget(): HTMLElement {
     return overlays[0] as HTMLElement;
   }
   overlayActive = false;
-  return document.body;
+  // iOS uses documentElement, Android/Chrome uses body
+  return (document.scrollingElement || document.documentElement || document.body) as HTMLElement;
 }
 var scrollAnimId: number | null = null;
 function scrollBy(amount: number) {
@@ -38,13 +39,13 @@ function scrollBy(amount: number) {
   var step = overlayActive ? 30 : 80;
   var dir = amount > 0 ? 1 : -1;
   var target = Math.max(0, t.scrollTop + step * dir);
-  animateScroll(t, target);
+  try { t.scrollTo({ top: target, behavior: "smooth" }); } catch (e) { t.scrollTop = target; }
 }
 function scrollTo(pos: number) {
   var t = getScrollTarget();
-  t.scrollTop = pos;
+  if (scrollAnimId) cancelAnimationFrame(scrollAnimId);
+  try { t.scrollTo({ top: pos, behavior: "smooth" }); } catch (e) { t.scrollTop = pos; }
 }
-
 function updateScrollButtons() {
   var nav = document.getElementById("scroll-nav");
   if (!nav) return;
@@ -138,7 +139,6 @@ function renderHome(state: { eventsByDate: Record<string, any[]>; isMod: boolean
 var myStuffLoading = false;
 
 async function loadMySubmissions() {
-  if (myStuffLoading) return; // Debounce
   myStuffLoading = true;
   var c = document.getElementById("my-submissions-container")!;
   if (!c.classList.contains("loading")) { c.classList.add("loading"); c.innerHTML = '<div class="empty-state"><span class="emoji">⏳</span><h2>Loading...</h2></div>'; }
@@ -169,17 +169,21 @@ async function loadMySubmissions() {
       }
       c.innerHTML = html;
       c.classList.remove("loading");
+      bindButtons();
     }
-  } catch (e) { console.error(e); c.innerHTML = '<div class="empty-state"><span class="emoji">❌</span><h2>Could not load</h2></div>'; c.classList.remove("loading"); }
+  } catch (e) { console.error(e); c.innerHTML = '<div class="empty-state"><span class="emoji">❌</span><h2>Could not load</h2></div>'; c.classList.remove("loading"); bindButtons(); }
   myStuffLoading = false;
   updateScrollButtons();
 }
 
 function deletePitch(id: string) {
+  if (actionInProgress) return;
+  actionInProgress = true;
   console.log("[UI] Deleting pitch:", id);
   fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) })
     .then(function () { showToast("Deleted", "success"); loadMySubmissions(); })
-    .catch(function () { showToast("Error deleting", "error"); });
+    .catch(function () { showToast("Error", "error"); });
+  setTimeout(function () { actionInProgress = false; }, 500);
 }
 
 function deleteEvent(id: string, type: string) {
