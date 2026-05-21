@@ -57,22 +57,22 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
     var dateStr = event._date ? new Date(event._date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) : "";
 
     c.innerHTML =
-      '<div class="event-card" style="padding:24px;">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
-      '<div style="font-size:12px;font-weight:700;background:var(--surface);border:var(--border);padding:4px 12px;">' + (homeCardIndex + 1) + '/' + count + '</div>' +
-      '<div style="font-size:13px;font-weight:700;color:var(--muted);">📅 ' + dateStr + '</div>' +
+      '<div class="event-card" style="padding:20px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
+      '<span style="font-size:11px;font-weight:700;background:var(--surface);border:var(--border);padding:3px 10px;">' + (homeCardIndex + 1) + '/' + count + '</span>' +
+      '<span style="font-size:12px;font-weight:700;color:var(--muted);">📅 ' + dateStr + '</span>' +
       '</div>' +
-      '<h3 style="font-size:22px;font-weight:700;margin-bottom:12px;">' + escapeHtml(event.title) + '</h3>' +
-      '<div class="event-meta" style="margin-bottom:20px;">' +
-      '<span class="event-tag">⏰ ' + escapeHtml(event.time) + '</span>' +
-      '<span class="event-tag">📍 ' + escapeHtml(event.location) + '</span>' +
-      '<span class="event-tag" style="background:var(--primary);">👥 ' + (event.rsvpCount || 0) + '</span>' +
+      '<h3 style="font-size:18px;font-weight:700;margin-bottom:8px;line-height:1.3;">' + escapeHtml(event.title) + '</h3>' +
+      '<div class="event-meta" style="margin-bottom:8px;">' +
+      '<span class="event-tag" style="font-size:12px;padding:2px 8px;">⏰ ' + escapeHtml(event.time) + '</span>' +
+      '<span class="event-tag" style="font-size:12px;padding:2px 8px;background:var(--primary);">👥 ' + (event.rsvpCount || 0) + '</span>' +
       '</div>' +
-      '<div style="display:flex;gap:10px;">' +
-      '<button class="btn btn-view-details" data-id="' + event.id + '" style="flex:1;margin-top:0;font-size:14px;padding:12px;">View Details →</button>' +
-      '<button class="btn btn-pink btn-inline btn-rsvp-card" data-id="' + event.id + '" style="flex:1;margin-top:0;font-size:14px;padding:12px;">🎟️ RSVP</button>' +
+      '<div style="font-size:13px;color:var(--muted);line-height:1.4;margin-bottom:12px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml((event.description || "").substring(0, 120)) + ((event.description || "").length > 120 ? "..." : "") + '</div>' +
+      '<div style="display:flex;gap:8px;align-items:center;">' +
+      '<button class="btn btn-white btn-sm btn-view-details" data-id="' + event.id + '" style="flex:1;margin-top:0;padding:8px 12px;font-size:13px;">View Details →</button>' +
+      '<button class="btn btn-pink btn-sm btn-rsvp-card" data-id="' + event.id + '" style="flex:1;margin-top:0;padding:8px 12px;font-size:13px;">🎟️ RSVP</button>' +
       '</div>' +
-      (count > 1 ? '<div style="display:flex;gap:6px;margin-top:10px;"><button class="btn btn-white btn-sm btn-home-prev" style="flex:1;padding:8px;font-size:13px;">← Prev</button><button class="btn btn-white btn-sm btn-home-next" style="flex:1;padding:8px;font-size:13px;">Next →</button></div>' : '') +
+      (count > 1 ? '<div style="display:flex;gap:4px;margin-top:6px;"><button class="btn btn-white btn-sm btn-home-prev" style="flex:1;padding:6px;font-size:12px;">← Prev</button><button class="btn btn-white btn-sm btn-home-next" style="flex:1;padding:6px;font-size:12px;">Next →</button></div>' : '') +
       '</div>';
   }
   document.getElementById("mod-btn")!.classList.toggle("hidden", !state.isMod);
@@ -126,12 +126,12 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   document.getElementById("detail-step-1")!.innerHTML = '<div class="detail-card"><div style="margin-bottom:16px;"><div class="detail-label">Date</div><div style="font-size:20px;font-weight:700;">📅 ' + date + '</div></div><div style="margin-bottom:16px;"><div class="detail-label">Time</div><div style="font-size:20px;font-weight:700;">⏰ ' + escapeHtml(e.time) + '</div></div><div style="margin-bottom:16px;"><div class="detail-label">Location</div><div style="font-size:20px;font-weight:700;">📍 ' + escapeHtml(e.location) + '</div></div><div style="background:var(--surface);border:var(--border);padding:12px;font-weight:700;font-size:15px;">👥 ' + d.rsvpCount + ' people going</div></div>';
   var descFull = e.description || "", descShort = descFull.substring(0, 100), hasMore = descFull.length > 100;
   var s2 = '<div class="detail-card" style="padding:14px;">';
-  if (e.organizer) { var initial = e.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div class="organizer-card" style="padding:10px;margin-bottom:10px;"><div class="organizer-avatar">' + initial + '</div><div><div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:15px;">' + escapeHtml(e.organizer) + '</div></div></div>'; }
+  if (e.organizer) { s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin-bottom:10px;background:var(--surface);border:var(--border);"><div style="width:36px;height:36px;border:var(--border);background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(e.organizer) + '</div></div></div>'; }
   s2 += '<div class="detail-desc" style="padding:10px;font-size:14px;margin-top:0;"><span id="desc-short-' + e.id + '">' + escapeHtml(descShort) + (hasMore ? '...' : '') + '</span>';
   if (hasMore) { s2 += '<span id="desc-full-' + e.id + '" style="display:none;">' + escapeHtml(descFull) + '</span><button class="btn btn-white btn-sm btn-read-more" data-id="' + e.id + '" style="margin-top:6px;width:auto;display:inline-block;">Read more ↓</button>'; }
   s2 += '</div>';
-  if (e.mapUrl) s2 += '<div class="map-link" style="padding:10px;margin-top:10px;"><span style="flex:1;font-size:13px;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-url="' + escapeHtml(e.mapUrl) + '" style="margin-left:6px;background:#fff;font-size:12px;">📋 Copy</button></div>';
-  s2 += '<button class="btn btn-white btn-sm btn-view-attendees" data-id="' + e.id + '" style="margin-top:10px;width:100%;">👥 Who\'s Going? (' + d.rsvpCount + ')</button><div class="rsvp-attendees hidden" id="rsvps-public-' + e.id + '" style="background:#fff;border:var(--border);padding:10px;margin-top:6px;max-height:150px;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div></div>';
+  if (e.mapUrl) s2 += '<div style="display:flex;align-items:center;padding:14px 10px;margin-top:12px;background:var(--surface);border:var(--border);"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-url="' + escapeHtml(e.mapUrl) + '" style="background:#fff;border:var(--border);padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>';
+  s2 += '<button class="btn btn-white btn-sm btn-view-attendees" data-id="' + e.id + '" style="margin-top:12px;width:100%;padding:10px;">👥 Who\'s Going? (' + d.rsvpCount + ')</button><div class="rsvp-attendees hidden" id="rsvps-public-' + e.id + '" style="background:#fff;border:var(--border);padding:12px;margin-top:8px;"></div></div>';
   document.getElementById("detail-step-2")!.innerHTML = s2;
   document.getElementById("detail-step-3")!.innerHTML = d.hasRsvped && d.hasRsvped
     ? '<div class="detail-card" style="text-align:center;padding:40px 20px;"><div class="rsvp-success" style="margin-bottom:12px;">🎉 You\'re on the list!</div><button class="btn btn-white btn-leave-event" data-id="' + e.id + '" style="margin-top:8px;">❌ Leave Event</button></div>'
@@ -216,7 +216,7 @@ function bindButtons() {
   document.querySelectorAll("#event-next-btn").forEach(function (b) { b.addEventListener("click", eventNext); });
   document.querySelectorAll("#event-prev-btn").forEach(function (b) { b.addEventListener("click", eventPrev); });
   document.querySelectorAll("#event-submit-btn").forEach(function (b) { b.addEventListener("click", submitEvent); });
-  document.querySelectorAll(".close-overlay").forEach(function (b) { b.addEventListener("click", closeAllOverlays); });
+  document.querySelectorAll(".close-overlay").forEach(function (b) { b.addEventListener("click", showHomePage); });
   document.querySelectorAll(".btn-copy-link").forEach(function (b) { b.addEventListener("click", function () { var url = (b as HTMLElement).getAttribute("data-url") || ""; if (navigator.clipboard) navigator.clipboard.writeText(url); else { var ta = document.createElement("textarea"); ta.value = url; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); } showCopyToast(); }); });
   document.querySelectorAll(".btn-copy-rsvp").forEach(function (b) { b.addEventListener("click", function () { var raw = (b as HTMLElement).getAttribute("data-rsvps") || "[]", arr = JSON.parse(raw), csv = "username,email,phone,timestamp\n"; for (var i = 0; i < arr.length; i++) csv += arr[i].username + "," + (arr[i].email || "") + "," + (arr[i].phone || "") + "," + (arr[i].timestamp || "") + "\n"; try { navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(csv).then(function () { showToast("Copied!", "success"); }).catch(fc) : fc(); } catch (e) { fc(); } function fc() { var ta = document.createElement("textarea"); ta.value = csv; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); showToast("Copied!", "success"); } }); });
   document.querySelectorAll(".btn-read-more").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var s = document.getElementById("desc-short-" + id), f = document.getElementById("desc-full-" + id); if (!s || !f) return; var x = f.style.display !== "none"; f.style.display = x ? "none" : "block"; s.style.display = x ? "inline" : "none"; b.textContent = x ? "Read more ↓" : "Read less ↑"; }); });
