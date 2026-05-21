@@ -92,33 +92,6 @@
 
     /* Detail view */
     .detail-header { margin-top: 16px; }
-    .detail-card { background: #fff; border: var(--border); padding: 20px; margin-bottom: 14px; box-shadow: var(--shadow-md); }
-    .detail-card h2 { font-size: 22px; font-weight: 700; margin-bottom: 14px; }
-    .detail-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-weight: 500; font-size: 15px; color: var(--muted); }
-    .detail-label { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin-top: 12px; margin-bottom: 4px; }
-    .detail-desc { background: var(--surface); border: var(--border); padding: 14px; margin-top: 12px; font-size: 15px; font-weight: 500; line-height: 1.5; }
-    .organizer-card { background: var(--surface); border: var(--border); padding: 14px; margin-top: 14px; display: flex; align-items: center; gap: 10px; }
-    .organizer-avatar { background: var(--primary); border: var(--border); width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 700; flex-shrink: 0; }
-    .map-link { background: #fff; border: var(--border); padding: 12px 16px; margin-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
-    .copy-btn { background: var(--primary); border: var(--border); padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: var(--font); border-radius: 9999px; white-space: nowrap; }
-    .copy-btn:active { box-shadow: none; transform: translate(2px,2px); }
-    .toast-copied { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #00ff88; border: var(--border); padding: 10px 20px; font-weight: 700; font-family: var(--font); z-index: 3000; font-size: 14px; }
-
-    .hidden { display: none !important; }
-
-    /* Loading screen */
-    .loading-state { text-align: center; padding: 40px 20px; }
-    .loading-bar-container { background: #fff; border: var(--border); padding: 4px; margin: 24px auto; max-width: 300px; }
-    .loading-bar-fill { background: var(--primary); height: 8px; width: 0%; transition: width 0.8s ease; }
-    .loading-emoji-bg { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 100px; opacity: 0.05; pointer-events: none; z-index: 0; }
-    .loading-message { font-size: 14px; color: var(--muted); font-weight: 500; margin-top: 12px; }
-    .loading-status { display: flex; gap: 16px; justify-content: center; margin-top: 20px; }
-    .loading-stat { background: #fff; border: var(--border); padding: 8px 14px; font-size: 11px; font-weight: 700; box-shadow: var(--shadow-sm); }
-
-    /* Scroll buttons */
-    .scroll-nav { position: fixed; right: 4px; top: 50%; transform: translateY(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 4px; }
-    .scroll-btn { width: 32px; height: 32px; background: var(--primary); border: var(--border); font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); font-family: var(--font); }
-    .scroll-btn:active { box-shadow: none; transform: scale(0.9); }
   </style>
 </head>
 <body>
@@ -258,12 +231,6 @@
       </div>
       <div class="overlay-footer"><button class="btn btn-pink btn-submit-rsvp">Confirm RSVP →</button></div>
     </div>
-  </div>
-  <div class="scroll-nav" id="scroll-nav">
-    <button class="scroll-btn" id="scroll-top">▲</button>
-    <button class="scroll-btn" id="scroll-up">⬆</button>
-    <button class="scroll-btn" id="scroll-down">⬇</button>
-    <button class="scroll-btn" id="scroll-bottom">▼</button>
   </div>
   <script src="app.js"></script>
 </body>
