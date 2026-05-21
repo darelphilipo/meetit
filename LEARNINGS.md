@@ -853,7 +853,20 @@ return true; // No list configured → open to everyone (first install)
 ```
 This is 100% reliable — no API dependency, no Redis cache, no trigger context limitations. Works in Devvit Web, playtest, and production identically.
 
-### 12.9 Safe Refactoring (Critical Lesson)
+### 12.10 Expanded Mode: Not for Complex Overlay-Based Apps (Failed Experiment)
+
+**📌 `requestExpandedMode()` is Reddit's recommended pattern — but incompatible with overlay DOM architectures**
+
+Games (Pixelary, Phaser) and chat apps (Community Chats) use it because they render one canvas/chat view. Our app has 6+ overlays (details, pitch, submit event, RSVP, My Stuff, mod dashboard) — all DOM elements that are destroyed when inline HTML is replaced, or hidden when visibility is toggled.
+
+**Why it failed:**
+- **innerHTML approach:** Replacing the container destroys all overlay/mod elements. When expanded mode loads, `document.getElementById("details-overlay")` returns null.
+- **Visibility toggle approach:** Elements survive but CSS classList states are lost (`.active` on hidden overlays, tab highlights). The app loads in an inconsistent state.
+- **entrypoint mismatch:** `default` → inline preview, `app` → expanded. Both load `app.html` with different DOM expectations.
+
+**Lesson:** `requestExpandedMode()` works for apps where the inline and expanded views share no DOM. If your app has persistent UI elements that survive across view mode transitions, use scroll buttons instead.
+
+**Our solution:** Multi-step forms (2 fields/step) + smart scroll buttons (auto-hide, 30px granular). This works reliably on all platforms and survived 50+ builds without regression.
 
 **📌 Never delete server code that lives near helper functions without checking dependencies**
 Deleting "dead" functions (`onSendReminders`, `onSendEventAnnouncement`, `notifyMods`) also deleted `writeJSON`, `readJSON`, `readRaw` — fundamental plumbing. App crashed completely with `ReferenceError: writeJSON is not defined`.
