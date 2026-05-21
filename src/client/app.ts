@@ -179,15 +179,12 @@ async function loadMySubmissions() {
 function deletePitch(id: string) {
   if (actionInProgress) return;
   actionInProgress = true;
+  console.log("[UI] Deleting pitch:", id);
   fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) })
     .then(function () { showToast("Deleted", "success"); loadMySubmissions(); })
     .catch(function () { showToast("Error", "error"); });
   setTimeout(function () { actionInProgress = false; }, 500);
 }
-
-// In-memory cache for event details
-var detailsCache: Record<string, any> = {};
-function invalidateDetailsCache(eventId: string) { delete detailsCache[eventId]; }
 
 function deleteEvent(id: string, type: string) {
   if (actionInProgress) return;
@@ -522,8 +519,8 @@ function showRsvpOverlay(id: string) { currentEventId = id; (document.getElement
 
 // ======= OVERLAY HELPERS =======
 function openOverlay(id: string) { document.getElementById(id)!.classList.add("active"); }
-function closeOverlay(id: string) { document.getElementById(id)!.classList.remove("active"); if (scrollAnimId) { cancelAnimationFrame(scrollAnimId); scrollAnimId = null; } resetEventForm(); updateScrollButtons(); }
-function closeAllOverlays() { document.querySelectorAll(".overlay").forEach(function (el) { el.classList.remove("active"); }); if (scrollAnimId) { cancelAnimationFrame(scrollAnimId); scrollAnimId = null; } resetEventForm(); updateScrollButtons(); }
+function closeOverlay(id: string) { document.getElementById(id)!.classList.remove("active"); resetEventForm(); updateScrollButtons(); }
+function closeAllOverlays() { document.querySelectorAll(".overlay").forEach(function (el) { el.classList.remove("active"); }); resetEventForm(); updateScrollButtons(); }
 
 // ======= BIND ALL =======
 function bindButtons() {
