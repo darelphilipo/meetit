@@ -246,8 +246,15 @@ async function onHome(): Promise<ApiResponse> {
   console.log(`[HOME] Found ${events.length} events, isMod=${modStatus}`);
   const appSettings = await getSettings();
 
+  const eventsWithCounts = await Promise.all(
+    events.map(async (event) => {
+      const count = await getRsvpCount(event.id);
+      return { ...event, rsvpCount: count };
+    })
+  );
+
   const eventsByDate: Record<string, MeetitEvent[]> = {};
-  for (const event of events) {
+  for (const event of eventsWithCounts) {
     if (!eventsByDate[event.date]) {
       eventsByDate[event.date] = [];
     }
