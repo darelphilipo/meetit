@@ -165,26 +165,26 @@ function deletePitch(id: string) { if (actionInProgress) return; actionInProgres
 async function viewRsvps(eventId: string) { var el = document.getElementById("rsvps-" + eventId)!; if (!el.classList.contains("hidden")) { el.classList.add("hidden"); return; } try { var res = await fetch(API_BASE + "/api/rsvp-list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: eventId }) }); var data = await res.json(); if (data.type === "rsvp-list") { var att = data.attendees || []; if (att.length === 0) el.innerHTML = '<div style="font-size:13px;">No RSVPs</div>'; else { var list = '<div style="font-weight:700;font-size:11px;margin-bottom:8px;">' + att.length + ' Attendees</div>'; for (var i = 0; i < att.length; i++) { var a = att[i]; list += '<div style="font-size:13px;font-weight:600;padding:6px 0;border-bottom:1px solid var(--outline-v);">👤 u/' + escapeHtml(a.username); if (a.email) list += '<span style="font-weight:400;color:var(--muted);"> ✉️ ' + escapeHtml(a.email) + '</span>'; if (a.phone) list += '<span style="font-weight:400;color:var(--muted);"> 📱 ' + escapeHtml(a.phone) + '</span>'; list += '</div>'; } list += '<button class="copy-btn btn-copy-rsvp" data-rsvps="' + escapeHtml(JSON.stringify(att)) + '" style="margin-top:8px;background:var(--primary);padding:6px 14px;font-size:12px;">📋 Copy CSV</button>'; el.innerHTML = list; } el.classList.remove("hidden"); } } catch (e) { console.error(e); } bindButtons(); }
 
 // ======= RSVP / LEAVE / PITCH / SUBMIT (unchanged) =======
+var rsvpSubmitting = false;
 async function submitRsvp() {
-  if (!currentEventId) { showToast("Error - try again", "error"); return; }
+  if (!currentEventId || rsvpSubmitting) return;
+  rsvpSubmitting = true;
   var email = (document.getElementById("rsvp-email") as HTMLInputElement).value;
   var phone = (document.getElementById("rsvp-phone") as HTMLInputElement).value;
-  console.log("[RSVP-CLIENT] Submitting RSVP for eventId=" + currentEventId + " email=" + (email ? "yes" : "no") + " phone=" + (phone ? "yes" : "no"));
   var btn = document.querySelector(".btn-submit-rsvp") as HTMLElement;
   if (btn) { btn.style.opacity = "0.4"; btn.style.pointerEvents = "none"; btn.textContent = "⏳ Sending..."; }
   try {
+    var res = await fetch(API_BASE + "/api/rsvp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: currentEventId, email: email, phone: phone, _ts: Date.now() }) });
+    await res.json();
     showToast("RSVP confirmed! 🎉", "success");
-    var res = await fetch(API_BASE + "/api/rsvp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: currentEventId, email: email, phone: phone }) });
-    var data = await res.json();
-    console.log("[RSVP-CLIENT] Response:", JSON.stringify(data));
     closeOverlay("rsvp-overlay");
     closeOverlay("details-overlay");
     showHomePage();
   } catch (e) {
-    console.error("[RSVP-CLIENT] Error:", e);
     showToast("RSVP failed - retry", "error");
     if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; btn.textContent = "Confirm RSVP →"; }
   }
+  rsvpSubmitting = false;
 }
 function showRsvpOverlay(id: string) { currentEventId = id; (document.getElementById("rsvp-email") as HTMLInputElement).value = ""; (document.getElementById("rsvp-phone") as HTMLInputElement).value = ""; openOverlay("rsvp-overlay"); }
 async function leaveEvent(id: string) { try { var res = await fetch(API_BASE + "/api/leave-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); var data = await res.json(); if (data.type === "leave-event" && data.success) { showToast("You've left", "success"); closeOverlay("details-overlay"); showHomePage(); } else showToast("Failed", "error"); } catch (e) { showToast("Error", "error"); } }
@@ -219,7 +219,6 @@ function bindButtons() {
   document.querySelectorAll(".btn-delete-pitch").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) deletePitch(id); }); });
   document.querySelectorAll(".btn-rsvp-card").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) showRsvpOverlay(id); }); });
   document.querySelectorAll(".btn-rsvp-now").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) showRsvpOverlay(id); }); });
-  document.querySelectorAll(".btn-submit-rsvp").forEach(function (b) { b.addEventListener("click", submitRsvp); });
   document.querySelectorAll(".btn-leave-event").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) leaveEvent(id); }); });
   document.querySelectorAll(".btn-view-rsvps").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) viewRsvps(id); }); });
   document.querySelectorAll(".btn-view-attendees").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var el = document.getElementById("rsvps-public-" + id); if (!el) return; if (!el.classList.contains("hidden")) { el.classList.add("hidden"); return; } fetch(API_BASE + "/api/rsvp-list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }).then(function (r) { return r.json(); }).then(function (data) { if (data.type === "rsvp-list") { var att = data.attendees || []; if (att.length === 0) el.innerHTML = '<div style="font-size:13px;">No one yet</div>'; else { var h = '<div style="font-weight:700;font-size:11px;margin-bottom:6px;">' + att.length + ' going</div>'; for (var i = 0; i < att.length; i++) h += '<div style="font-size:13px;font-weight:600;padding:4px 0;border-bottom:1px solid var(--outline-v);">👤 u/' + escapeHtml(att[i].username) + '</div>'; el.innerHTML = h; } el.classList.remove("hidden"); } }); }); });
@@ -242,4 +241,7 @@ function bindButtons() {
   document.querySelectorAll(".btn-read-more").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var s = document.getElementById("desc-short-" + id), f = document.getElementById("desc-full-" + id); if (!s || !f) return; var x = f.style.display !== "none"; f.style.display = x ? "none" : "block"; s.style.display = x ? "inline" : "none"; b.textContent = x ? "Read more ↓" : "Read less ↑"; }); });
 }
 
-document.addEventListener("DOMContentLoaded", function () { bindButtons(); loadHome(); });
+document.addEventListener("DOMContentLoaded", function () {
+  document.querySelector(".btn-submit-rsvp")?.addEventListener("click", submitRsvp);
+  bindButtons(); loadHome();
+});
