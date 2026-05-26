@@ -165,7 +165,27 @@ function deletePitch(id: string) { if (actionInProgress) return; actionInProgres
 async function viewRsvps(eventId: string) { var el = document.getElementById("rsvps-" + eventId)!; if (!el.classList.contains("hidden")) { el.classList.add("hidden"); return; } try { var res = await fetch(API_BASE + "/api/rsvp-list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: eventId }) }); var data = await res.json(); if (data.type === "rsvp-list") { var att = data.attendees || []; if (att.length === 0) el.innerHTML = '<div style="font-size:13px;">No RSVPs</div>'; else { var list = '<div style="font-weight:700;font-size:11px;margin-bottom:8px;">' + att.length + ' Attendees</div>'; for (var i = 0; i < att.length; i++) { var a = att[i]; list += '<div style="font-size:13px;font-weight:600;padding:6px 0;border-bottom:1px solid var(--outline-v);">👤 u/' + escapeHtml(a.username); if (a.email) list += '<span style="font-weight:400;color:var(--muted);"> ✉️ ' + escapeHtml(a.email) + '</span>'; if (a.phone) list += '<span style="font-weight:400;color:var(--muted);"> 📱 ' + escapeHtml(a.phone) + '</span>'; list += '</div>'; } list += '<button class="copy-btn btn-copy-rsvp" data-rsvps="' + escapeHtml(JSON.stringify(att)) + '" style="margin-top:8px;background:var(--primary);padding:6px 14px;font-size:12px;">📋 Copy CSV</button>'; el.innerHTML = list; } el.classList.remove("hidden"); } } catch (e) { console.error(e); } bindButtons(); }
 
 // ======= RSVP / LEAVE / PITCH / SUBMIT (unchanged) =======
-async function submitRsvp() { if (!currentEventId) return; var email = (document.getElementById("rsvp-email") as HTMLInputElement).value; var phone = (document.getElementById("rsvp-phone") as HTMLInputElement).value; showToast("RSVP confirmed! 🎉", "success"); closeOverlay("rsvp-overlay"); closeOverlay("details-overlay"); showHomePage(); try { await fetch(API_BASE + "/api/rsvp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: currentEventId, email: email, phone: phone }) }); } catch (e) { showToast("RSVP failed - retry", "error"); } }
+async function submitRsvp() {
+  if (!currentEventId) { showToast("Error - try again", "error"); return; }
+  var email = (document.getElementById("rsvp-email") as HTMLInputElement).value;
+  var phone = (document.getElementById("rsvp-phone") as HTMLInputElement).value;
+  console.log("[RSVP-CLIENT] Submitting RSVP for eventId=" + currentEventId + " email=" + (email ? "yes" : "no") + " phone=" + (phone ? "yes" : "no"));
+  var btn = document.querySelector(".btn-submit-rsvp") as HTMLElement;
+  if (btn) { btn.style.opacity = "0.4"; btn.style.pointerEvents = "none"; btn.textContent = "⏳ Sending..."; }
+  try {
+    showToast("RSVP confirmed! 🎉", "success");
+    var res = await fetch(API_BASE + "/api/rsvp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: currentEventId, email: email, phone: phone }) });
+    var data = await res.json();
+    console.log("[RSVP-CLIENT] Response:", JSON.stringify(data));
+    closeOverlay("rsvp-overlay");
+    closeOverlay("details-overlay");
+    showHomePage();
+  } catch (e) {
+    console.error("[RSVP-CLIENT] Error:", e);
+    showToast("RSVP failed - retry", "error");
+    if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; btn.textContent = "Confirm RSVP →"; }
+  }
+}
 function showRsvpOverlay(id: string) { currentEventId = id; (document.getElementById("rsvp-email") as HTMLInputElement).value = ""; (document.getElementById("rsvp-phone") as HTMLInputElement).value = ""; openOverlay("rsvp-overlay"); }
 async function leaveEvent(id: string) { try { var res = await fetch(API_BASE + "/api/leave-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); var data = await res.json(); if (data.type === "leave-event" && data.success) { showToast("You've left", "success"); closeOverlay("details-overlay"); showHomePage(); } else showToast("Failed", "error"); } catch (e) { showToast("Error", "error"); } }
 async function submitPitch() { var title = (document.getElementById("pitch-title") as HTMLInputElement).value.trim(); var desc = (document.getElementById("pitch-description") as HTMLTextAreaElement).value.trim(); if (!title || !desc) { showToast("Fill all fields", "error"); return; } try { await fetch(API_BASE + "/api/pitch-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, description: desc }) }); showToast("Idea sent! ✅", "success"); closeOverlay("pitch-overlay"); } catch (e) { showToast("Error", "error"); } }
