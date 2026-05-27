@@ -1,0 +1,40 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "small_model": "minimax/M2.7",
+  "agent": {
+    "meetit-coder": {
+      "description": "Implements features and bug fixes for the Meetit Devvit app. Write TypeScript, HTML, and config for the Reddit community meetup manager. Receives detailed plan steps and writes production code.",
+      "mode": "subagent",
+      "hidden": true,
+      "temperature": 0.1,
+      "steps": 25,
+      "permission": {
+        "edit": "allow",
+        "bash": "allow"
+      }
+    },
+    "meetit-reviewer": {
+      "description": "Reviews Meetit code for bugs, type errors, security issues, and project convention violations. Read-only — never modifies files. Checks for missing escapeHtml, Redis key mismatches, hDel array format, and Devvit Web gotchas.",
+      "mode": "subagent",
+      "hidden": true,
+      "temperature": 0.1,
+      "steps": 20,
+      "permission": {
+        "edit": "deny",
+        "bash": "allow"
+      }
+    },
+    "meetit-verifier": {
+      "description": "Verifies Meetit code builds clean, checks plan compliance, and validates against project conventions. Delegates fixes to build agent. Max 3 verify-fix iterations.",
+      "mode": "subagent",
+      "hidden": true,
+      "temperature": 0.1,
+      "steps": 20,
+      "permission": {
+        "edit": "deny",
+        "bash": "allow",
+        "task": "allow"
+      }
+    }
+  }
+}
