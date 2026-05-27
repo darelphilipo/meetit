@@ -101,7 +101,12 @@
     .pending-card .desc { background: #fff; border: var(--border); padding: 10px; margin: 12px 0; font-size: 15px; font-weight: 500; }
 
     /* Detail view */
+    .detail-card { background: #fff; border: var(--border); box-shadow: var(--shadow-sm); }
     .detail-header { margin-top: 16px; }
+    .detail-step-card { display: flex; flex-direction: column; gap: 12px; max-height: 100%; min-height: 0; }
+    .detail-desc { background: #fff; border: var(--border); line-height: 1.45; word-break: break-word; }
+    .detail-desc-scroll { max-height: min(42vh, 260px); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .detail-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
     #events-container { min-height: calc(100vh - 170px); }
   </style>
 </head>

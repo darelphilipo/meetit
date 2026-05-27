@@ -589,8 +589,9 @@ Error: `ERR_INVALID_ARG_TYPE: "string" argument ... Received undefined`. Even wi
 **📌 `reddit.modMail.createConversation()` not available in Devvit Web**
 Workaround: Save data to Redis and display in Mod Dashboard.
 
-**📌 `reddit.sendPrivateMessage()` - untested, likely unavailable**
-The 24hr reminder scheduler uses it but hasn't been tested live. Community apps use it in Blocks API, not Devvit Web.
+**📌 `reddit.sendPrivateMessage()` — PARTIALLY WORKS in Devvit Web CRON context** ⭐ NEW
+- `sendPrivateMessage({ to: "/r/<subreddit>", ... })` → **WORKS** (modmail to sub mods). Confirmed 2026-05-27: mod alert received with "There are 2 new pending event(s)" message.
+- `sendPrivateMessage({ to: "<username>", ... })` → **STILL FAILS** for individual user DMs (ERR_INVALID_ARG_TYPE). Individual reminder PMs still broken.
 
 **📌 `reddit.getModerators()` returns `{children: []}` in playtest subreddits**
 Both in inline webview AND trigger context. Works on real production subreddits. Modlist cache pattern (AppInstall/AppUpgrade trigger → cache in Redis) works in production.
@@ -793,7 +794,8 @@ When the events list is empty, show a cat emoji with a pitch idea button:
 - Creates alert posts as fallback when DM fails
 
 **Not working (Devvit Web limitation):**
-- `sendPrivateMessage` fails with `ERR_INVALID_ARG_TYPE` from all contexts (webview, CRON, scheduler)
+- `sendPrivateMessage` to individual users fails with `ERR_INVALID_ARG_TYPE`
+- `sendPrivateMessage` to `/r/subreddit` (modmail) **WORKS from CRON** ✅ — mod alerts received as of 2026-05-27
 - `submitComment` fails from all contexts
 - `modMail.createConversation` not available in Devvit Web
 
@@ -879,3 +881,26 @@ Apply ONE change → build → verify. Never batch-delete blocks that span multi
 - rAF cancel on close (1 line added)
 - Input validation (3 lines per handler, no deletions)
 - Organizer normalization (local variable + regex match)
+
+### 12.9 Devvit Web API Discovery: sendPrivateMessage (2026-05-27) ⭐
+
+**`reddit.sendPrivateMessage()` now works for subreddit modmail from CRON context.**
+
+Previously documented as "fails from all contexts." The `other/codex` agent added the `submittedAt` timestamp field to pending events and pitches, enabling the CRON scheduler to detect new items. The notification code sends:
+```ts
+await reddit.sendPrivateMessage({
+  subject: `Meetit: ${newItems} new item(s) await review`,
+  text: `There are ${newItems} new pending event(s) or pitch(es) to review...`,
+  to: `/r/${context.subredditName}`  // ← modmail to sub mods
+});
+```
+
+**Confirmed working** (2026-05-27): Mod received "There are 2 new pending event(s) or pitch(es) to review. Open the Meetit app in r/meetup_hub2_dev to manage them."
+
+Key insight: `to: /r/<subreddit>` (modmail) works, but `to: <username>` (individual DM) still fails. The platform distinguishes between subreddit-level messaging and user-level messaging in CRON contexts.
+
+**Implications:**
+- ✅ Mod alerts via modmail — sustainable notification channel
+- ✅ `reddit.submitCustomPost` from CRON — works (creates alert posts as fallback)
+- ❌ Individual user reminders via DM — still broken
+- ❌ `reddit.submitComment` — still broken from all contexts
