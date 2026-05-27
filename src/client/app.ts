@@ -62,22 +62,26 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
     var dateStr = event._date ? new Date(event._date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) : "";
 
     c.innerHTML =
-      '<div class="event-card" style="padding:20px;">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
+      '<div class="event-card" style="padding:20px;height:calc(100vh - 180px);display:flex;flex-direction:column;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0;">' +
       '<span style="font-size:11px;font-weight:700;background:var(--surface);border:var(--border);padding:3px 10px;">' + (homeCardIndex + 1) + '/' + count + '</span>' +
       '<span style="font-size:12px;font-weight:700;color:var(--muted);">📅 ' + dateStr + '</span>' +
       '</div>' +
-      '<h3 style="font-size:18px;font-weight:700;margin-bottom:8px;line-height:1.3;">' + escapeHtml(event.title) + '</h3>' +
+      '<div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;">' +
+      '<h3 style="font-size:20px;font-weight:700;margin-bottom:10px;line-height:1.3;">' + escapeHtml(event.title) + '</h3>' +
       '<div class="event-meta" style="margin-bottom:8px;">' +
       '<span class="event-tag" style="font-size:12px;padding:2px 8px;">⏰ ' + escapeHtml(event.time) + '</span>' +
       '<span class="event-tag" style="font-size:12px;padding:2px 8px;background:var(--primary);">👥 ' + (event.rsvpCount || 0) + '</span>' +
       '</div>' +
-      '<div style="font-size:13px;color:var(--muted);line-height:1.4;margin-bottom:12px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml((event.description || "").substring(0, 120)) + ((event.description || "").length > 120 ? "..." : "") + '</div>' +
+      '<div style="font-size:14px;color:var(--muted);line-height:1.5;padding-bottom:4px;">' + escapeHtml((event.description || "").substring(0, 200)) + ((event.description || "").length > 200 ? "..." : "") + '</div>' +
+      '</div>' +
+      '<div style="flex-shrink:0;padding-top:10px;border-top:2px solid var(--outline-v);">' +
       '<div style="display:flex;gap:8px;align-items:center;">' +
-      '<button class="btn btn-white btn-sm btn-view-details" data-id="' + event.id + '" style="flex:1;margin-top:0;padding:8px 12px;font-size:13px;">View Details →</button>' +
-      '<button class="btn btn-pink btn-sm btn-rsvp-card" data-id="' + event.id + '" style="flex:1;margin-top:0;padding:8px 12px;font-size:13px;">🎟️ RSVP</button>' +
+      '<button class="btn btn-white btn-sm btn-view-details" data-id="' + event.id + '" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">View Details →</button>' +
+      '<button class="btn btn-pink btn-sm btn-rsvp-card" data-id="' + event.id + '" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">🎟️ RSVP</button>' +
       '</div>' +
       (count > 1 ? '<div style="display:flex;gap:4px;margin-top:6px;"><button class="btn btn-white btn-sm btn-home-prev" style="flex:1;padding:6px;font-size:12px;">← Prev</button><button class="btn btn-white btn-sm btn-home-next" style="flex:1;padding:6px;font-size:12px;">Next →</button></div>' : '') +
+      '</div>' +
       '</div>';
   }
   document.getElementById("mod-btn")!.classList.toggle("hidden", !state.isMod);
