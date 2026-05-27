@@ -68,7 +68,7 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
       '<span style="font-size:12px;font-weight:700;color:var(--muted);">📅 ' + dateStr + '</span>' +
       '</div>' +
       '<div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;">' +
-      '<h3 style="font-size:20px;font-weight:700;margin-bottom:10px;line-height:1.3;">' + escapeHtml(event.title) + '</h3>' +
+      '<h3 style="font-size:20px;font-weight:700;margin-bottom:10px;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;word-break:break-word;">' + escapeHtml(event.title) + '</h3>' +
       '<div class="event-meta" style="margin-bottom:8px;">' +
       '<span class="event-tag" style="font-size:12px;padding:2px 8px;">⏰ ' + escapeHtml(event.time) + '</span>' +
       '<span class="event-tag" style="font-size:12px;padding:2px 8px;background:var(--primary);">👥 ' + (event.rsvpCount || 0) + '</span>' +
