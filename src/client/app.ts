@@ -3,6 +3,7 @@ var currentEventId: string | null = null;
 var currentUsername: string | null = null;
 var eventStep = 1;
 var detailStep = 1;
+var detailStep1 = "", detailStep2 = "", detailStep3 = "";
 var homeCardIndex = 0;
 var cachedHomeEvents: any[] = [];
 var cachedHomeIsMod = false;
@@ -132,7 +133,8 @@ async function showEventDetails(id: string) { currentEventId = id; try { var res
 function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boolean; settings: any }) {
   var e = d.event; document.getElementById("details-overlay-title")!.textContent = e.title;
   var date = new Date(e.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-  document.getElementById("detail-step-1")!.innerHTML = '<div class="detail-card"><div style="margin-bottom:16px;"><div class="detail-label">Date</div><div style="font-size:20px;font-weight:700;">📅 ' + date + '</div></div><div style="margin-bottom:16px;"><div class="detail-label">Time</div><div style="font-size:20px;font-weight:700;">⏰ ' + escapeHtml(e.time) + '</div></div><div style="margin-bottom:16px;"><div class="detail-label">Location</div><div style="font-size:20px;font-weight:700;">📍 ' + escapeHtml(e.location) + '</div></div><div style="background:var(--surface);border:var(--border);padding:12px;font-weight:700;font-size:15px;">👥 ' + d.rsvpCount + ' people going</div></div>';
+  // Build all three steps
+  var s1 = '<div class="detail-card"><div style="margin-bottom:16px;"><div style="font-size:20px;font-weight:700;">📅 ' + date + '</div></div><div style="margin-bottom:16px;"><div style="font-size:20px;font-weight:700;">⏰ ' + escapeHtml(e.time) + '</div></div><div style="margin-bottom:16px;"><div style="font-size:20px;font-weight:700;">📍 ' + escapeHtml(e.location) + '</div></div><div style="background:var(--surface);border:var(--border);padding:12px;font-weight:700;font-size:15px;">👥 ' + d.rsvpCount + ' people going</div></div>';
   var descFull = e.description || "", descShort = descFull.substring(0, 100), hasMore = descFull.length > 100;
   var s2 = '<div class="detail-card" style="padding:14px;">';
   if (e.organizer) { var initial = e.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin-bottom:10px;background:var(--surface);border:var(--border);"><div style="width:36px;height:36px;border:var(--border);background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(e.organizer) + '</div></div></div>'; }
@@ -141,19 +143,20 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   s2 += '</div>';
   if (e.mapUrl) s2 += '<div style="display:flex;align-items:center;padding:14px 10px;margin-top:12px;background:var(--surface);border:var(--border);"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-url="' + escapeHtml(e.mapUrl) + '" style="background:#fff;border:var(--border);padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>';
   s2 += '<button class="btn btn-white btn-sm btn-view-attendees" data-id="' + e.id + '" style="margin-top:12px;width:100%;padding:10px;">👥 Who\'s Going? (' + d.rsvpCount + ')</button><div class="rsvp-attendees hidden" id="rsvps-public-' + e.id + '" style="background:#fff;border:var(--border);padding:12px;margin-top:8px;"></div></div>';
-  document.getElementById("detail-step-2")!.innerHTML = s2;
-  document.getElementById("detail-step-3")!.innerHTML = d.hasRsvped && d.hasRsvped
+  var s3 = d.hasRsvped
     ? '<div class="detail-card" style="text-align:center;padding:40px 20px;"><div class="rsvp-success" style="margin-bottom:12px;">🎉 You\'re on the list!</div><button class="btn btn-white btn-leave-event" data-id="' + e.id + '" style="margin-top:8px;">❌ Leave Event</button></div>'
     : '<div class="detail-card" style="text-align:center;padding:40px 20px;"><div style="font-size:48px;margin-bottom:8px;">🎟️</div><div style="font-size:20px;font-weight:700;margin-bottom:4px;">Ready to join?</div><div style="font-size:14px;color:var(--muted);margin-bottom:16px;">' + d.rsvpCount + ' people are going</div></div>';
+  // Store steps globally for navigation
+  detailStep1 = s1; detailStep2 = s2; detailStep3 = s3;
   detailStep = 1; ["detail-dot-1", "detail-dot-2", "detail-dot-3"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });
-  ["detail-step-1", "detail-step-2", "detail-step-3"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("hidden", i !== 0); });
+  document.getElementById("detail-body")!.innerHTML = s1;
   document.getElementById("detail-next-btn")!.classList.remove("hidden"); document.getElementById("detail-prev-btn")!.classList.add("hidden");
   document.getElementById("detail-rsvp-btn")!.classList.add("hidden"); document.getElementById("detail-rsvped")!.classList.add("hidden");
   if (d.hasRsvped) document.getElementById("detail-rsvped")!.classList.remove("hidden");
   openOverlay("details-overlay"); bindButtons();
 }
-function detailNext() { if (detailStep === 1) { document.getElementById("detail-dot-2")!.classList.add("done"); document.getElementById("detail-step-1")!.classList.add("hidden"); document.getElementById("detail-step-2")!.classList.remove("hidden"); document.getElementById("detail-prev-btn")!.classList.remove("hidden"); detailStep = 2; } else if (detailStep === 2) { document.getElementById("detail-dot-3")!.classList.add("done"); document.getElementById("detail-step-2")!.classList.add("hidden"); document.getElementById("detail-step-3")!.classList.remove("hidden"); document.getElementById("detail-next-btn")!.classList.add("hidden"); document.getElementById("detail-prev-btn")!.classList.remove("hidden"); if (document.getElementById("detail-rsvped")!.classList.contains("hidden")) document.getElementById("detail-rsvp-btn")!.classList.remove("hidden"); detailStep = 3; } }
-function detailPrev() { if (detailStep === 2) { document.getElementById("detail-dot-2")!.classList.remove("done"); document.getElementById("detail-step-2")!.classList.add("hidden"); document.getElementById("detail-step-1")!.classList.remove("hidden"); document.getElementById("detail-prev-btn")!.classList.add("hidden"); detailStep = 1; } else if (detailStep === 3) { document.getElementById("detail-dot-3")!.classList.remove("done"); document.getElementById("detail-step-3")!.classList.add("hidden"); document.getElementById("detail-step-2")!.classList.remove("hidden"); document.getElementById("detail-next-btn")!.classList.remove("hidden"); document.getElementById("detail-rsvp-btn")!.classList.add("hidden"); detailStep = 2; } }
+function detailNext() { if (detailStep === 1) { document.getElementById("detail-dot-2")!.classList.add("done"); document.getElementById("detail-body")!.innerHTML = detailStep2; document.getElementById("detail-prev-btn")!.classList.remove("hidden"); bindButtons(); detailStep = 2; } else if (detailStep === 2) { document.getElementById("detail-dot-3")!.classList.add("done"); document.getElementById("detail-body")!.innerHTML = detailStep3; document.getElementById("detail-next-btn")!.classList.add("hidden"); document.getElementById("detail-prev-btn")!.classList.remove("hidden"); if (document.getElementById("detail-rsvped")!.classList.contains("hidden")) document.getElementById("detail-rsvp-btn")!.classList.remove("hidden"); bindButtons(); detailStep = 3; } }
+function detailPrev() { if (detailStep === 2) { document.getElementById("detail-dot-2")!.classList.remove("done"); document.getElementById("detail-body")!.innerHTML = detailStep1; document.getElementById("detail-prev-btn")!.classList.add("hidden"); bindButtons(); detailStep = 1; } else if (detailStep === 3) { document.getElementById("detail-dot-3")!.classList.remove("done"); document.getElementById("detail-body")!.innerHTML = detailStep2; document.getElementById("detail-next-btn")!.classList.remove("hidden"); document.getElementById("detail-rsvp-btn")!.classList.add("hidden"); bindButtons(); detailStep = 2; } }
 
 // ======= MOD DASHBOARD =======
 var modTab = "pending";
