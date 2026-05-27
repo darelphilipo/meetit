@@ -5,7 +5,8 @@
     "lib": ["DOM", "ES2023"],
     "tsBuildInfoFile": "../dist/types/client/tsconfig.tsbuildinfo",
     "customConditions": ["browser"],
-    "rootDir": "../src/client"
+    "rootDir": "../src/client",
+    "isolatedDeclarations": false
   },
   "include": ["../src/client/**/*"],
   "exclude": ["../src/server/**/*"],

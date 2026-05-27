@@ -10,6 +10,7 @@
     "dev": "devvit playtest",
     "login": "devvit login",
     "launch": "npm run build && npm run deploy && devvit publish",
+    "test": "node --experimental-strip-types --test tools/*.test.ts",
     "type-check": "tsc --build"
   },
   "engines": {

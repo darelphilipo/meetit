@@ -7,6 +7,7 @@ export type MeetitEvent = {
   description: string;
   organizer?: string;
   mapUrl?: string;
+  submittedAt?: string;
 };
 
 export type HomeState = {
@@ -48,6 +49,13 @@ export type SubmitEventFormData = {
   location: string;
   desc: string;
   mapUrl?: string;
+};
+
+export type RsvpAttendee = {
+  username: string;
+  timestamp: number;
+  email?: string;
+  phone?: string;
 };
 
 export const ApiEndpoint = {

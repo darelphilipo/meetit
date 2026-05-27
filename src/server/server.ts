@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { context, reddit, redis, scheduler, settings } from "@devvit/web/server";
-import type { PartialJsonValue, UiResponse, TaskRequest, TaskResponse } from "@devvit/web/shared";
+import { context, reddit, redis, settings } from "@devvit/web/server";
+import type { PartialJsonValue, UiResponse } from "@devvit/web/shared";
+import type { TaskRequest, TaskResponse } from "@devvit/scheduler";
 import {
   ApiEndpoint,
   type MeetitEvent,
@@ -9,22 +10,13 @@ import {
   type AppSettings,
   type RsvpFormData,
   type PitchFormData,
+  type RsvpAttendee,
   type SubmitEventFormData,
 } from "../shared/api.ts";
+import { buildAttendees, createPendingEvent, isConfiguredModerator, isSubmissionOwner } from "../shared/meetit.ts";
 import { once } from "node:events";
 
 const GOOGLE_SHEETS_WEBHOOK_URL = ""; // Set to your Zapier/Google Sheets webhook URL
-
-const DEFAULT_EVENT: MeetitEvent = {
-  id: "default-bangalore-tech-chai",
-  title: "Bangalore Tech & Chai",
-  date: "2026-05-15",
-  time: "16:00",
-  location: "Cubbon Park, Bangalore",
-  description: "Join fellow redditors for an evening of tech talks, networking, and cutting chai. All skill levels welcome!",
-  organizer: "u/darelphilip",
-  mapUrl: "https://maps.google.com/?q=Cubbon+Park+Bangalore",
-};
 
 export async function serverOnRequest(
   req: IncomingMessage,
@@ -88,9 +80,6 @@ async function onRequest(
     case ApiEndpoint.PendingEvents:
       body = await onPendingEvents();
       break;
-    case ApiEndpoint.AllEvents:
-      body = await onAllEvents();
-      break;
     case ApiEndpoint.PitchedIdeas:
       body = await onPitchedIdeas();
       break;
@@ -142,7 +131,7 @@ type ApiResponse =
   | { type: "event-details"; data: EventDetails }
   | { type: "rsvp"; success: boolean }
   | { type: "leave-event"; success: boolean }
-  | { type: "rsvp-list"; attendees: { username: string; timestamp: number }[] }
+  | { type: "rsvp-list"; attendees: RsvpAttendee[] }
   | { type: "pitch-idea"; success: boolean }
   | { type: "submit-event"; success: boolean }
   | { type: "approve-event"; success: boolean }
@@ -150,7 +139,8 @@ type ApiResponse =
   | { type: "pitched-ideas"; ideas: any[] }
   | { type: "all-approved-events"; events: any[] }
   | { type: "dismiss-idea"; success: boolean }
-  | { type: "my-submissions"; pitches: any[]; events: MeetitEvent[] };
+  | { type: "my-submissions"; pitches: any[]; events: MeetitEvent[] }
+  | ErrorResponse;
 
 type ErrorResponse = {
   error: string;
@@ -180,13 +170,15 @@ async function isMod(): Promise<boolean> {
   if (!username) return false;
   try {
     const modList = await settings.get("mod_usernames");
-    if (modList) {
-      const mods = (modList as string).split(",").map(s => s.trim().toLowerCase());
-      return mods.includes(username.toLowerCase());
-    }
+    if (modList) return isConfiguredModerator(username, modList);
   } catch (e) { console.error(`isMod error: ${e}`); }
   // Fallback: if no mod list configured, allow access (first install)
   return true;
+}
+
+async function requireMod(): Promise<ErrorResponse | undefined> {
+  if (await isMod()) return undefined;
+  return { error: "forbidden", status: 403 };
 }
 
 async function getActiveEvents(): Promise<MeetitEvent[]> {
@@ -260,7 +252,7 @@ async function onHome(): Promise<ApiResponse> {
     if (!eventsByDate[event.date]) {
       eventsByDate[event.date] = [];
     }
-    eventsByDate[event.date].push(event);
+    eventsByDate[event.date]!.push(event);
   }
 
   return {
@@ -330,19 +322,19 @@ async function onPitchIdea(req: IncomingMessage): Promise<ApiResponse> {
 }
 
 // Helper: post notification comment on the app post
-async function notifyMods(message: string): Promise<void> {
+export async function notifyMods(message: string): Promise<void> {
   const postId = context.postId;
   console.log(`[NOTIFY] postId=${postId}, msgLen=${message?.length}`);
   if (!postId) { console.log("[NOTIFY] No postId"); return; }
   try {
-    await reddit.submitComment({ postId: postId.startsWith("t3_") ? postId : "t3_" + postId, text: message, runAs: "APP" });
+    await reddit.submitComment({ id: postId.startsWith("t3_") ? `t3_${postId.slice(3)}` : `t3_${postId}`, text: message, runAs: "APP" });
     console.log("[NOTIFY] Comment posted");
   } catch (e) {
     console.error(`[NOTIFY] Failed: ${e}`);
   }
 }
 
-async function onSendEventAnnouncement(req: IncomingMessage): Promise<TaskResponse> {
+export async function onSendEventAnnouncement(req: IncomingMessage): Promise<TaskResponse> {
   console.log(`[SCHEDULER] send_event_announcement FIRED at ${new Date().toISOString()}`);
   try {
     const raw = await readRaw(req);
@@ -353,7 +345,7 @@ async function onSendEventAnnouncement(req: IncomingMessage): Promise<TaskRespon
     const postId = context.postId;
     if (!postId) { console.log("No postId for announcement comment"); return { status: "ok" }; }
     await reddit.submitComment({
-      postId: postId.startsWith("t3_") ? postId : "t3_" + postId,
+      id: postId.startsWith("t3_") ? `t3_${postId.slice(3)}` : `t3_${postId}`,
       text: `📢 **Event Reminder: ${d.eventTitle}**\n\n📅 ${d.eventDate}\n⏰ ${d.eventTime}\n📍 ${d.eventLocation}\n\n${d.eventDescription}\n\nRSVP on the app! 🎉`,
     });
     console.log(`Announcement comment posted for ${d.eventTitle}`);
@@ -370,16 +362,7 @@ async function onSubmitEvent(req: IncomingMessage): Promise<ApiResponse> {
   if (!formData.desc || formData.desc.length > 2000) return { error: "Description too long", status: 400 };
   if (!formData.location || formData.location.length > 200) return { error: "Location too long", status: 400 };
   const eventId = `event_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-  const event: MeetitEvent = {
-    id: eventId,
-    title: formData.title,
-    date: formData.date,
-    time: formData.time,
-    location: formData.location,
-    description: formData.desc,
-    organizer: formData.organizer,
-    mapUrl: formData.mapUrl,
-  };
+  const event = createPendingEvent(eventId, formData, new Date().toISOString());
 
   await redis.hSet("meetit:pending_events", { [eventId]: JSON.stringify(event) });
   const saved = !!(await redis.hGet("meetit:pending_events", eventId));
@@ -388,6 +371,8 @@ async function onSubmitEvent(req: IncomingMessage): Promise<ApiResponse> {
 }
 
 async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
+  const authError = await requireMod();
+  if (authError) return authError;
   const { eventId } = await readJSON<{ eventId: string }>(req);
   const eventJson = await redis.hGet("meetit:pending_events", eventId);
 
@@ -414,17 +399,23 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
 }
 
 async function onPendingEvents(): Promise<ApiResponse> {
+  const authError = await requireMod();
+  if (authError) return authError;
   const events = await getPendingEventsList();
   return { type: "pending-events", events };
 }
 
 async function onPitchedIdeas(): Promise<ApiResponse> {
+  const authError = await requireMod();
+  if (authError) return authError;
   const ideas = await redis.hGetAll("meetit:pitched_ideas");
   const ideasList = Object.values(ideas).map((val) => JSON.parse(val));
   return { type: "pitched-ideas", ideas: ideasList };
 }
 
 async function onAllApprovedEvents(): Promise<ApiResponse> {
+  const authError = await requireMod();
+  if (authError) return authError;
   const events = await getActiveEvents();
   // Filter out hardcoded default event
   const realEvents = events.filter(e => e.id !== "default-bangalore-tech-chai");
@@ -439,6 +430,14 @@ async function onAllApprovedEvents(): Promise<ApiResponse> {
 
 async function onDismissIdea(req: IncomingMessage): Promise<ApiResponse> {
   const { ideaId } = await readJSON<{ ideaId: string }>(req);
+  const ideaJson = await redis.hGet("meetit:pitched_ideas", ideaId);
+  if (ideaJson) {
+    const idea = JSON.parse(ideaJson) as { submittedBy?: unknown };
+    if (!isSubmissionOwner(context.username, idea.submittedBy)) {
+      const authError = await requireMod();
+      if (authError) return authError;
+    }
+  }
   await redis.hDel("meetit:pitched_ideas", [ideaId]);
   const ok = !(await redis.hGet("meetit:pitched_ideas", ideaId));
   console.log(`[DISMISS] Idea ${ideaId} removed: ${ok}`);
@@ -446,6 +445,8 @@ async function onDismissIdea(req: IncomingMessage): Promise<ApiResponse> {
 }
 
 async function onDeletePending(req: IncomingMessage): Promise<ApiResponse> {
+  const authError = await requireMod();
+  if (authError) return authError;
   const { eventId } = await readJSON<{ eventId: string }>(req);
   await redis.hDel("meetit:pending_events", [eventId]);
   const ok = !(await redis.hGet("meetit:pending_events", eventId));
@@ -454,6 +455,8 @@ async function onDeletePending(req: IncomingMessage): Promise<ApiResponse> {
 }
 
 async function onDeletePublished(req: IncomingMessage): Promise<ApiResponse> {
+  const authError = await requireMod();
+  if (authError) return authError;
   const { eventId } = await readJSON<{ eventId: string }>(req);
   await redis.hDel("meetit:active_events", [eventId]);
   const ok = !(await redis.hGet("meetit:active_events", eventId));
@@ -476,19 +479,16 @@ async function onLeaveEvent(req: IncomingMessage): Promise<ApiResponse> {
 }
 
 async function onRsvpList(req: IncomingMessage): Promise<ApiResponse> {
-  const { eventId } = await readJSON<{ eventId: string }>(req);
+  const { eventId, includeContactDetails } = await readJSON<{ eventId: string; includeContactDetails?: boolean }>(req);
   const results = await redis.zRange(`meetit:rsvps:${eventId}`, "-inf", "+inf", { by: "score" });
   // Fetch contact details from companion hash
   const detailsHash = await redis.hGetAll(`meetit:rsvp_details:${eventId}`);
-  const attendees = results.map((r) => {
-    const details = detailsHash[r.member] ? JSON.parse(detailsHash[r.member]) : { email: "", phone: "" };
-    return { username: r.member, timestamp: r.score, email: details.email || "", phone: details.phone || "" };
-  });
+  const canViewContactDetails = Boolean(includeContactDetails) && (await isMod());
+  const attendees = buildAttendees(results, detailsHash, canViewContactDetails);
   return { type: "rsvp-list", attendees };
 }
 
 async function onMySubmissions(): Promise<ApiResponse> {
-  const username = context.username || "";
   const pitchesJson = await redis.hGetAll("meetit:pitched_ideas");
   const normUser = (context.username || "").toLowerCase();
   const matchOrg = (org: string) => org?.toLowerCase().replace(/^u\//, "") === normUser;
@@ -514,7 +514,7 @@ async function onMySubmissions(): Promise<ApiResponse> {
   return { type: "my-submissions", pitches, events: myEvents };
 }
 
-async function onSendReminders(req: IncomingMessage): Promise<TaskResponse> {
+export async function onSendReminders(req: IncomingMessage): Promise<TaskResponse> {
   console.log(`[SCHEDULER] send_24hr_reminders FIRED at ${new Date().toISOString()}`);
   try {
     const raw = await readRaw(req);
@@ -531,7 +531,7 @@ async function onSendReminders(req: IncomingMessage): Promise<TaskResponse> {
       try {
         await reddit.sendPrivateMessage({
           subject: "Meetit: Your meetup is tomorrow!",
-          body: `Hey u/${username}! Just a reminder that the meetup you RSVP'd for is happening in 24 hours. See you there!`,
+          text: `Hey u/${username}! Just a reminder that the meetup you RSVP'd for is happening in 24 hours. See you there!`,
           to: username,
         });
       } catch (e) {
@@ -558,7 +558,7 @@ async function onMenuCreatePost(): Promise<UiResponse> {
   } catch (e) {
     console.error(`Failed to create post: ${e}`);
     return {
-      showToast: { text: `Failed to create post: ${e}`, appearance: "error" },
+      showToast: { text: `Failed to create post: ${e}`, appearance: "neutral" },
     };
   }
 }
@@ -593,11 +593,10 @@ async function readRaw(req: IncomingMessage): Promise<string> {
 }
 
 async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
+  void req;
   console.log(`[CRON] check-events FIRED at ${new Date().toISOString()}`);
   try {
     const allEvents = await redis.hGetAll("meetit:active_events");
-    const now = new Date();
-    const tomorrow = new Date(now.getTime() + 86400000);
 
     // === 1. Reminder posts for upcoming events ===
     for (const [eventId, eventJson] of Object.entries(allEvents)) {
@@ -636,7 +635,7 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
       console.log(`[CRON] ${newItems} new items since last check`);
       // Attempt to notify via message to subreddit
       try {
-        await reddit.sendPrivateMessage({ subject: `Meetit: ${newItems} new item(s) await review`, body: `There are ${newItems} new pending event(s) or pitch(es) to review.\n\nOpen the Meetit app in r/${context.subredditName} to manage them.`, to: `/r/${context.subredditName}` });
+        await reddit.sendPrivateMessage({ subject: `Meetit: ${newItems} new item(s) await review`, text: `There are ${newItems} new pending event(s) or pitch(es) to review.\n\nOpen the Meetit app in r/${context.subredditName} to manage them.`, to: `/r/${context.subredditName}` });
         console.log(`[CRON] Mod alert sent`);
       } catch (e) { console.log(`[CRON] Mod alert failed (may not be supported): ${e}`); }
       // Also try creating an alert post as fallback
