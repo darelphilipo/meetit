@@ -1,7 +1,7 @@
 ---
 description: Verifies Meetit builds clean and checks plan compliance. Runs build and lint, delegates fixes. Max 3 iterations.
 mode: subagent
-model: minimax/M2.7
+model: opencode-go/minimax-m2.7
 hidden: true
 temperature: 0.1
 steps: 20

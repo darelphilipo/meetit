@@ -1,7 +1,7 @@
 ---
 description: Reviews Meetit code for bugs, type errors, and convention violations. Read-only. Checks correctness and project-specific patterns.
 mode: subagent
-model: minimax/M2.7
+model: opencode-go/minimax-m2.7
 hidden: true
 temperature: 0.1
 steps: 20

@@ -1,7 +1,7 @@
 ---
 description: Implements features and fixes for the Meetit Devvit app. Receives a task description and writes production TypeScript, HTML, and config code. Uses a fast implement-build-verify loop.
 mode: subagent
-model: minimax/M2.7
+model: opencode-go/minimax-m2.7
 hidden: true
 temperature: 0.1
 steps: 25
