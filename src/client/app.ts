@@ -161,7 +161,11 @@ async function loadPublicAttendees(eventId: string) {
   } catch (e) { console.error(e); }
 }
 
+var detailLoading = false;
+
 async function showEventDetails(id: string) {
+  if (detailLoading) return;
+  detailLoading = true;
   currentEventId = id;
   var cachedEvent = cachedHomeEvents.find(function (event) { return event.id === id; });
   if (cachedEvent) {
@@ -172,10 +176,12 @@ async function showEventDetails(id: string) {
     var data = await res.json();
     if (data.type === "event-details" && currentEventId === id) {
       openDetailsOverlay(data.data);
+      detailLoading = false;
       return;
     }
   } catch (e) { console.error(e); }
   if (!cachedEvent) openDetailsOverlay({ event: { id: id, title: "Event", date: "", time: "", location: "", description: "", organizer: "", mapUrl: "" }, rsvpCount: 0, hasRsvped: false, settings: {} });
+  detailLoading = false;
 }
 function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boolean; settings: any }) {
   var e = d.event; document.getElementById("details-overlay-title")!.textContent = e.title;
@@ -350,7 +356,6 @@ function bindButtons() {
   // Detail nav
   document.querySelectorAll("#detail-next-btn").forEach(function (b) { b.addEventListener("click", detailNext); });
   document.querySelectorAll("#detail-prev-btn").forEach(function (b) { b.addEventListener("click", detailPrev); });
-  document.querySelectorAll(".btn-load-attendees").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) loadPublicAttendees(id); }); });
   document.querySelectorAll("#pitch-submit-btn").forEach(function (b) { b.addEventListener("click", submitPitch); });
   document.querySelectorAll("#event-next-btn").forEach(function (b) { b.addEventListener("click", eventNext); });
   document.querySelectorAll("#event-prev-btn").forEach(function (b) { b.addEventListener("click", eventPrev); });
