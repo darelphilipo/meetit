@@ -7,6 +7,7 @@ var detailStep1 = "", detailStep2 = "", detailStep3 = "", detailStep4 = "";
 var homeCardIndex = 0;
 var cachedHomeEvents: any[] = [];
 var cachedHomeIsMod = false;
+var homeLoadSeq = 0;
 
 function showToast(msg: string, type: "success" | "error") {
   var t = document.createElement("div");
@@ -18,27 +19,44 @@ function escapeHtml(s: string | undefined | null) { var d = document.createEleme
 
 // ======= HOME - Single card navigation =======
 async function loadHome() {
+  var loadSeq = ++homeLoadSeq;
   var bar = document.getElementById("loading-bar"), msg = document.getElementById("loading-msg");
   if (bar) bar.style.width = "30%"; if (msg) msg.textContent = "Fetching events...";
   try {
     var res = await fetch(API_BASE + "/api/home");
+    if (loadSeq !== homeLoadSeq) return;
     if (bar) bar.style.width = "70%"; if (msg) msg.textContent = "Almost there...";
     var data = await res.json();
+    if (loadSeq !== homeLoadSeq) return;
     if (bar) bar.style.width = "100%"; if (msg) msg.textContent = "Ready!";
     if (data.type === "home") {
-      var allEvents: any[] = [];
-      var dates = Object.keys(data.data.eventsByDate).sort();
-      for (var i = 0; i < dates.length; i++) {
-        var date = dates[i] || "";
-        var events = data.data.eventsByDate[date] || [];
-        for (var j = 0; j < events.length; j++) allEvents.push({ ...events[j], _date: date });
-      }
+      var allEvents = flattenHomeEvents(data.data.eventsByDate);
+      var currentEvent = cachedHomeEvents[homeCardIndex];
+      var currentId = currentEvent && currentEvent.id;
       cachedHomeEvents = allEvents;
       cachedHomeIsMod = data.data.isMod;
-      homeCardIndex = 0;
-      setTimeout(function () { renderHomeCard(data.data); }, 200);
+      if (currentId) {
+        var updatedIndex = allEvents.findIndex(function (event) { return event.id === currentId; });
+        if (updatedIndex >= 0) homeCardIndex = updatedIndex;
+        else if (homeCardIndex >= allEvents.length) homeCardIndex = Math.max(0, allEvents.length - 1);
+      } else if (homeCardIndex >= allEvents.length) {
+        homeCardIndex = Math.max(0, allEvents.length - 1);
+      }
+      setTimeout(function () {
+        if (loadSeq === homeLoadSeq) renderHomeCard(data.data);
+      }, 200);
     }
   } catch (e) { console.error(e); if (msg) msg.textContent = "Could not load."; }
+}
+
+function flattenHomeEvents(eventsByDate: Record<string, any[]>): any[] {
+  var all: any[] = [];
+  var dates = Object.keys(eventsByDate).sort();
+  for (var i = 0; i < dates.length; i++) {
+    var evts = eventsByDate[dates[i] || ""] || [];
+    for (var j = 0; j < evts.length; j++) all.push({ ...evts[j], _date: dates[i] });
+  }
+  return all;
 }
 
 function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boolean; settings: any }) {
@@ -49,11 +67,7 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
     c.innerHTML = '<div class="empty-state"><span class="emoji">🐱</span><h2>Wow, so empty!</h2><p>Tap ➕ to pitch an idea</p></div>';
   } else {
     // Flatten all events
-    var all: any[] = [];
-    for (var i = 0; i < dates.length; i++) {
-      var evts = state.eventsByDate[dates[i] || ""] || [];
-      for (var j = 0; j < evts.length; j++) all.push({ ...evts[j], _date: dates[i] });
-    }
+    var all = flattenHomeEvents(state.eventsByDate);
     cachedHomeEvents = all;
     cachedHomeIsMod = state.isMod;
     if (homeCardIndex >= all.length) homeCardIndex = 0;
@@ -147,7 +161,22 @@ async function loadPublicAttendees(eventId: string) {
   } catch (e) { console.error(e); }
 }
 
-async function showEventDetails(id: string) { currentEventId = id; try { var res = await fetch(API_BASE + "/api/event-details", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); var data = await res.json(); if (data.type === "event-details") { openDetailsOverlay(data.data); return; } } catch (e) { console.error(e); } openDetailsOverlay({ event: { id: id, title: "Event", date: "", time: "", location: "", description: "", organizer: "", mapUrl: "" }, rsvpCount: 0, hasRsvped: false, settings: {} }); }
+async function showEventDetails(id: string) {
+  currentEventId = id;
+  var cachedEvent = cachedHomeEvents.find(function (event) { return event.id === id; });
+  if (cachedEvent) {
+    openDetailsOverlay({ event: cachedEvent, rsvpCount: cachedEvent.rsvpCount || 0, hasRsvped: false, settings: {} });
+  }
+  try {
+    var res = await fetch(API_BASE + "/api/event-details", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
+    var data = await res.json();
+    if (data.type === "event-details" && currentEventId === id) {
+      openDetailsOverlay(data.data);
+      return;
+    }
+  } catch (e) { console.error(e); }
+  if (!cachedEvent) openDetailsOverlay({ event: { id: id, title: "Event", date: "", time: "", location: "", description: "", organizer: "", mapUrl: "" }, rsvpCount: 0, hasRsvped: false, settings: {} });
+}
 function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boolean; settings: any }) {
   var e = d.event; document.getElementById("details-overlay-title")!.textContent = e.title;
   var date = new Date(e.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });

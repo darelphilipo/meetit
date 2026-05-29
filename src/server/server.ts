@@ -187,6 +187,11 @@ async function getActiveEvents(): Promise<MeetitEvent[]> {
   return eventList.sort((a, b) => a.date.localeCompare(b.date));
 }
 
+async function getActiveEvent(eventId: string): Promise<MeetitEvent | undefined> {
+  const eventJson = await redis.hGet("meetit:active_events", eventId);
+  return eventJson ? JSON.parse(eventJson) : undefined;
+}
+
 async function getPendingEventsList(): Promise<MeetitEvent[]> {
   const events = await redis.hGetAll("meetit:pending_events");
   return Object.values(events).map((val) => JSON.parse(val));
@@ -264,8 +269,7 @@ async function onHome(): Promise<ApiResponse> {
 
 async function onEventDetails(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
-  const events = await getActiveEvents();
-  const event = events.find((e) => e.id === eventId);
+  const event = await getActiveEvent(eventId);
 
   if (!event) {
     return { error: "Event not found", status: 404 };
