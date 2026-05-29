@@ -3,7 +3,7 @@ var currentEventId: string | null = null;
 var currentUsername: string | null = null;
 var eventStep = 1;
 var detailStep = 1;
-var detailStep1 = "", detailStep2 = "", detailStep3 = "";
+var detailStep1 = "", detailStep2 = "", detailStep3 = "", detailStep4 = "";
 var homeCardIndex = 0;
 var cachedHomeEvents: any[] = [];
 var cachedHomeIsMod = false;
@@ -129,34 +129,120 @@ function toggleCreateMenu() { document.getElementById("create-menu")!.classList.
 function closeCreateMenu() { document.getElementById("create-menu")!.classList.remove("active"); document.getElementById("create-backdrop")!.classList.remove("active"); }
 
 // ======= EVENT DETAILS (unchanged) =======
+async function loadPublicAttendees(eventId: string) {
+  var el = document.getElementById("rsvps-public-" + eventId);
+  if (!el) return;
+  try {
+    var res = await fetch(API_BASE + "/api/rsvp-list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: eventId }) });
+    var data = await res.json();
+    if (data.type === "rsvp-list") {
+      var att = data.attendees || [];
+      if (att.length === 0) el.innerHTML = '<div style="text-align:center;padding:20px;font-size:14px;color:var(--muted);">No one yet — be the first!</div>';
+      else {
+        var h = '';
+        for (var i = 0; i < att.length; i++) h += '<div style="font-size:14px;font-weight:600;padding:8px 6px;border-bottom:1px solid var(--outline-v);display:flex;align-items:center;gap:8px;"><div style="width:28px;height:28px;border:3px solid #1c1c0f;background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0;">' + att[i].username.charAt(0).toUpperCase() + '</div>u/' + escapeHtml(att[i].username) + '</div>';
+        el.innerHTML = h;
+      }
+    }
+  } catch (e) { console.error(e); }
+}
+
 async function showEventDetails(id: string) { currentEventId = id; try { var res = await fetch(API_BASE + "/api/event-details", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); var data = await res.json(); if (data.type === "event-details") { openDetailsOverlay(data.data); return; } } catch (e) { console.error(e); } openDetailsOverlay({ event: { id: id, title: "Event", date: "", time: "", location: "", description: "", organizer: "", mapUrl: "" }, rsvpCount: 0, hasRsvped: false, settings: {} }); }
 function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boolean; settings: any }) {
   var e = d.event; document.getElementById("details-overlay-title")!.textContent = e.title;
   var date = new Date(e.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-  // Build all three steps
-  var s1 = '<div class="detail-card"><div style="margin-bottom:16px;"><div style="font-size:20px;font-weight:700;">📅 ' + date + '</div></div><div style="margin-bottom:16px;"><div style="font-size:20px;font-weight:700;">⏰ ' + escapeHtml(e.time) + '</div></div><div style="margin-bottom:16px;"><div style="font-size:20px;font-weight:700;">📍 ' + escapeHtml(e.location) + '</div></div><div style="background:var(--surface);border:var(--border);padding:12px;font-weight:700;font-size:15px;">👥 ' + d.rsvpCount + ' people going</div></div>';
+
+  // Card 1: Quick Info (fits without scroll)
+  var s1 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;justify-content:center;gap:18px;padding:20px;">' +
+    '<div style="text-align:center;"><div style="font-size:14px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">📅 Date</div><div style="font-size:22px;font-weight:700;">' + date + '</div></div>' +
+    '<div style="text-align:center;"><div style="font-size:14px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">⏰ Time</div><div style="font-size:22px;font-weight:700;">' + escapeHtml(e.time) + '</div></div>' +
+    '<div style="text-align:center;"><div style="font-size:14px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">📍 Location</div><div style="font-size:22px;font-weight:700;">' + escapeHtml(e.location) + '</div></div>' +
+    '<div style="background:var(--surface);border:var(--border);padding:14px;text-align:center;font-weight:700;font-size:16px;">👥 ' + d.rsvpCount + ' people going</div>' +
+    '</div>';
+
+  // Card 2: Organizer + Description (scrollable if long)
   var descFull = e.description || "", descShort = descFull.substring(0, 100), hasMore = descFull.length > 100;
-  var s2 = '<div class="detail-card detail-step-card" style="padding:14px;">';
-  if (e.organizer) { var initial = e.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin-bottom:10px;background:var(--surface);border:var(--border);"><div style="width:36px;height:36px;border:var(--border);background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(e.organizer) + '</div></div></div>'; }
-  s2 += '<div class="detail-desc detail-desc-scroll" style="padding:10px;font-size:14px;margin-top:0;"><span id="desc-short-' + e.id + '">' + escapeHtml(descShort) + (hasMore ? '...' : '') + '</span>';
-  if (hasMore) { s2 += '<span id="desc-full-' + e.id + '" style="display:none;">' + escapeHtml(descFull) + '</span><button class="btn btn-white btn-sm btn-read-more" data-id="' + e.id + '" style="margin-top:6px;width:auto;display:inline-block;">Read more ↓</button>'; }
-  s2 += '</div><div class="detail-actions">';
-  if (e.mapUrl) s2 += '<div style="display:flex;align-items:center;padding:14px 10px;background:var(--surface);border:var(--border);"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-url="' + escapeHtml(e.mapUrl) + '" style="background:#fff;border:var(--border);padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>';
-  s2 += '<button class="btn btn-white btn-sm btn-view-attendees" data-id="' + e.id + '" style="width:100%;padding:10px;">👥 Who\'s Going? (' + d.rsvpCount + ')</button><div class="rsvp-attendees hidden" id="rsvps-public-' + e.id + '" style="background:#fff;border:var(--border);padding:12px;margin-top:-4px;"></div></div></div>';
-  var s3 = d.hasRsvped
-    ? '<div class="detail-card" style="text-align:center;padding:40px 20px;"><div class="rsvp-success" style="margin-bottom:12px;">🎉 You\'re on the list!</div><button class="btn btn-white btn-leave-event" data-id="' + e.id + '" style="margin-top:8px;">❌ Leave Event</button></div>'
-    : '<div class="detail-card" style="text-align:center;padding:40px 20px;"><div style="font-size:48px;margin-bottom:8px;">🎟️</div><div style="font-size:20px;font-weight:700;margin-bottom:4px;">Ready to join?</div><div style="font-size:14px;color:var(--muted);margin-bottom:16px;">' + d.rsvpCount + ' people are going</div></div>';
-  // Store steps globally for navigation
-  detailStep1 = s1; detailStep2 = s2; detailStep3 = s3;
-  detailStep = 1; ["detail-dot-1", "detail-dot-2", "detail-dot-3"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });
+  var s2 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;gap:8px;padding:8px 0;">';
+  if (e.organizer) { var initial = e.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><div style="width:36px;height:36px;border:var(--border);background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(e.organizer) + '</div></div></div>'; }
+  s2 += '<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#fff;border:var(--border);padding:14px;margin:0 8px;font-size:15px;line-height:1.5;">' +
+    '<span id="desc-short-' + e.id + '" style="display:' + (hasMore ? 'inline' : 'none') + '">' + escapeHtml(descShort) + '... <button class="btn btn-white btn-sm btn-read-more" data-id="' + e.id + '" style="font-size:12px;padding:4px 12px;margin-left:4px;">Read more ↓</button></span>' +
+    '<span id="desc-full-' + e.id + '" style="display:' + (hasMore ? 'none' : 'inline') + '">' + escapeHtml(descFull) + (hasMore ? ' <button class="btn btn-white btn-sm btn-read-more" data-id="' + e.id + '" style="font-size:12px;padding:4px 12px;margin-left:4px;">Read less ↑</button>' : '') + '</span>' +
+    '</div>';
+  if (e.mapUrl) { s2 += '<div style="display:flex;align-items:center;gap:8px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-url="' + escapeHtml(e.mapUrl) + '" style="background:#fff;border:var(--border);padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>'; }
+  s2 += '</div>';
+
+  // Card 3: Who's Going (scrollable attendee list)
+  var s3 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;padding:4px 0;">' +
+    '<div style="text-align:center;padding:12px 0 8px 0;font-weight:700;font-size:17px;flex-shrink:0;">👥 Who\'s Going?</div>' +
+    '<div style="text-align:center;font-size:14px;color:var(--muted);padding-bottom:10px;flex-shrink:0;">' + d.rsvpCount + ' attendee' + (d.rsvpCount !== 1 ? 's' : '') + '</div>' +
+    '<div id="rsvps-public-' + e.id + '" style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#fff;border:var(--border);padding:8px;margin:0 8px;"></div>' +
+    '<button class="btn btn-white btn-sm btn-load-attendees" data-id="' + e.id + '" style="flex-shrink:0;margin:6px 8px 0 8px;padding:8px;">🔁 Load attendees</button>' +
+    '</div>';
+
+  // Card 4: RSVP / Leave
+  var s4 = d.hasRsvped
+    ? '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:20px;text-align:center;">' +
+      '<div style="font-size:64px;">🎉</div>' +
+      '<div style="font-size:20px;font-weight:700;">You\'re on the list!</div>' +
+      '<div style="font-size:14px;color:var(--muted);">See you there</div>' +
+      '<button class="btn btn-white btn-leave-event" data-id="' + e.id + '" style="margin-top:8px;width:auto;">❌ Leave Event</button>' +
+      '</div>'
+    : '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;text-align:center;">' +
+      '<div style="font-size:64px;">🎟️</div>' +
+      '<div style="font-size:20px;font-weight:700;">Ready to join?</div>' +
+      '<div style="font-size:14px;color:var(--muted);">' + d.rsvpCount + ' people are going</div>' +
+      '<button class="btn btn-pink btn-rsvp-now" data-id="' + e.id + '" style="width:80%;">🎟️ RSVP Now</button>' +
+      '</div>';
+
+  detailStep1 = s1; detailStep2 = s2; detailStep3 = s3; detailStep4 = s4;
+  detailStep = 1;
+  ["detail-dot-1", "detail-dot-2", "detail-dot-3", "detail-dot-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });
   document.getElementById("detail-body")!.innerHTML = s1;
   document.getElementById("detail-next-btn")!.classList.remove("hidden"); document.getElementById("detail-prev-btn")!.classList.add("hidden");
-  document.getElementById("detail-rsvp-btn")!.classList.add("hidden"); document.getElementById("detail-rsvped")!.classList.add("hidden");
-  if (d.hasRsvped) document.getElementById("detail-rsvped")!.classList.remove("hidden");
-  openOverlay("details-overlay"); bindButtons();
+  openOverlay("details-overlay");
+  bindButtons();
+  // Load attendees in background
+  loadPublicAttendees(e.id);
 }
-function detailNext() { if (detailStep === 1) { document.getElementById("detail-dot-2")!.classList.add("done"); document.getElementById("detail-body")!.innerHTML = detailStep2; document.getElementById("detail-prev-btn")!.classList.remove("hidden"); bindButtons(); detailStep = 2; } else if (detailStep === 2) { document.getElementById("detail-dot-3")!.classList.add("done"); document.getElementById("detail-body")!.innerHTML = detailStep3; document.getElementById("detail-next-btn")!.classList.add("hidden"); document.getElementById("detail-prev-btn")!.classList.remove("hidden"); if (document.getElementById("detail-rsvped")!.classList.contains("hidden")) document.getElementById("detail-rsvp-btn")!.classList.remove("hidden"); bindButtons(); detailStep = 3; } }
-function detailPrev() { if (detailStep === 2) { document.getElementById("detail-dot-2")!.classList.remove("done"); document.getElementById("detail-body")!.innerHTML = detailStep1; document.getElementById("detail-prev-btn")!.classList.add("hidden"); bindButtons(); detailStep = 1; } else if (detailStep === 3) { document.getElementById("detail-dot-3")!.classList.remove("done"); document.getElementById("detail-body")!.innerHTML = detailStep2; document.getElementById("detail-next-btn")!.classList.remove("hidden"); document.getElementById("detail-rsvp-btn")!.classList.add("hidden"); bindButtons(); detailStep = 2; } }
+function detailNext() {
+  if (detailStep === 1) {
+    document.getElementById("detail-dot-2")!.classList.add("done");
+    document.getElementById("detail-body")!.innerHTML = detailStep2;
+    document.getElementById("detail-prev-btn")!.classList.remove("hidden");
+    bindButtons(); detailStep = 2;
+  } else if (detailStep === 2) {
+    document.getElementById("detail-dot-3")!.classList.add("done");
+    document.getElementById("detail-body")!.innerHTML = detailStep3;
+    // Load attendees if not loaded yet
+    if (currentEventId) loadPublicAttendees(currentEventId);
+    bindButtons(); detailStep = 3;
+  } else if (detailStep === 3) {
+    document.getElementById("detail-dot-4")!.classList.add("done");
+    document.getElementById("detail-body")!.innerHTML = detailStep4;
+    document.getElementById("detail-next-btn")!.classList.add("hidden");
+    document.getElementById("detail-prev-btn")!.classList.remove("hidden");
+    bindButtons(); detailStep = 4;
+  }
+}
+function detailPrev() {
+  if (detailStep === 2) {
+    document.getElementById("detail-dot-2")!.classList.remove("done");
+    document.getElementById("detail-body")!.innerHTML = detailStep1;
+    document.getElementById("detail-prev-btn")!.classList.add("hidden");
+    bindButtons(); detailStep = 1;
+  } else if (detailStep === 3) {
+    document.getElementById("detail-dot-3")!.classList.remove("done");
+    document.getElementById("detail-body")!.innerHTML = detailStep2;
+    document.getElementById("detail-next-btn")!.classList.remove("hidden");
+    bindButtons(); detailStep = 2;
+  } else if (detailStep === 4) {
+    document.getElementById("detail-dot-4")!.classList.remove("done");
+    document.getElementById("detail-body")!.innerHTML = detailStep3;
+    document.getElementById("detail-next-btn")!.classList.remove("hidden");
+    if (currentEventId) loadPublicAttendees(currentEventId);
+    bindButtons(); detailStep = 3;
+  }
+}
 
 // ======= MOD DASHBOARD =======
 var modTab = "pending";
@@ -226,7 +312,7 @@ function bindButtons() {
   document.querySelectorAll(".btn-rsvp-now").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) showRsvpOverlay(id); }); });
   document.querySelectorAll(".btn-leave-event").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) leaveEvent(id); }); });
   document.querySelectorAll(".btn-view-rsvps").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) viewRsvps(id); }); });
-  document.querySelectorAll(".btn-view-attendees").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var el = document.getElementById("rsvps-public-" + id); if (!el) return; var attendeeEl = el; if (!attendeeEl.classList.contains("hidden")) { attendeeEl.classList.add("hidden"); return; } fetch(API_BASE + "/api/rsvp-list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }).then(function (r) { return r.json(); }).then(function (data) { if (data.type === "rsvp-list") { var att = data.attendees || []; if (att.length === 0) attendeeEl.innerHTML = '<div style="font-size:13px;">No one yet</div>'; else { var h = '<div style="font-weight:700;font-size:11px;margin-bottom:6px;">' + att.length + ' going</div>'; for (var i = 0; i < att.length; i++) h += '<div style="font-size:13px;font-weight:600;padding:4px 0;border-bottom:1px solid var(--outline-v);">👤 u/' + escapeHtml(att[i].username) + '</div>'; attendeeEl.innerHTML = h; } attendeeEl.classList.remove("hidden"); } }); }); });
+  document.querySelectorAll(".btn-load-attendees").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) loadPublicAttendees(id); }); });
   // Home page card navigation
   document.querySelectorAll(".btn-home-prev").forEach(function (b) { b.addEventListener("click", homePrev); });
   document.querySelectorAll(".btn-home-next").forEach(function (b) { b.addEventListener("click", homeNext); });
@@ -235,7 +321,7 @@ function bindButtons() {
   // Detail nav
   document.querySelectorAll("#detail-next-btn").forEach(function (b) { b.addEventListener("click", detailNext); });
   document.querySelectorAll("#detail-prev-btn").forEach(function (b) { b.addEventListener("click", detailPrev); });
-  document.querySelectorAll("#detail-rsvp-btn").forEach(function (b) { b.addEventListener("click", function () { if (currentEventId) showRsvpOverlay(currentEventId); }); });
+  document.querySelectorAll(".btn-load-attendees").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) loadPublicAttendees(id); }); });
   document.querySelectorAll("#pitch-submit-btn").forEach(function (b) { b.addEventListener("click", submitPitch); });
   document.querySelectorAll("#event-next-btn").forEach(function (b) { b.addEventListener("click", eventNext); });
   document.querySelectorAll("#event-prev-btn").forEach(function (b) { b.addEventListener("click", eventPrev); });
