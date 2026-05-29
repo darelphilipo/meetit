@@ -193,13 +193,10 @@ async function getPendingEventsList(): Promise<MeetitEvent[]> {
 }
 
 async function getRsvpCount(eventId: string): Promise<number> {
-  const count = await redis.zCard(`meetit:rsvps:${eventId}`);
-  console.log(`[RSVP-COUNT] eventId=${eventId} count=${count}`);
-  return count;
+  return await redis.zCard(`meetit:rsvps:${eventId}`);
 }
 async function isUserRsvped(eventId: string, username: string): Promise<boolean> {
   const score = await redis.zScore(`meetit:rsvps:${eventId}`, username);
-  console.log(`[HAS-RSVP] eventId=${eventId} username=${username} score=${score}`);
   return score != null;
 }
 
