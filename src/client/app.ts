@@ -117,7 +117,9 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
       '<div style="flex-shrink:0;padding-top:10px;border-top:2px solid var(--outline-v);">' +
       '<div style="display:flex;gap:8px;align-items:center;">' +
       '<button class="btn btn-white btn-sm btn-view-details" data-id="' + event.id + '" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">View Details →</button>' +
-      '<button class="btn btn-pink btn-sm btn-rsvp-card" data-id="' + event.id + '" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">🎟️ RSVP</button>' +
+      (event.hasRsvped
+        ? '<button class="btn btn-green btn-sm btn-rsvp-card" data-id="' + event.id + '" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">✅ Going</button>'
+        : '<button class="btn btn-pink btn-sm btn-rsvp-card" data-id="' + event.id + '" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">🎟️ RSVP</button>') +
       '</div>' +
       (count > 1 ? '<div style="display:flex;gap:4px;margin-top:6px;"><button class="btn btn-white btn-sm btn-home-prev" style="flex:1;padding:6px;font-size:12px;">← Prev</button><button class="btn btn-white btn-sm btn-home-next" style="flex:1;padding:6px;font-size:12px;">Next →</button></div>' : '') +
       '</div>' +
@@ -298,7 +300,7 @@ async function showEventDetails(id: string) {
   var cachedEvent = cachedHomeEvents.find(function (event) { return event.id === id; });
   if (cachedEvent) {
     log("showEventDetails using cached event " + id);
-    openDetailsOverlay({ event: cachedEvent, rsvpCount: cachedEvent.rsvpCount || 0, hasRsvped: false, settings: {} });
+    openDetailsOverlay({ event: cachedEvent, rsvpCount: cachedEvent.rsvpCount || 0, hasRsvped: cachedEvent.hasRsvped || false, settings: {} });
   }
   try {
     var res = await fetch(API_BASE + "/api/event-details", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
@@ -623,7 +625,7 @@ function bindButtons() {
   document.querySelectorAll(".btn-delete-published").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) deleteEvent(id, "published"); }); });
   document.querySelectorAll(".btn-dismiss-idea").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) dismissIdea(id); }); });
   document.querySelectorAll(".btn-delete-pitch").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) deletePitch(id); }); });
-  document.querySelectorAll(".btn-rsvp-card").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) showRsvpOverlay(id); }); });
+  document.querySelectorAll(".btn-rsvp-card").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var evt = cachedHomeEvents.find(function (e) { return e.id === id; }); if (evt && evt.hasRsvped) { showEventDetails(id); } else { showRsvpOverlay(id); } }); });
   document.querySelectorAll(".btn-rsvp-now").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) showRsvpOverlay(id); }); });
   document.querySelectorAll(".btn-leave-event").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) leaveEvent(id); }); });
   document.querySelectorAll(".btn-view-rsvps").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) viewRsvps(id); }); });

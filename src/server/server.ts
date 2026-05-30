@@ -242,10 +242,12 @@ async function onHome(): Promise<ApiResponse> {
   console.log(`[HOME] Found ${events.length} events, isMod=${modStatus}`);
   const appSettings = await getSettings();
 
+  const username = context.username || "";
   const eventsWithCounts = await Promise.all(
     events.map(async (event) => {
       const count = await getRsvpCount(event.id);
-      return { ...event, rsvpCount: count };
+      const hasRsvped = await isUserRsvped(event.id, username);
+      return { ...event, rsvpCount: count, hasRsvped };
     })
   );
 
