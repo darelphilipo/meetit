@@ -151,17 +151,43 @@ async function loadPublicAttendees(eventId: string) {
     var data = await res.json();
     if (data.type === "rsvp-list") {
       var att = data.attendees || [];
-      if (att.length === 0) el.innerHTML = '<div style="text-align:center;padding:20px;font-size:14px;color:var(--muted);">No one yet — be the first!</div>';
-      else {
-        var h = '';
-        for (var i = 0; i < att.length; i++) h += '<div style="font-size:14px;font-weight:600;padding:8px 6px;border-bottom:1px solid var(--outline-v);display:flex;align-items:center;gap:8px;"><div style="width:28px;height:28px;border:3px solid #1c1c0f;background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0;">' + att[i].username.charAt(0).toUpperCase() + '</div>u/' + escapeHtml(att[i].username) + '</div>';
-        el.innerHTML = h;
+      attStore[eventId] = att;
+      if (att.length === 0) { el.innerHTML = '<div style="text-align:center;padding:20px;font-size:14px;color:var(--muted);">No one yet — be the first!</div>'; return; }
+      var perPage = 5, totalPages = Math.ceil(att.length / perPage);
+      attPageMap[eventId] = 0;
+      var pages = '';
+      for (var p = 0; p < totalPages; p++) {
+        pages += '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;">';
+        for (var i = p * perPage; i < Math.min(att.length, (p + 1) * perPage); i++) {
+          pages += '<div style="font-size:14px;font-weight:600;padding:8px 6px;border-bottom:1px solid var(--outline-v);display:flex;align-items:center;gap:8px;"><div style="width:28px;height:28px;border:3px solid #1c1c0f;background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0;">' + att[i].username.charAt(0).toUpperCase() + '</div>u/' + escapeHtml(att[i].username) + '</div>';
+        }
+        pages += '</div>';
       }
+      el.innerHTML = '<div id="att-track-' + eventId + '" style="display:flex;width:' + (totalPages * 100) + '%;height:100%;transition:transform 0.25s;">' + pages + '</div>';
+      document.getElementById("att-nav-" + eventId)!.innerHTML = buildAttNav(eventId);
+      bindButtons();
     }
   } catch (e) { console.error(e); }
 }
 
+function buildAttNav(eventId: string): string {
+  var total = Math.ceil((attStore[eventId] || []).length / 5);
+  if (total <= 1) return '';
+  var cur = attPageMap[eventId] || 0;
+  return '<button class="btn btn-white btn-sm btn-att-prev" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;" ' + (cur === 0 ? 'disabled' : '') + '>← Prev</button>' +
+    '<span style="font-size:12px;font-weight:700;padding:4px 8px;">' + (cur + 1) + '/' + total + '</span>' +
+    '<button class="btn btn-white btn-sm btn-att-next" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;" ' + (cur === total - 1 ? 'disabled' : '') + '>Next →</button>';
+}
+
 var detailLoading = false;
+var descPageMap: Record<string, number> = {};
+var attPageMap: Record<string, number> = {};
+var attStore: Record<string, any[]> = {};
+
+function slideTrack(trackId: string, page: number, totalPages: number) {
+  var track = document.getElementById(trackId);
+  if (track) track.style.transform = "translateX(-" + (page * (100 / totalPages)) + "%)";
+}
 
 async function showEventDetails(id: string) {
   if (detailLoading) return;
@@ -187,31 +213,38 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   var e = d.event; document.getElementById("details-overlay-title")!.textContent = e.title;
   var date = new Date(e.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
-  // Card 1: Quick Info (fits without scroll)
-  var s1 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;justify-content:center;gap:18px;padding:20px;">' +
-    '<div style="text-align:center;"><div style="font-size:14px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">📅 Date</div><div style="font-size:22px;font-weight:700;">' + date + '</div></div>' +
-    '<div style="text-align:center;"><div style="font-size:14px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">⏰ Time</div><div style="font-size:22px;font-weight:700;">' + escapeHtml(e.time) + '</div></div>' +
-    '<div style="text-align:center;"><div style="font-size:14px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">📍 Location</div><div style="font-size:22px;font-weight:700;">' + escapeHtml(e.location) + '</div></div>' +
-    '<div style="background:var(--surface);border:var(--border);padding:14px;text-align:center;font-weight:700;font-size:16px;">👥 ' + d.rsvpCount + ' people going</div>' +
+  // Card 1: Quick Info
+  var s1 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;justify-content:center;gap:16px;padding:16px;">' +
+    '<div style="text-align:center;"><div style="font-size:13px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">📅 Date</div><div style="font-size:22px;font-weight:700;">' + date + '</div></div>' +
+    '<div style="text-align:center;"><div style="font-size:13px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">⏰ Time</div><div style="font-size:22px;font-weight:700;">' + escapeHtml(e.time) + '</div></div>' +
+    '<div style="text-align:center;"><div style="font-size:13px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">📍 Location</div><div style="font-size:18px;font-weight:700;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;">' + escapeHtml(e.location) + '</div></div>' +
+    '<div style="background:var(--surface);border:var(--border);padding:12px;text-align:center;font-weight:700;font-size:15px;margin-top:4px;">👥 ' + d.rsvpCount + ' people going</div>' +
     '</div>';
 
-  // Card 2: Organizer + Description (scrollable if long)
+  // Card 2: Organizer + Description (horizontal page-turn for long text)
   var descFull = e.description || "", descShort = descFull.substring(0, 100), hasMore = descFull.length > 100;
+  descPageMap[e.id] = 0;
   var s2 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;gap:8px;padding:8px 0;">';
   if (e.organizer) { var initial = e.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><div style="width:36px;height:36px;border:var(--border);background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(e.organizer) + '</div></div></div>'; }
-  s2 += '<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#fff;border:var(--border);padding:14px;margin:0 8px;font-size:15px;line-height:1.5;">' +
-    '<span id="desc-short-' + e.id + '" style="display:' + (hasMore ? 'inline' : 'none') + '">' + escapeHtml(descShort) + '... <button class="btn btn-white btn-sm btn-read-more" data-id="' + e.id + '" style="font-size:12px;padding:4px 12px;margin-left:4px;">Read more ↓</button></span>' +
-    '<span id="desc-full-' + e.id + '" style="display:' + (hasMore ? 'none' : 'inline') + '">' + escapeHtml(descFull) + (hasMore ? ' <button class="btn btn-white btn-sm btn-read-more" data-id="' + e.id + '" style="font-size:12px;padding:4px 12px;margin-left:4px;">Read less ↑</button>' : '') + '</span>' +
-    '</div>';
+  s2 += '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);">' +
+    '<div id="desc-track-' + e.id + '" style="display:flex;width:200%;height:100%;transition:transform 0.25s;">' +
+    '<div style="min-width:50%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;font-size:15px;line-height:1.5;">' +
+      escapeHtml(descShort) + (hasMore ? '... ' + '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + e.id + '" style="font-size:12px;padding:4px 12px;">Read more →</button>' : '') +
+    '</div>' +
+    '<div style="min-width:50%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;font-size:15px;line-height:1.5;">' +
+      escapeHtml(descFull) +
+      (hasMore ? ' <button class="btn btn-white btn-sm btn-desc-prev" data-id="' + e.id + '" style="font-size:12px;padding:4px 12px;margin-top:8px;">← Previous</button>' : '') +
+    '</div></div></div>';
   if (e.mapUrl) { s2 += '<div style="display:flex;align-items:center;gap:8px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-url="' + escapeHtml(e.mapUrl) + '" style="background:#fff;border:var(--border);padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>'; }
   s2 += '</div>';
 
-  // Card 3: Who's Going (scrollable attendee list)
+  // Card 3: Who's Going (auto-load, horizontal pagination, no button)
+  attPageMap[e.id] = 0;
   var s3 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;padding:4px 0;">' +
     '<div style="text-align:center;padding:12px 0 8px 0;font-weight:700;font-size:17px;flex-shrink:0;">👥 Who\'s Going?</div>' +
-    '<div style="text-align:center;font-size:14px;color:var(--muted);padding-bottom:10px;flex-shrink:0;">' + d.rsvpCount + ' attendee' + (d.rsvpCount !== 1 ? 's' : '') + '</div>' +
-    '<div id="rsvps-public-' + e.id + '" style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#fff;border:var(--border);padding:8px;margin:0 8px;"></div>' +
-    '<button class="btn btn-white btn-sm btn-load-attendees" data-id="' + e.id + '" style="flex-shrink:0;margin:6px 8px 0 8px;padding:8px;">🔁 Load attendees</button>' +
+    '<div style="text-align:center;font-size:14px;color:var(--muted);padding-bottom:8px;flex-shrink:0;">' + d.rsvpCount + ' attendee' + (d.rsvpCount !== 1 ? 's' : '') + '</div>' +
+    '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);"><div id="rsvps-public-' + e.id + '" style="height:100%;"></div></div>' +
+    '<div id="att-nav-' + e.id + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:6px 8px 0 8px;min-height:32px;"></div>' +
     '</div>';
 
   // Card 4: RSVP / Leave
@@ -348,6 +381,10 @@ function bindButtons() {
   document.querySelectorAll(".btn-leave-event").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) leaveEvent(id); }); });
   document.querySelectorAll(".btn-view-rsvps").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) viewRsvps(id); }); });
   document.querySelectorAll(".btn-load-attendees").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) loadPublicAttendees(id); }); });
+  document.querySelectorAll(".btn-desc-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; descPageMap[id] = 1; slideTrack("desc-track-" + id, 1, 2); }); });
+  document.querySelectorAll(".btn-desc-prev").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; descPageMap[id] = 0; slideTrack("desc-track-" + id, 0, 2); }); });
+  document.querySelectorAll(".btn-att-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) + 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); bindButtons(); }); });
+  document.querySelectorAll(".btn-att-prev").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) - 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); bindButtons(); }); });
   // Home page card navigation
   document.querySelectorAll(".btn-home-prev").forEach(function (b) { b.addEventListener("click", homePrev); });
   document.querySelectorAll(".btn-home-next").forEach(function (b) { b.addEventListener("click", homeNext); });
@@ -363,7 +400,6 @@ function bindButtons() {
   document.querySelectorAll(".close-overlay").forEach(function (b) { b.addEventListener("click", showHomePage); });
   document.querySelectorAll(".btn-copy-link").forEach(function (b) { b.addEventListener("click", function () { var url = (b as HTMLElement).getAttribute("data-url") || ""; if (navigator.clipboard) navigator.clipboard.writeText(url); else { var ta = document.createElement("textarea"); ta.value = url; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); } showCopyToast(); }); });
   document.querySelectorAll(".btn-copy-rsvp").forEach(function (b) { b.addEventListener("click", function () { var raw = (b as HTMLElement).getAttribute("data-rsvps") || "[]", arr = JSON.parse(raw), csv = "username,email,phone,timestamp\n"; for (var i = 0; i < arr.length; i++) csv += arr[i].username + "," + (arr[i].email || "") + "," + (arr[i].phone || "") + "," + (arr[i].timestamp || "") + "\n"; try { navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(csv).then(function () { showToast("Copied!", "success"); }).catch(fc) : fc(); } catch (e) { fc(); } function fc() { var ta = document.createElement("textarea"); ta.value = csv; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); showToast("Copied!", "success"); } }); });
-  document.querySelectorAll(".btn-read-more").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var s = document.getElementById("desc-short-" + id), f = document.getElementById("desc-full-" + id); if (!s || !f) return; var x = f.style.display !== "none"; f.style.display = x ? "none" : "block"; s.style.display = x ? "inline" : "none"; b.textContent = x ? "Read more ↓" : "Read less ↑"; }); });
 }
 
 document.addEventListener("DOMContentLoaded", function () {
