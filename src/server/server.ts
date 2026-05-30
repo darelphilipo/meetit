@@ -171,9 +171,8 @@ async function isMod(): Promise<boolean> {
   try {
     const modList = await settings.get("mod_usernames");
     if (modList) return isConfiguredModerator(username, modList);
-  } catch (e) { console.error(`isMod error: ${e}`); }
-  // Fallback: if no mod list configured, allow access (first install)
-  return true;
+} catch (e) { console.error(`isMod error: ${e}`); }
+  return false;
 }
 
 async function requireMod(): Promise<ErrorResponse | undefined> {
