@@ -238,6 +238,16 @@ function buildDescNavHTML(eventId: string): string {
     '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;" ' + (cur === total - 1 ? 'disabled' : '') + '>Next →</button>';
 }
 
+function persistStep2(eventId: string) {
+  var track = document.getElementById("desc-track-" + eventId);
+  var nav = document.getElementById("desc-nav-" + eventId);
+  if (!track || !nav) return;
+  // Reconstruct the full card 2 HTML by replacing track and nav in the original string
+  var body = document.getElementById("detail-body");
+  if (!body) return;
+  detailStep2 = body.innerHTML;
+}
+
 async function showEventDetails(id: string) {
   log("showEventDetails id=" + id + " loading=" + detailLoading);
   if (detailLoading) return;
@@ -442,6 +452,7 @@ function bindButtons() {
   document.querySelectorAll(".btn-view-rsvps").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) viewRsvps(id); }); });
   document.querySelectorAll(".btn-load-attendees").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) loadPublicAttendees(id); }); });
   document.querySelectorAll(".btn-desc-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return;
+    if ((b as HTMLButtonElement).disabled) { log("desc-next SKIP disabled id=" + id); return; }
     log("desc-next id=" + id + " pageTotal=" + (descPageTotal[id] || 0) + " curPage=" + (descPageMap[id] || 0));
     if (descPageTotal[id] === 99) {
       log("desc-next PAGINATING id=" + id);
@@ -453,6 +464,7 @@ function bindButtons() {
       descPageMap[id] = 0;
       document.getElementById("desc-track-" + id)!.outerHTML = buildDescPagesHTML(id, pages);
       document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
+      persistStep2(id);
       bindButtons();
     } else {
       var cur = (descPageMap[id] || 0) + 1;
@@ -461,6 +473,7 @@ function bindButtons() {
       log("desc-next slide id=" + id + " page=" + cur + "/" + descPageTotal[id]);
       slideTrack("desc-track-" + id, cur, descPageTotal[id] || 1);
       document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
+      persistStep2(id);
       bindButtons();
     }
   }); });
@@ -471,6 +484,7 @@ function bindButtons() {
     log("desc-prev slide id=" + id + " page=" + cur + "/" + descPageTotal[id]);
     slideTrack("desc-track-" + id, cur, descPageTotal[id] || 1);
     document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
+    persistStep2(id);
     bindButtons();
   }); });
   document.querySelectorAll(".btn-att-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) + 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); log("att-next id=" + id + " page=" + cur + "/" + total); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); bindButtons(); }); });
