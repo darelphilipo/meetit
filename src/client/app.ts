@@ -440,7 +440,7 @@ function renderModCard(tab: string) {
   var c = document.getElementById("pending-events-container")!;
   var cardClass = tab === "pitches" ? "idea-card" : (tab === "pending" ? "pending-card" : "event-card");
   var desc = item.description || "";
-  var dcKey = tab + ":" + idx;
+  var dcKey = tab + "-" + idx;
 
   modDescFull[dcKey] = desc;
   if (!modDescTotal[dcKey]) modDescTotal[dcKey] = desc.length > 100 ? 99 : 1;
