@@ -196,6 +196,12 @@ async function getPendingEventsList(): Promise<MeetitEvent[]> {
   return Object.values(events).map((val) => JSON.parse(val));
 }
 
+async function getRsvpData(eventId: string, username: string): Promise<{ count: number; hasRsvped: boolean }> {
+  const results = await redis.zRange(`meetit:rsvps:${eventId}`, "-inf", "+inf", { by: "score" });
+  const members = results.map((r) => r.member);
+  return { count: members.length, hasRsvped: members.includes(username) };
+}
+
 async function getRsvpCount(eventId: string): Promise<number> {
   return await redis.zCard(`meetit:rsvps:${eventId}`);
 }
@@ -244,8 +250,7 @@ async function onHome(): Promise<ApiResponse> {
   const username = context.username || "";
   const eventsWithCounts = await Promise.all(
     events.map(async (event) => {
-      const count = await getRsvpCount(event.id);
-      const hasRsvped = await isUserRsvped(event.id, username);
+      const { count, hasRsvped } = await getRsvpData(event.id, username);
       return { ...event, rsvpCount: count, hasRsvped };
     })
   );
