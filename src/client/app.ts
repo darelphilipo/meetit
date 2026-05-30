@@ -181,12 +181,51 @@ function buildAttNav(eventId: string): string {
 
 var detailLoading = false;
 var descPageMap: Record<string, number> = {};
+var descPageTotal: Record<string, number> = {};
 var attPageMap: Record<string, number> = {};
 var attStore: Record<string, any[]> = {};
+var descFullStore: Record<string, string> = {};
 
 function slideTrack(trackId: string, page: number, totalPages: number) {
   var track = document.getElementById(trackId);
   if (track) track.style.transform = "translateX(-" + (page * (100 / totalPages)) + "%)";
+}
+
+function splitTextToPages(text: string, width: number, maxHeight: number): string[] {
+  var m = document.createElement("div");
+  m.style.cssText = "position:absolute;left:-9999px;top:0;width:" + width + "px;font-size:15px;line-height:1.5;font-family:'Space Grotesk',sans-serif;padding:14px;word-break:break-word;white-space:pre-wrap;visibility:hidden;";
+  document.body.appendChild(m);
+  var words = text.split(" ");
+  var pages: string[] = [];
+  var current = "";
+  for (var i = 0; i < words.length; i++) {
+    var test = current ? current + " " + words[i] : words[i];
+    m.textContent = test;
+    if (m.scrollHeight > maxHeight && current) { pages.push(current); current = words[i]; }
+    else { current = test; }
+  }
+  if (current) pages.push(current);
+  document.body.removeChild(m);
+  return pages.length ? pages : [text];
+}
+
+function buildDescPagesHTML(eventId: string, pages: string[]): string {
+  var pct = (100 / pages.length);
+  var html = '<div id="desc-track-' + eventId + '" style="display:flex;width:' + (pages.length * 100) + '%;height:100%;transition:transform 0.25s;">';
+  for (var i = 0; i < pages.length; i++) {
+    html += '<div style="min-width:' + pct + '%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;font-size:15px;line-height:1.5;word-break:break-word;">' + escapeHtml(pages[i]) + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function buildDescNavHTML(eventId: string): string {
+  var total = descPageTotal[eventId] || 1;
+  if (total <= 1) return '';
+  var cur = descPageMap[eventId] || 0;
+  return '<button class="btn btn-white btn-sm btn-desc-prev" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;" ' + (cur === 0 ? 'disabled' : '') + '>← Previous</button>' +
+    '<span style="font-size:12px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
+    '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;" ' + (cur === total - 1 ? 'disabled' : '') + '>Next →</button>';
 }
 
 async function showEventDetails(id: string) {
@@ -223,19 +262,19 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
 
   // Card 2: Organizer + Description (horizontal page-turn for long text)
   var descFull = e.description || "", descShort = descFull.substring(0, 100), hasMore = descFull.length > 100;
-  descPageMap[e.id] = 0;
-  var s2 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;gap:8px;padding:8px 0;">';
+  descFullStore[e.id] = descFull;
+  descPageMap[e.id] = 0; descPageTotal[e.id] = hasMore ? 99 : 1; // 99 = "needs pagination"
+  var s2 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;gap:6px;padding:8px 0;">';
   if (e.organizer) { var initial = e.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><div style="width:36px;height:36px;border:var(--border);background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(e.organizer) + '</div></div></div>'; }
-  s2 += '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);">' +
-    '<div id="desc-track-' + e.id + '" style="display:flex;width:200%;height:100%;transition:transform 0.25s;">' +
-    '<div style="min-width:50%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;font-size:15px;line-height:1.5;">' +
-      escapeHtml(descShort) + (hasMore ? '... ' + '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + e.id + '" style="font-size:12px;padding:4px 12px;">Read more →</button>' : '') +
-    '</div>' +
-    '<div style="min-width:50%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;font-size:15px;line-height:1.5;">' +
-      escapeHtml(descFull) +
-      (hasMore ? ' <button class="btn btn-white btn-sm btn-desc-prev" data-id="' + e.id + '" style="font-size:12px;padding:4px 12px;margin-top:8px;">← Previous</button>' : '') +
-    '</div></div></div>';
-  if (e.mapUrl) { s2 += '<div style="display:flex;align-items:center;gap:8px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-url="' + escapeHtml(e.mapUrl) + '" style="background:#fff;border:var(--border);padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>'; }
+  s2 += '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);" id="desc-box-' + e.id + '">' +
+    '<div id="desc-track-' + e.id + '" style="display:flex;width:100%;height:100%;transition:transform 0.25s;">' +
+    '<div id="desc-page-initial-' + e.id + '" style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;font-size:15px;line-height:1.5;word-break:break-word;">' +
+      escapeHtml(descShort) + (hasMore ? '...' : '') +
+    '</div></div></div>' +
+    '<div id="desc-nav-' + e.id + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:4px 8px 0 8px;min-height:28px;">' +
+      (hasMore ? '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + e.id + '" style="padding:4px 14px;font-size:12px;">Read more →</button>' : '') +
+    '</div>';
+  if (e.mapUrl) { s2 += '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-url="' + escapeHtml(e.mapUrl) + '" style="background:#fff;border:var(--border);padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>'; }
   s2 += '</div>';
 
   // Card 3: Who's Going (auto-load, horizontal pagination, no button)
@@ -381,8 +420,36 @@ function bindButtons() {
   document.querySelectorAll(".btn-leave-event").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) leaveEvent(id); }); });
   document.querySelectorAll(".btn-view-rsvps").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) viewRsvps(id); }); });
   document.querySelectorAll(".btn-load-attendees").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) loadPublicAttendees(id); }); });
-  document.querySelectorAll(".btn-desc-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; descPageMap[id] = 1; slideTrack("desc-track-" + id, 1, 2); }); });
-  document.querySelectorAll(".btn-desc-prev").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; descPageMap[id] = 0; slideTrack("desc-track-" + id, 0, 2); }); });
+  document.querySelectorAll(".btn-desc-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return;
+    if (descPageTotal[id] === 99) {
+      // First click: measure space, split text into pages, rebuild track
+      var box = document.getElementById("desc-box-" + id);
+      if (!box) return;
+      var track = document.getElementById("desc-track-" + id);
+      if (!track) return;
+      var pages = splitTextToPages(descFullStore[id] || "", box.clientWidth, box.clientHeight);
+      descPageTotal[id] = pages.length;
+      descPageMap[id] = 0;
+      track.outerHTML = buildDescPagesHTML(id, pages);
+      document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
+      bindButtons();
+    } else {
+      var cur = (descPageMap[id] || 0) + 1;
+      if (cur >= (descPageTotal[id] || 1)) return;
+      descPageMap[id] = cur;
+      slideTrack("desc-track-" + id, cur, descPageTotal[id] || 1);
+      document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
+      bindButtons();
+    }
+  }); });
+  document.querySelectorAll(".btn-desc-prev").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return;
+    var cur = (descPageMap[id] || 0) - 1;
+    if (cur < 0) return;
+    descPageMap[id] = cur;
+    slideTrack("desc-track-" + id, cur, descPageTotal[id] || 1);
+    document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
+    bindButtons();
+  }); });
   document.querySelectorAll(".btn-att-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) + 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); bindButtons(); }); });
   document.querySelectorAll(".btn-att-prev").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) - 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); bindButtons(); }); });
   // Home page card navigation
