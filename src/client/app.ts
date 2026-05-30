@@ -192,9 +192,9 @@ function buildAttNav(eventId: string): string {
   var total = Math.ceil((attStore[eventId] || []).length / 5);
   if (total <= 1) return '';
   var cur = attPageMap[eventId] || 0;
-  return '<button class="btn btn-white btn-sm btn-att-prev" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;" ' + (cur === 0 ? 'disabled' : '') + '>← Prev</button>' +
+  return (cur > 0 ? '<button class="btn btn-white btn-sm btn-att-prev" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;">← Prev</button>' : '') +
     '<span style="font-size:12px;font-weight:700;padding:4px 8px;">' + (cur + 1) + '/' + total + '</span>' +
-    '<button class="btn btn-white btn-sm btn-att-next" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;" ' + (cur === total - 1 ? 'disabled' : '') + '>Next →</button>';
+    (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-att-next" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;">Next →</button>' : '');
 }
 
 function slideTrack(trackId: string, page: number, totalPages: number) {
@@ -234,9 +234,9 @@ function buildDescNavHTML(eventId: string): string {
   var total = descPageTotal[eventId] || 1;
   if (total <= 1) return '';
   var cur = descPageMap[eventId] || 0;
-  return '<button class="btn btn-white btn-sm btn-desc-prev" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;" ' + (cur === 0 ? 'disabled' : '') + '>← Previous</button>' +
+  return (cur > 0 ? '<button class="btn btn-white btn-sm btn-desc-prev" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;">← Previous</button>' : '') +
     '<span style="font-size:12px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
-    '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;" ' + (cur === total - 1 ? 'disabled' : '') + '>Next →</button>';
+    (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;">Next →</button>' : '');
 }
 
 function persistStep2(eventId: string) {
@@ -455,7 +455,6 @@ function bindButtons() {
   document.querySelectorAll(".btn-view-rsvps").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) viewRsvps(id); }); });
   document.querySelectorAll(".btn-load-attendees").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) loadPublicAttendees(id); }); });
   document.querySelectorAll(".btn-desc-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return;
-    if ((b as HTMLButtonElement).disabled) { log("desc-next SKIP disabled id=" + id); return; }
     log("desc-next id=" + id + " pageTotal=" + (descPageTotal[id] || 0) + " curPage=" + (descPageMap[id] || 0));
     if (descPageTotal[id] === 99) {
       log("desc-next PAGINATING id=" + id);
