@@ -457,9 +457,7 @@ function renderModCard(tab: string) {
     '<div id="mod-desc-track-' + dcKey + '" style="display:flex;width:100%;height:100%;transition:transform 0.25s;">' +
     '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, 100)) + (desc.length > 100 ? '...' : '') + '</div>' +
     '</div></div>' +
-    '<div id="mod-desc-nav-' + dcKey + '" style="flex-shrink:0;min-height:0;display:flex;justify-content:center;align-items:center;gap:6px;">' +
-      (desc.length > 100 ? '<button class="btn btn-white btn-sm btn-mod-desc-next" data-key="' + dcKey + '" style="padding:2px 10px;font-size:11px;">Read more →</button>' : '') +
-    '</div>';
+    '<div id="mod-desc-nav-' + dcKey + '" style="flex-shrink:0;min-height:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
   // Actions
   html += '<div style="flex-shrink:0;display:flex;flex-wrap:wrap;gap:6px;">';
   if (tab === "pending") {
@@ -495,7 +493,7 @@ function renderModCard(tab: string) {
       modDescTotal[dcKey2] = pages.length;
       modDescPage[dcKey2] = 0;
       document.getElementById("mod-desc-track-" + dcKey2)!.outerHTML = buildModDescPagesHTML(dcKey2, pages);
-      if (pages.length > 1) document.getElementById("mod-desc-nav-" + dcKey2)!.innerHTML = buildModDescNavHTML(dcKey2);
+      document.getElementById("mod-desc-nav-" + dcKey2)!.innerHTML = buildModDescNavHTML(dcKey2);
       bindButtons();
     }, 100);
   }
