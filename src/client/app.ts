@@ -116,17 +116,17 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
       '</div>' +
       '<div style="flex-shrink:0;padding-top:10px;border-top:2px solid var(--outline-v);">' +
       '<div style="display:flex;gap:8px;align-items:center;">' +
-      '<button class="btn btn-white btn-sm btn-view-details" data-id="' + event.id + '" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">View Details →</button>' +
+      '<button class="btn btn-white btn-sm btn-view-details" data-id="' + event.id + '" data-action="view-details" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">View Details →</button>' +
       (event.hasRsvped
-        ? '<button class="btn btn-green btn-sm btn-rsvp-card" data-id="' + event.id + '" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">✅ Going</button>'
-        : '<button class="btn btn-pink btn-sm btn-rsvp-card" data-id="' + event.id + '" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">🎟️ RSVP</button>') +
+        ? '<button class="btn btn-green btn-sm btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">✅ Going</button>'
+        : '<button class="btn btn-pink btn-sm btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">🎟️ RSVP</button>') +
       '</div>' +
-      (count > 1 ? '<div style="display:flex;gap:4px;margin-top:6px;"><button class="btn btn-white btn-sm btn-home-prev" style="flex:1;padding:6px;font-size:12px;">← Prev</button><button class="btn btn-white btn-sm btn-home-next" style="flex:1;padding:6px;font-size:12px;">Next →</button></div>' : '') +
+      (count > 1 ? '<div style="display:flex;gap:4px;margin-top:6px;"><button class="btn btn-white btn-sm btn-home-prev" data-action="home-prev" style="flex:1;padding:6px;font-size:12px;">← Prev</button><button class="btn btn-white btn-sm btn-home-next" data-action="home-next" style="flex:1;padding:6px;font-size:12px;">Next →</button></div>' : '') +
       '</div>' +
       '</div>';
   }
   document.getElementById("mod-btn")!.classList.toggle("hidden", !state.isMod);
-  bindButtons();
+  
 }
 
 function homePrev() { log("homePrev idx=" + homeCardIndex + " total=" + cachedHomeEvents.length); if (cachedHomeEvents.length > 1) { homeCardIndex = (homeCardIndex - 1 + cachedHomeEvents.length) % cachedHomeEvents.length; renderHomeCard({ eventsByDate: groupByDate(cachedHomeEvents), isMod: cachedHomeIsMod, settings: {} }); } }
@@ -167,10 +167,10 @@ function renderMyPitchCard() {
     '<h3 style="font-size:16px;font-weight:700;margin:4px 0;flex-shrink:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(p.title) + '</h3>' +
     '<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;color:var(--muted);line-height:1.4;">' + escapeHtml(p.description) + '</div>' +
     '<div style="flex-shrink:0;display:flex;gap:6px;justify-content:center;align-items:center;padding-top:6px;">' +
-      '<button class="btn btn-white btn-sm btn-delete-pitch" data-id="' + p.id + '" style="padding:6px 14px;font-size:12px;">🗑️ Delete</button>' +
-      (total > 1 ? '<button class="btn btn-white btn-sm btn-my-pitch-prev" style="padding:4px 10px;font-size:11px;">←</button><span style="font-size:11px;font-weight:700;">' + (myPitchIdx + 1) + '/' + total + '</span><button class="btn btn-white btn-sm btn-my-pitch-next" style="padding:4px 10px;font-size:11px;">→</button>' : '') +
+      '<button class="btn btn-white btn-sm btn-delete-pitch" data-id="' + p.id + '" data-action="delete-pitch" style="padding:6px 14px;font-size:12px;">🗑️ Delete</button>' +
+      (total > 1 ? '<button class="btn btn-white btn-sm btn-my-pitch-prev" data-action="my-pitch-prev" style="padding:4px 10px;font-size:11px;">←</button><span style="font-size:11px;font-weight:700;">' + (myPitchIdx + 1) + '/' + total + '</span><button class="btn btn-white btn-sm btn-my-pitch-next" data-action="my-pitch-next" style="padding:4px 10px;font-size:11px;">→</button>' : '') +
     '</div></div>';
-  bindButtons();
+  
 }
 function renderMyEventCard() {
   var el = document.getElementById("my-events-section")!;
@@ -187,9 +187,9 @@ function renderMyEventCard() {
     '<div style="flex-shrink:0;font-size:12px;font-weight:600;">' + status + '</div>' +
     '<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;color:var(--muted);line-height:1.4;">' + escapeHtml(e.description || "") + '</div>' +
     '<div style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;padding-top:6px;">' +
-      (total > 1 ? '<button class="btn btn-white btn-sm btn-my-event-prev" style="padding:4px 10px;font-size:11px;">←</button><span style="font-size:11px;font-weight:700;">' + (myEventIdx + 1) + '/' + total + '</span><button class="btn btn-white btn-sm btn-my-event-next" style="padding:4px 10px;font-size:11px;">→</button>' : '') +
+      (total > 1 ? '<button class="btn btn-white btn-sm btn-my-event-prev" data-action="my-event-prev" style="padding:4px 10px;font-size:11px;">←</button><span style="font-size:11px;font-weight:700;">' + (myEventIdx + 1) + '/' + total + '</span><button class="btn btn-white btn-sm btn-my-event-next" data-action="my-event-next" style="padding:4px 10px;font-size:11px;">→</button>' : '') +
     '</div></div>';
-  bindButtons();
+  
 }
 function myPitchNext() { myPitchIdx++; if (myPitchIdx >= myPitches.length) myPitchIdx = 0; renderMyPitchCard(); }
 function myPitchPrev() { myPitchIdx--; if (myPitchIdx < 0) myPitchIdx = myPitches.length - 1; renderMyPitchCard(); }
@@ -224,7 +224,7 @@ async function loadPublicAttendees(eventId: string) {
       el.innerHTML = '<div id="att-track-' + eventId + '" style="display:flex;width:' + (totalPages * 100) + '%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' + pages + '</div>';
       document.getElementById("att-nav-" + eventId)!.innerHTML = buildAttNav(eventId);
       if (detailStep === 3) persistStep3(eventId);
-      bindButtons();
+      
     }
   } catch (e) { console.error(e); }
 }
@@ -233,9 +233,9 @@ function buildAttNav(eventId: string): string {
   var total = Math.ceil((attStore[eventId] || []).length / 5);
   if (total <= 1) return '';
   var cur = attPageMap[eventId] || 0;
-  return (cur > 0 ? '<button class="btn btn-white btn-sm btn-att-prev" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;">← Prev</button>' : '') +
+  return (cur > 0 ? '<button class="btn btn-white btn-sm btn-att-prev" data-id="' + eventId + '" data-action="att-prev" style="padding:4px 12px;font-size:12px;">← Prev</button>' : '') +
     '<span style="font-size:12px;font-weight:700;padding:4px 8px;">' + (cur + 1) + '/' + total + '</span>' +
-    (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-att-next" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;">Next →</button>' : '');
+    (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-att-next" data-id="' + eventId + '" data-action="att-next" style="padding:4px 12px;font-size:12px;">Next →</button>' : '');
 }
 
 function slideTrack(trackId: string, page: number, totalPages: number) {
@@ -275,9 +275,9 @@ function buildDescNavHTML(eventId: string): string {
   var total = descPageTotal[eventId] || 1;
   if (total <= 1) return '';
   var cur = descPageMap[eventId] || 0;
-  return (cur > 0 ? '<button class="btn btn-white btn-sm btn-desc-prev" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;">← Previous</button>' : '') +
+  return (cur > 0 ? '<button class="btn btn-white btn-sm btn-desc-prev" data-id="' + eventId + '" data-action="desc-prev" style="padding:4px 12px;font-size:12px;">← Previous</button>' : '') +
     '<span style="font-size:12px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
-    (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;">Next →</button>' : '');
+    (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + eventId + '" data-action="desc-next" style="padding:4px 12px;font-size:12px;">Next →</button>' : '');
 }
 
 function persistStep2(eventId: string) {
@@ -343,9 +343,9 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
       escapeHtml(descShort) + (hasMore ? '...' : '') +
     '</div></div></div>' +
     '<div id="desc-nav-' + e.id + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:4px 8px 0 8px;min-height:28px;">' +
-      (hasMore ? '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + e.id + '" style="padding:4px 14px;font-size:12px;">Read more →</button>' : '') +
+      (hasMore ? '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + e.id + '" data-action="desc-next" style="padding:4px 14px;font-size:12px;">Read more →</button>' : '') +
     '</div>';
-  if (e.mapUrl) { s2 += '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-url="' + escapeHtml(e.mapUrl) + '" style="background:#fff;border:var(--border);padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>'; }
+  if (e.mapUrl) { s2 +=       '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-id="' + escapeHtml(e.mapUrl) + '" data-action="copy-link" style="background:#fff;border:var(--border);padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>'; }
   s2 += '</div>';
 
   // Card 3: Who's Going
@@ -363,13 +363,13 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
       '<div style="font-size:56px;">🎉</div>' +
       '<div style="font-size:18px;font-weight:700;">You\'re on the list!</div>' +
       '<div style="font-size:14px;color:var(--muted);">See you there</div>' +
-      '<button class="btn btn-white btn-leave-event" data-id="' + e.id + '" style="margin-top:12px;width:auto;padding:10px 20px;">❌ Leave Event</button>' +
+      '<button class="btn btn-white btn-leave-event" data-id="' + e.id + '" data-action="leave-event" style="margin-top:12px;width:auto;padding:10px 20px;">❌ Leave Event</button>' +
       '</div>'
     : '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;text-align:center;">' +
       '<div style="font-size:64px;">🎟️</div>' +
       '<div style="font-size:20px;font-weight:700;">Ready to join?</div>' +
       '<div style="font-size:14px;color:var(--muted);">' + d.rsvpCount + ' people are going</div>' +
-      '<button class="btn btn-pink btn-rsvp-now" data-id="' + e.id + '" style="width:80%;">🎟️ RSVP Now</button>' +
+      '<button class="btn btn-pink btn-rsvp-now" data-id="' + e.id + '" data-action="rsvp-now" style="width:80%;">🎟️ RSVP Now</button>' +
       '</div>';
 
   detailStep1 = s1; detailStep2 = s2; detailStep3 = s3; detailStep4 = s4;
@@ -382,7 +382,7 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
     // Load attendees on first open only
     loadPublicAttendees(e.id);
   }
-  bindButtons();
+  
 }
 function detailNext() {
   log("detailNext from=" + detailStep);
@@ -390,18 +390,18 @@ function detailNext() {
     document.getElementById("detail-dot-2")!.classList.add("done");
     document.getElementById("detail-body")!.innerHTML = detailStep2;
     document.getElementById("detail-prev-btn")!.classList.remove("hidden");
-    bindButtons(); detailStep = 2;
+     detailStep = 2;
   } else if (detailStep === 2) {
     document.getElementById("detail-dot-3")!.classList.add("done");
     document.getElementById("detail-body")!.innerHTML = detailStep3;
     if (currentEventId) loadPublicAttendees(currentEventId);
-    bindButtons(); detailStep = 3;
+     detailStep = 3;
   } else if (detailStep === 3) {
     document.getElementById("detail-dot-4")!.classList.add("done");
     document.getElementById("detail-body")!.innerHTML = detailStep4;
     document.getElementById("detail-next-btn")!.classList.add("hidden");
     document.getElementById("detail-prev-btn")!.classList.remove("hidden");
-    bindButtons(); detailStep = 4;
+     detailStep = 4;
   }
 }
 function detailPrev() {
@@ -410,18 +410,18 @@ function detailPrev() {
     document.getElementById("detail-dot-2")!.classList.remove("done");
     document.getElementById("detail-body")!.innerHTML = detailStep1;
     document.getElementById("detail-prev-btn")!.classList.add("hidden");
-    bindButtons(); detailStep = 1;
+     detailStep = 1;
   } else if (detailStep === 3) {
     document.getElementById("detail-dot-3")!.classList.remove("done");
     document.getElementById("detail-body")!.innerHTML = detailStep2;
     document.getElementById("detail-next-btn")!.classList.remove("hidden");
-    bindButtons(); detailStep = 2;
+     detailStep = 2;
   } else if (detailStep === 4) {
     document.getElementById("detail-dot-4")!.classList.remove("done");
     document.getElementById("detail-body")!.innerHTML = detailStep3;
     document.getElementById("detail-next-btn")!.classList.remove("hidden");
     if (currentEventId) loadPublicAttendees(currentEventId);
-    bindButtons(); detailStep = 3;
+     detailStep = 3;
   }
 }
 
@@ -463,28 +463,28 @@ function renderModCard(tab: string) {
   // Actions
   html += '<div style="flex-shrink:0;display:flex;flex-wrap:wrap;gap:6px;">';
   if (tab === "pending") {
-    html += '<button class="btn btn-green btn-sm btn-approve-event" data-id="' + item.id + '" style="font-size:13px;padding:8px 16px;">✅ Approve</button>';
-    html += '<button class="btn btn-white btn-sm btn-decline-event" data-id="' + item.id + '" style="font-size:13px;padding:8px 16px;">🗑️ Decline</button>';
+    html += '<button class="btn btn-green btn-sm btn-approve-event" data-id="' + item.id + '" data-action="approve-event" style="font-size:13px;padding:8px 16px;">✅ Approve</button>';
+    html += '<button class="btn btn-white btn-sm btn-decline-event" data-id="' + item.id + '" data-action="decline-event" style="font-size:13px;padding:8px 16px;">🗑️ Decline</button>';
   } else if (tab === "published") {
-    html += '<button class="btn btn-white btn-sm btn-view-rsvps" data-id="' + item.id + '" style="font-size:13px;padding:8px 16px;">👥 Attendees (' + (item.rsvpCount || 0) + ')</button>';
-    html += '<button class="btn btn-white btn-sm btn-delete-published" data-id="' + item.id + '" style="font-size:13px;padding:8px 16px;">🗑️ Delete</button>';
+    html += '<button class="btn btn-white btn-sm btn-view-rsvps" data-id="' + item.id + '" data-action="view-rsvps" style="font-size:13px;padding:8px 16px;">👥 Attendees (' + (item.rsvpCount || 0) + ')</button>';
+    html += '<button class="btn btn-white btn-sm btn-delete-published" data-id="' + item.id + '" data-action="delete-published" style="font-size:13px;padding:8px 16px;">🗑️ Delete</button>';
   } else {
-    html += '<button class="btn btn-white btn-sm btn-dismiss-idea" data-id="' + item.id + '" style="font-size:13px;padding:8px 16px;">🗑️ Dismiss</button>';
+    html += '<button class="btn btn-white btn-sm btn-dismiss-idea" data-id="' + item.id + '" data-action="dismiss-idea" style="font-size:13px;padding:8px 16px;">🗑️ Dismiss</button>';
   }
   if (tab === "pending") {
-    html += '<button class="btn btn-white btn-sm btn-view-rsvps" data-id="' + item.id + '" style="font-size:13px;padding:8px 16px;">👥 RSVPs</button>';
+    html += '<button class="btn btn-white btn-sm btn-view-rsvps" data-id="' + item.id + '" data-action="view-rsvps" style="font-size:13px;padding:8px 16px;">👥 RSVPs</button>';
   }
   html += '</div><div class="rsvp-attendees hidden" id="rsvps-' + item.id + '" style="flex-shrink:0;background:#fff;border:var(--border);padding:8px;margin-top:-2px;"></div>';
   // Card nav
   if (total > 1) {
     html += '<div style="flex-shrink:0;display:flex;gap:4px;justify-content:center;align-items:center;padding-top:6px;">' +
-      '<button class="btn btn-white btn-sm btn-mod-prev" data-tab="' + tab + '" style="padding:4px 12px;font-size:12px;">← Prev</button>' +
+      '<button class="btn btn-white btn-sm btn-mod-prev" data-tab="' + tab + '" data-action="mod-prev" style="padding:4px 12px;font-size:12px;">← Prev</button>' +
       '<span style="font-size:12px;font-weight:700;">' + (idx + 1) + '/' + total + '</span>' +
-      '<button class="btn btn-white btn-sm btn-mod-next" data-tab="' + tab + '" style="padding:4px 12px;font-size:12px;">Next →</button></div>';
+      '<button class="btn btn-white btn-sm btn-mod-next" data-tab="' + tab + '" data-action="mod-next" style="padding:4px 12px;font-size:12px;">Next →</button></div>';
   }
   html += '</div>';
   c.innerHTML = html;
-  bindButtons();
+  
   // Auto-paginate description after DOM settles
   var dcKey2 = dcKey;
   if (desc.length > 100) {
@@ -515,9 +515,9 @@ function buildModDescNavHTML(key: string): string {
   var total = modDescTotal[key] || 1;
   if (total <= 1) return '';
   var cur = modDescPage[key] || 0;
-  return (cur > 0 ? '<button class="btn btn-white btn-sm btn-mod-desc-prev" data-key="' + key + '" style="padding:2px 10px;font-size:11px;">← Previous</button>' : '') +
+  return (cur > 0 ? '<button class="btn btn-white btn-sm btn-mod-desc-prev" data-key="' + key + '" data-action="mod-desc-prev" style="padding:2px 10px;font-size:11px;">← Previous</button>' : '') +
     '<span style="font-size:11px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
-    (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-mod-desc-next" data-key="' + key + '" style="padding:2px 10px;font-size:11px;">Next →</button>' : '');
+    (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-mod-desc-next" data-key="' + key + '" data-action="mod-desc-next" style="padding:2px 10px;font-size:11px;">Next →</button>' : '');
 }
 
 function bindModDescNav(key: string) {
@@ -530,7 +530,7 @@ function renderModPending(events: any[]) {
   modCardIndex["pending"] = 0;
   if (events.length === 0) {
     document.getElementById("pending-events-container")!.innerHTML = '<div class="empty-state"><span class="emoji">📋</span><h2>No pending events</h2></div>';
-    bindButtons(); return;
+     return;
   }
   renderModCard("pending");
 }
@@ -539,7 +539,7 @@ function renderModPublished(events: any[]) {
   modCardIndex["published"] = 0;
   if (events.length === 0) {
     document.getElementById("pending-events-container")!.innerHTML = '<div class="empty-state"><span class="emoji">✅</span><h2>No published events</h2></div>';
-    bindButtons(); return;
+     return;
   }
   renderModCard("published");
 }
@@ -548,7 +548,7 @@ function renderModPitches(ideas: any[]) {
   modCardIndex["pitches"] = 0;
   if (ideas.length === 0) {
     document.getElementById("pending-events-container")!.innerHTML = '<div class="empty-state"><span class="emoji">💡</span><h2>No pitched ideas</h2></div>';
-    bindButtons(); return;
+     return;
   }
   renderModCard("pitches");
 }
@@ -610,87 +610,95 @@ function closeOverlay(id: string) { document.getElementById(id)!.classList.remov
 function closeAllOverlays() { document.querySelectorAll(".overlay").forEach(function (el) { el.classList.remove("active"); }); resetEventForm(); closeCreateMenu(); }
 function showHomePage() { log("showHomePage"); closeAllOverlays(); loadHome(); }
 
-// ======= BIND ALL =======
-function bindButtons() {
-  document.querySelectorAll(".btn-view-details").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) showEventDetails(id); }); });
-  document.querySelectorAll(".btn-back-home").forEach(function (b) { b.addEventListener("click", showHomePage); });
-  document.querySelectorAll(".btn-toggle-create").forEach(function (b) { b.addEventListener("click", toggleCreateMenu); });
-  document.querySelectorAll("#create-backdrop").forEach(function (b) { b.addEventListener("click", closeCreateMenu); });
-  document.querySelectorAll(".btn-open-my-stuff").forEach(function (b) { b.addEventListener("click", openMyStuff); });
-  document.querySelectorAll(".btn-create-pitch").forEach(function (b) { b.addEventListener("click", function () { closeCreateMenu(); openOverlay("pitch-overlay"); }); });
-  document.querySelectorAll(".btn-create-event").forEach(function (b) { b.addEventListener("click", function () { closeCreateMenu(); resetEventForm(); prefillOrganizer(); openOverlay("event-overlay"); }); });
-  document.querySelectorAll(".btn-show-mod").forEach(function (b) { b.addEventListener("click", showModDashboard); });
-  document.querySelectorAll(".btn-approve-event").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) approveEvent(id); }); });
-  document.querySelectorAll(".btn-decline-event").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) deleteEvent(id, "pending"); }); });
-  document.querySelectorAll(".btn-delete-published").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) deleteEvent(id, "published"); }); });
-  document.querySelectorAll(".btn-dismiss-idea").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) dismissIdea(id); }); });
-  document.querySelectorAll(".btn-delete-pitch").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) deletePitch(id); }); });
-  document.querySelectorAll(".btn-rsvp-card").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var evt = cachedHomeEvents.find(function (e) { return e.id === id; }); if (evt && evt.hasRsvped) { showEventDetails(id); } else { showRsvpOverlay(id); } }); });
-  document.querySelectorAll(".btn-rsvp-now").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) showRsvpOverlay(id); }); });
-  document.querySelectorAll(".btn-leave-event").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) leaveEvent(id); }); });
-  document.querySelectorAll(".btn-view-rsvps").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) viewRsvps(id); }); });
-  document.querySelectorAll(".btn-load-attendees").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) loadPublicAttendees(id); }); });
-  document.querySelectorAll(".btn-desc-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return;
-    log("desc-next id=" + id + " pageTotal=" + (descPageTotal[id] || 0) + " curPage=" + (descPageMap[id] || 0));
-    if (descPageTotal[id] === 99) {
-      log("desc-next PAGINATING id=" + id);
-      var box = document.getElementById("desc-box-" + id);
-      if (!box) return;
-      var pages = splitTextToPages(descFullStore[id] || "", box.clientWidth, box.clientHeight);
-      log("desc-next split into " + pages.length + " pages id=" + id);
-      descPageTotal[id] = pages.length;
-      descPageMap[id] = 0;
-      document.getElementById("desc-track-" + id)!.outerHTML = buildDescPagesHTML(id, pages);
+function handleAction(action: string, id: string | null) {
+  switch (action) {
+    case "view-details": if (id) showEventDetails(id); break;
+    case "rsvp-card": if (id) { var evt = cachedHomeEvents.find(function(e) { return e.id === id; }); if (evt && evt.hasRsvped) showEventDetails(id); else showRsvpOverlay(id); } break;
+    case "home-prev": homePrev(); break;
+    case "home-next": homeNext(); break;
+    case "desc-next": if (id) {
+      log("desc-next id=" + id + " pageTotal=" + (descPageTotal[id] || 0) + " curPage=" + (descPageMap[id] || 0));
+      if (descPageTotal[id] === 99) {
+        log("desc-next PAGINATING id=" + id);
+        var box = document.getElementById("desc-box-" + id);
+        if (!box) return;
+        var pages = splitTextToPages(descFullStore[id] || "", box.clientWidth, box.clientHeight);
+        log("desc-next split into " + pages.length + " pages id=" + id);
+        descPageTotal[id] = pages.length;
+        descPageMap[id] = 0;
+        document.getElementById("desc-track-" + id)!.outerHTML = buildDescPagesHTML(id, pages);
+        document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
+        persistStep2(id);
+      } else {
+        var cur = (descPageMap[id] || 0) + 1;
+        if (cur >= (descPageTotal[id] || 1)) { log("desc-next BLOCKED at last page id=" + id); return; }
+        descPageMap[id] = cur;
+        log("desc-next slide id=" + id + " page=" + cur + "/" + descPageTotal[id]);
+        slideTrack("desc-track-" + id, cur, descPageTotal[id] || 1);
+        document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
+        persistStep2(id);
+      }
+    } break;
+    case "desc-prev": if (id) {
+      var cur2 = (descPageMap[id] || 0) - 1;
+      if (cur2 < 0) { log("desc-prev BLOCKED at first page id=" + id); return; }
+      descPageMap[id] = cur2;
+      log("desc-prev slide id=" + id + " page=" + cur2 + "/" + descPageTotal[id]);
+      slideTrack("desc-track-" + id, cur2, descPageTotal[id] || 1);
       document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
       persistStep2(id);
-      bindButtons();
-    } else {
-      var cur = (descPageMap[id] || 0) + 1;
-      if (cur >= (descPageTotal[id] || 1)) { log("desc-next BLOCKED at last page id=" + id); return; }
-      descPageMap[id] = cur;
-      log("desc-next slide id=" + id + " page=" + cur + "/" + descPageTotal[id]);
-      slideTrack("desc-track-" + id, cur, descPageTotal[id] || 1);
-      document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
-      persistStep2(id);
-      bindButtons();
-    }
-  }); });
-  document.querySelectorAll(".btn-desc-prev").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return;
-    var cur = (descPageMap[id] || 0) - 1;
-    if (cur < 0) { log("desc-prev BLOCKED at first page id=" + id); return; }
-    descPageMap[id] = cur;
-    log("desc-prev slide id=" + id + " page=" + cur + "/" + descPageTotal[id]);
-    slideTrack("desc-track-" + id, cur, descPageTotal[id] || 1);
-    document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
-    persistStep2(id);
-    bindButtons();
-  }); });
-  document.querySelectorAll(".btn-my-pitch-next").forEach(function (b) { b.addEventListener("click", myPitchNext); });
-  document.querySelectorAll(".btn-my-pitch-prev").forEach(function (b) { b.addEventListener("click", myPitchPrev); });
-  document.querySelectorAll(".btn-my-event-next").forEach(function (b) { b.addEventListener("click", myEventNext); });
-  document.querySelectorAll(".btn-my-event-prev").forEach(function (b) { b.addEventListener("click", myEventPrev); });
-  document.querySelectorAll(".btn-att-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) + 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); log("att-next id=" + id + " page=" + cur + "/" + total); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); persistStep3(id); bindButtons(); }); });
-  document.querySelectorAll(".btn-att-prev").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) - 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); log("att-prev id=" + id + " page=" + cur + "/" + total); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); persistStep3(id); bindButtons(); }); });
-  // Home page card navigation
-  document.querySelectorAll(".btn-home-prev").forEach(function (b) { b.addEventListener("click", homePrev); });
-  document.querySelectorAll(".btn-home-next").forEach(function (b) { b.addEventListener("click", homeNext); });
-  // Mod tabs
-  document.querySelectorAll(".mod-tab").forEach(function (b) { b.addEventListener("click", function () { var mt = (b as HTMLElement).dataset.mtab; if (mt) switchModTab(mt); }); });
-  // Mod card nav
-  document.querySelectorAll(".btn-mod-next").forEach(function (b) { b.addEventListener("click", function () { var tab = (b as HTMLElement).getAttribute("data-tab"); if (tab) modNext(tab); }); });
-  document.querySelectorAll(".btn-mod-prev").forEach(function (b) { b.addEventListener("click", function () { var tab = (b as HTMLElement).getAttribute("data-tab"); if (tab) modPrev(tab); }); });
-  // Mod desc (within-card) nav
-  document.querySelectorAll(".btn-mod-desc-next").forEach(function (b) { b.addEventListener("click", function () { var key = (b as HTMLElement).getAttribute("data-key"); if (!key) return; var cur = (modDescPage[key] || 0) + 1; if (cur >= (modDescTotal[key] || 1)) return; modDescPage[key] = cur; slideTrack("mod-desc-track-" + key, cur, modDescTotal[key] || 1); document.getElementById("mod-desc-nav-" + key)!.innerHTML = buildModDescNavHTML(key); bindModDescNav(key); }); });
-  document.querySelectorAll(".btn-mod-desc-prev").forEach(function (b) { b.addEventListener("click", function () { var key = (b as HTMLElement).getAttribute("data-key"); if (!key) return; var cur = (modDescPage[key] || 0) - 1; if (cur < 0) return; modDescPage[key] = cur; slideTrack("mod-desc-track-" + key, cur, modDescTotal[key] || 1); document.getElementById("mod-desc-nav-" + key)!.innerHTML = buildModDescNavHTML(key); bindModDescNav(key); }); });
-  // Detail nav
-  document.querySelectorAll("#detail-next-btn").forEach(function (b) { b.addEventListener("click", detailNext); });
-  document.querySelectorAll("#detail-prev-btn").forEach(function (b) { b.addEventListener("click", detailPrev); });
-  document.querySelectorAll("#pitch-submit-btn").forEach(function (b) { b.addEventListener("click", submitPitch); });
-  document.querySelectorAll("#event-next-btn").forEach(function (b) { b.addEventListener("click", eventNext); });
-  document.querySelectorAll("#event-prev-btn").forEach(function (b) { b.addEventListener("click", eventPrev); });
-  document.querySelectorAll("#event-submit-btn").forEach(function (b) { b.addEventListener("click", submitEvent); });
-  document.querySelectorAll(".close-overlay").forEach(function (b) { b.addEventListener("click", showHomePage); });
-  document.querySelectorAll(".btn-copy-link").forEach(function (b) { b.addEventListener("click", function () { var url = (b as HTMLElement).getAttribute("data-url") || ""; if (navigator.clipboard) navigator.clipboard.writeText(url); else { var ta = document.createElement("textarea"); ta.value = url; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); } showCopyToast(); }); });
+    } break;
+    case "att-next": if (id) { var c3 = (attPageMap[id] || 0) + 1; attPageMap[id] = c3; var t3 = Math.ceil((attStore[id] || []).length / 5); log("att-next id=" + id + " page=" + c3 + "/" + t3); slideTrack("att-track-" + id, c3, t3); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); persistStep3(id); } break;
+    case "att-prev": if (id) { var c4 = (attPageMap[id] || 0) - 1; attPageMap[id] = c4; var t4 = Math.ceil((attStore[id] || []).length / 5); log("att-prev id=" + id + " page=" + c4 + "/" + t4); slideTrack("att-track-" + id, c4, t4); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); persistStep3(id); } break;
+    case "my-pitch-next": myPitchNext(); break;
+    case "my-pitch-prev": myPitchPrev(); break;
+    case "my-event-next": myEventNext(); break;
+    case "my-event-prev": myEventPrev(); break;
+    case "approve-event": if (id) approveEvent(id); break;
+    case "decline-event": if (id) deleteEvent(id, "pending"); break;
+    case "delete-published": if (id) deleteEvent(id, "published"); break;
+    case "dismiss-idea": if (id) dismissIdea(id); break;
+    case "delete-pitch": if (id) deletePitch(id); break;
+    case "rsvp-now": if (id) showRsvpOverlay(id); break;
+    case "leave-event": if (id) leaveEvent(id); break;
+    case "view-rsvps": if (id) viewRsvps(id); break;
+    case "load-attendees": { if (!id) break; loadPublicAttendees(id); } break;
+    case "mod-next": if (id) modNext(id); break;
+    case "mod-prev": if (id) modPrev(id); break;
+    case "mod-desc-next": {
+      if (!id) break;
+      var c5 = (modDescPage[id] || 0) + 1;
+      if (c5 >= (modDescTotal[id] || 1)) return;
+      modDescPage[id] = c5;
+      slideTrack("mod-desc-track-" + id, c5, modDescTotal[id] || 1);
+      document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDescNavHTML(id);
+      bindModDescNav(id);
+    } break;
+    case "mod-desc-prev": {
+      if (!id) break;
+      var c6 = (modDescPage[id] || 0) - 1;
+      if (c6 < 0) return;
+      modDescPage[id] = c6;
+      slideTrack("mod-desc-track-" + id, c6, modDescTotal[id] || 1);
+      document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDescNavHTML(id);
+      bindModDescNav(id);
+    } break;
+    case "copy-link": if (id) { if (navigator.clipboard) navigator.clipboard.writeText(id); else { var ta = document.createElement("textarea"); ta.value = id; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); } showCopyToast(); } break;
+    case "toggle-create": toggleCreateMenu(); break;
+    case "create-pitch": closeCreateMenu(); openOverlay("pitch-overlay"); break;
+    case "create-event": closeCreateMenu(); resetEventForm(); prefillOrganizer(); openOverlay("event-overlay"); break;
+    case "open-my-stuff": openMyStuff(); break;
+    case "show-mod": showModDashboard(); break;
+    case "switch-mod-tab": if (id) switchModTab(id); break;
+    case "detail-next": detailNext(); break;
+    case "detail-prev": detailPrev(); break;
+    case "pitch-submit": submitPitch(); break;
+    case "event-next": eventNext(); break;
+    case "event-prev": eventPrev(); break;
+    case "event-submit": submitEvent(); break;
+    case "close-overlay": showHomePage(); break;
+    default: break;
+  }
 }
 
 document.addEventListener("DOMContentLoaded", function () {
@@ -702,5 +710,15 @@ document.addEventListener("DOMContentLoaded", function () {
     log("debug panel " + (show ? "visible" : "hidden"));
   });
   document.querySelector(".btn-submit-rsvp")?.addEventListener("click", submitRsvp);
-  bindButtons(); loadHome();
+
+  // ONE event delegation listener - replaces all bindButtons() calls
+  document.body.addEventListener("click", function(e) {
+    var btn = (e.target as HTMLElement).closest("[data-action]");
+    if (!btn) return;
+    var action = btn.getAttribute("data-action");
+    var id = btn.getAttribute("data-id") || btn.getAttribute("data-key") || btn.getAttribute("data-tab") || btn.getAttribute("data-mtab");
+    if (action) handleAction(action, id);
+  });
+
+  loadHome();
 });

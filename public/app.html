@@ -119,9 +119,9 @@
     <div class="header header-row">
       <div><h1>⚡ Meetit</h1><div class="sub">Community Meetup Hub</div></div>
       <div class="header-actions">
-        <div class="icon-btn btn-toggle-create" title="Create">✨</div>
-        <div class="icon-btn btn-open-my-stuff" title="My Stuff">👤</div>
-        <div class="icon-btn btn-show-mod hidden" id="mod-btn" title="Mod">🛡️</div>
+        <div class="icon-btn btn-toggle-create" title="Create" data-action="toggle-create">✨</div>
+        <div class="icon-btn btn-open-my-stuff" title="My Stuff" data-action="open-my-stuff">👤</div>
+        <div class="icon-btn btn-show-mod hidden" id="mod-btn" title="Mod" data-action="show-mod">🛡️</div>
       </div>
     </div>
 
@@ -147,13 +147,13 @@
     <!-- Create Menu Backdrop + Popup -->
     <div class="backdrop" id="create-backdrop"></div>
     <div class="create-menu" id="create-menu">
-      <button class="btn btn-pink btn-create-pitch">💡 Pitch an Idea</button>
-      <button class="btn btn-create-event" style="margin-top:8px;">📋 Submit Formal Event</button>
+      <button class="btn btn-pink btn-create-pitch" data-action="create-pitch">💡 Pitch an Idea</button>
+      <button class="btn btn-create-event" data-action="create-event" style="margin-top:8px;">📋 Submit Formal Event</button>
     </div>
 
     <!-- My Stuff Overlay -->
     <div class="overlay" id="my-stuff-overlay">
-      <div class="overlay-header"><h2>👤 My Stuff</h2><div class="close-btn close-overlay">✕</div></div>
+      <div class="overlay-header"><h2>👤 My Stuff</h2><div class="close-btn close-overlay" data-action="close-overlay">✕</div></div>
       <div class="overlay-body" id="my-submissions-container" style="overflow:hidden;display:flex;flex-direction:column;gap:6px;padding:8px 16px;">
         <div id="my-pitches-section" style="flex:1;min-height:0;"></div>
         <div id="my-events-section" style="flex:1;min-height:0;"></div>
@@ -162,7 +162,7 @@
 
     <!-- EVENT DETAILS OVERLAY (3 steps) -->
     <div class="overlay" id="details-overlay">
-      <div class="overlay-header"><h2 id="details-overlay-title">📋 Event Details</h2><div class="close-btn close-overlay">✕</div></div>
+      <div class="overlay-header"><h2 id="details-overlay-title">📋 Event Details</h2><div class="close-btn close-overlay" data-action="close-overlay">✕</div></div>
       <div class="overlay-progress">
         <div class="step-dot done" id="detail-dot-1"></div>
         <div class="step-dot" id="detail-dot-2"></div>
@@ -171,37 +171,37 @@
       </div>
       <div class="overlay-body" id="detail-body" style="overflow:hidden;position:relative;padding:0;"></div>
       <div class="overlay-footer">
-        <button class="footer-btn footer-btn-prev hidden" id="detail-prev-btn">← Back</button>
-        <button class="footer-btn footer-btn-next" id="detail-next-btn">Next →</button>
+        <button class="footer-btn footer-btn-prev hidden" id="detail-prev-btn" data-action="detail-prev">← Back</button>
+        <button class="footer-btn footer-btn-next" id="detail-next-btn" data-action="detail-next">Next →</button>
       </div>
     </div>
 
     <!-- Mod Dashboard Overlay -->
     <div class="overlay" id="mod-screen">
-      <div class="overlay-header" style="background:#1c1c0f;"><h2 style="color:var(--surface);">🛡️ Mod Dashboard</h2><div class="close-btn close-overlay">✕</div></div>
+      <div class="overlay-header" style="background:#1c1c0f;"><h2 style="color:var(--surface);">🛡️ Mod Dashboard</h2><div class="close-btn close-overlay" data-action="close-overlay">✕</div></div>
       <div class="tabs" id="mod-tabs" style="border-bottom:var(--border);">
-        <div class="tab mod-tab active" data-mtab="pending">📋 Pending</div>
-        <div class="tab mod-tab" data-mtab="published">✅ Published</div>
-        <div class="tab mod-tab" data-mtab="pitches">💡 Pitches</div>
+        <div class="tab mod-tab active" data-mtab="pending" data-action="switch-mod-tab">📋 Pending</div>
+        <div class="tab mod-tab" data-mtab="published" data-action="switch-mod-tab">✅ Published</div>
+        <div class="tab mod-tab" data-mtab="pitches" data-action="switch-mod-tab">💡 Pitches</div>
       </div>
       <div class="overlay-body" id="pending-events-container" style="padding:0 16px;"></div>
     </div>
 
     <!-- PITCH OVERLAY (single step) -->
     <div class="overlay" id="pitch-overlay">
-      <div class="overlay-header"><h2>💡 Pitch an Idea</h2><div class="close-btn close-overlay">✕</div></div>
+      <div class="overlay-header"><h2>💡 Pitch an Idea</h2><div class="close-btn close-overlay" data-action="close-overlay">✕</div></div>
       <div class="overlay-body">
         <div class="form-group"><label>Meetup Title</label><input type="text" id="pitch-title" placeholder="e.g. Weekend Board Games"></div>
         <div class="form-group"><label>Brief Description</label><textarea id="pitch-description" placeholder="What do you have in mind?" rows="3"></textarea></div>
       </div>
       <div class="overlay-footer">
-        <button class="btn btn-pink" id="pitch-submit-btn">✓ Submit Idea</button>
+        <button class="btn btn-pink" id="pitch-submit-btn" data-action="pitch-submit">✓ Submit Idea</button>
       </div>
     </div>
 
     <!-- SUBMIT EVENT OVERLAY (4 compact steps) -->
     <div class="overlay" id="event-overlay">
-      <div class="overlay-header"><h2>📋 Submit Event</h2><div class="close-btn close-overlay">✕</div></div>
+      <div class="overlay-header"><h2>📋 Submit Event</h2><div class="close-btn close-overlay" data-action="close-overlay">✕</div></div>
       <div class="overlay-progress">
         <div class="step-dot done" id="event-dot-1"></div>
         <div class="step-dot" id="event-dot-2"></div>
@@ -229,15 +229,15 @@
         </div>
       </div>
       <div class="overlay-footer">
-        <button class="footer-btn footer-btn-prev hidden" id="event-prev-btn">← Back</button>
-        <button class="footer-btn footer-btn-next" id="event-next-btn">Next →</button>
-        <button class="footer-btn footer-btn-rsvp hidden" id="event-submit-btn">✓ Submit Event</button>
+        <button class="footer-btn footer-btn-prev hidden" id="event-prev-btn" data-action="event-prev">← Back</button>
+        <button class="footer-btn footer-btn-next" id="event-next-btn" data-action="event-next">Next →</button>
+        <button class="footer-btn footer-btn-rsvp hidden" id="event-submit-btn" data-action="event-submit">✓ Submit Event</button>
       </div>
     </div>
 
     <!-- RSVP OVERLAY -->
     <div class="overlay" id="rsvp-overlay">
-      <div class="overlay-header"><h2>🎟️ RSVP</h2><div class="close-btn close-overlay">✕</div></div>
+      <div class="overlay-header"><h2>🎟️ RSVP</h2><div class="close-btn close-overlay" data-action="close-overlay">✕</div></div>
       <div class="overlay-body">
         <div class="form-group"><label>Email (optional)</label><input type="email" id="rsvp-email" placeholder="your@email.com"></div>
         <div class="form-group"><label>Phone (optional)</label><input type="text" id="rsvp-phone" placeholder="+91 98765 43210"></div>
