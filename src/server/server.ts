@@ -183,7 +183,11 @@ async function requireMod(): Promise<ErrorResponse | undefined> {
 async function getActiveEvents(): Promise<MeetitEvent[]> {
   const events = await redis.hGetAll("meetit:active_events");
   const eventList = Object.values(events).map((val) => JSON.parse(val));
-  return eventList.sort((a, b) => a.date.localeCompare(b.date));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return eventList
+    .filter((e) => new Date(e.date + "T00:00:00").getTime() >= today.getTime())
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 async function getActiveEvent(eventId: string): Promise<MeetitEvent | undefined> {
