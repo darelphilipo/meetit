@@ -51,6 +51,10 @@ export type SubmitEventFormData = {
   mapUrl?: string;
 };
 
+export type UpdateEventFormData = SubmitEventFormData & {
+  eventId: string;
+};
+
 export type RsvpAttendee = {
   username: string;
   timestamp: number;
@@ -71,6 +75,7 @@ export const ApiEndpoint = {
   PendingEvents: "/api/pending-events",
   PitchedIdeas: "/api/pitched-ideas",
   AllApprovedEvents: "/api/all-approved-events",
+  UpdateEvent: "/api/update-event",
   DismissIdea: "/api/dismiss-idea",
   DeletePending: "/api/delete-pending",
   DeletePublished: "/api/delete-published",
