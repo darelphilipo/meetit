@@ -244,6 +244,19 @@
       </div>
       <div class="overlay-footer"><button class="btn btn-pink btn-submit-rsvp">Confirm RSVP →</button></div>
     </div>
+
+    <!-- Custom Confirm Overlay -->
+    <div class="overlay" id="confirm-overlay">
+      <div id="confirm-backdrop" style="position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);z-index:0;"></div>
+      <div style="position:relative;margin:auto;width:85%;max-width:360px;background:#fff;border:var(--border);box-shadow:var(--shadow-md);padding:24px;z-index:1;display:flex;flex-direction:column;align-items:center;gap:16px;">
+        <div style="font-size:48px;">⚠️</div>
+        <div id="confirm-message" style="font-size:16px;font-weight:700;text-align:center;line-height:1.4;color:var(--on-surface);"></div>
+        <div style="display:flex;gap:10px;width:100%;">
+          <button class="btn btn-white btn-sm" id="confirm-cancel-btn" style="flex:1;padding:12px;font-size:14px;text-align:center;">Cancel</button>
+          <button class="btn btn-pink btn-sm" id="confirm-ok-btn" style="flex:1;padding:12px;font-size:14px;text-align:center;">Yes, Do It</button>
+        </div>
+      </div>
+    </div>
   </div>
   <button id="debug-toggle">🐛</button>
   <div id="debug-panel"></div>
