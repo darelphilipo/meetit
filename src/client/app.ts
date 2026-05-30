@@ -182,6 +182,7 @@ async function loadPublicAttendees(eventId: string) {
       }
       el.innerHTML = '<div id="att-track-' + eventId + '" style="display:flex;width:' + (totalPages * 100) + '%;height:100%;transition:transform 0.25s;">' + pages + '</div>';
       document.getElementById("att-nav-" + eventId)!.innerHTML = buildAttNav(eventId);
+      if (detailStep === 3) persistStep3(eventId);
       bindButtons();
     }
   } catch (e) { console.error(e); }
@@ -239,13 +240,15 @@ function buildDescNavHTML(eventId: string): string {
 }
 
 function persistStep2(eventId: string) {
-  var track = document.getElementById("desc-track-" + eventId);
-  var nav = document.getElementById("desc-nav-" + eventId);
-  if (!track || !nav) return;
-  // Reconstruct the full card 2 HTML by replacing track and nav in the original string
   var body = document.getElementById("detail-body");
   if (!body) return;
   detailStep2 = body.innerHTML;
+}
+
+function persistStep3(eventId: string) {
+  var body = document.getElementById("detail-body");
+  if (!body) return;
+  detailStep3 = body.innerHTML;
 }
 
 async function showEventDetails(id: string) {
@@ -487,8 +490,8 @@ function bindButtons() {
     persistStep2(id);
     bindButtons();
   }); });
-  document.querySelectorAll(".btn-att-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) + 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); log("att-next id=" + id + " page=" + cur + "/" + total); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); bindButtons(); }); });
-  document.querySelectorAll(".btn-att-prev").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) - 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); log("att-prev id=" + id + " page=" + cur + "/" + total); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); bindButtons(); }); });
+  document.querySelectorAll(".btn-att-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) + 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); log("att-next id=" + id + " page=" + cur + "/" + total); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); persistStep3(id); bindButtons(); }); });
+  document.querySelectorAll(".btn-att-prev").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) - 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); log("att-prev id=" + id + " page=" + cur + "/" + total); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); persistStep3(id); bindButtons(); }); });
   // Home page card navigation
   document.querySelectorAll(".btn-home-prev").forEach(function (b) { b.addEventListener("click", homePrev); });
   document.querySelectorAll(".btn-home-next").forEach(function (b) { b.addEventListener("click", homeNext); });
