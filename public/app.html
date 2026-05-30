@@ -154,7 +154,10 @@
     <!-- My Stuff Overlay -->
     <div class="overlay" id="my-stuff-overlay">
       <div class="overlay-header"><h2>👤 My Stuff</h2><div class="close-btn close-overlay">✕</div></div>
-      <div class="overlay-body" id="my-submissions-container"></div>
+      <div class="overlay-body" id="my-submissions-container" style="overflow:hidden;display:flex;flex-direction:column;gap:6px;padding:8px 16px;">
+        <div id="my-pitches-section" style="flex:1;min-height:0;"></div>
+        <div id="my-events-section" style="flex:1;min-height:0;"></div>
+      </div>
     </div>
 
     <!-- EVENT DETAILS OVERLAY (3 steps) -->

@@ -19,6 +19,8 @@ var modItems: Record<string, any[]> = {};
 var modDescPage: Record<string, number> = {};
 var modDescTotal: Record<string, number> = {};
 var modDescFull: Record<string, string> = {};
+var myPitchIdx = 0, myEventIdx = 0;
+var myPitches: any[] = [], myEvents: any[] = [];
 
 function log(msg: string) {
   console.log("[MEETIT] " + msg);
@@ -129,36 +131,70 @@ function homePrev() { log("homePrev idx=" + homeCardIndex + " total=" + cachedHo
 function homeNext() { log("homeNext idx=" + homeCardIndex + " total=" + cachedHomeEvents.length); if (cachedHomeEvents.length > 1) { homeCardIndex = (homeCardIndex + 1) % cachedHomeEvents.length; renderHomeCard({ eventsByDate: groupByDate(cachedHomeEvents), isMod: cachedHomeIsMod, settings: {} }); } }
 function groupByDate(events: any[]): Record<string, any[]> { var g: Record<string, any[]> = {}; for (var i = 0; i < events.length; i++) { var event = events[i]; if (!event) continue; var d = event._date || ""; if (!g[d]) g[d] = []; g[d]!.push(event); } return g; }
 
-// ======= MY STUFF (compact) =======
+// ======= MY STUFF (horizontal cards) =======
 var myStuffLoading = false;
 function openMyStuff() { loadMySubmissions(); openOverlay("my-stuff-overlay"); }
 async function loadMySubmissions() {
   myStuffLoading = true;
   var c = document.getElementById("my-submissions-container")!;
-  c.innerHTML = '<div class="empty-state"><span class="emoji">⏳</span><h2>Loading...</h2></div>';
+  c.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><span class="emoji">⏳</span><h2>Loading...</h2></div>';
   try {
     var res = await fetch(API_BASE + "/api/my-submissions");
     var data = await res.json();
     if (data.type === "my-submissions") {
-      var pitches = data.pitches || [], events = data.events || [], html = "";
-      if (pitches.length === 0 && events.length === 0) html = '<div class="empty-state"><span class="emoji">📭</span><h2>Nothing yet</h2></div>';
-      if (pitches.length > 0) {
-        html += '<div class="date-header" style="background:#ffeaa7;color:#1c1c0f;">💡 Pitches (' + pitches.length + ')</div>';
-        var max = Math.min(pitches.length, 2);
-        for (var i = 0; i < max; i++) { html += '<div class="idea-card"><h3>💡 ' + escapeHtml(pitches[i].title) + '</h3><div style="color:var(--muted);font-size:13px;">' + escapeHtml(pitches[i].description).substring(0, 100) + '</div><button class="btn btn-white btn-sm btn-delete-pitch" data-id="' + pitches[i].id + '" style="margin-top:8px;">🗑️ Delete</button></div>'; }
-        if (pitches.length > 2) html += '<div style="text-align:center;color:var(--muted);font-size:13px;padding:8px;">+ ' + (pitches.length - 2) + ' more</div>';
+      myPitches = data.pitches || [];
+      myEvents = data.events || [];
+      if (myPitches.length === 0 && myEvents.length === 0) {
+        document.getElementById("my-pitches-section")!.innerHTML = '<div class="empty-state"><span class="emoji">📭</span><h2>Nothing yet</h2></div>';
+        document.getElementById("my-events-section")!.innerHTML = '';
+        bindButtons(); myStuffLoading = false; return;
       }
-      if (events.length > 0) {
-        html += '<div class="date-header">📋 My Events (' + events.length + ')</div>';
-        var m2 = Math.min(events.length, 2);
-        for (var j = 0; j < m2; j++) { var sl = events[j].status === "published" ? "✅ Published" : "⏳ Pending"; html += '<div class="pending-card" style="background:' + (events[j].status === "published" ? "#00ff88" : "var(--secondary)") + ';"><h3>' + escapeHtml(events[j].title) + '</h3><div>📅 ' + escapeHtml(events[j].date) + ' at ' + escapeHtml(events[j].time) + '</div><div style="font-weight:700;margin-top:4px;">' + sl + '</div></div>'; }
-        if (events.length > 2) html += '<div style="text-align:center;color:var(--muted);font-size:13px;padding:8px;">+ ' + (events.length - 2) + ' more</div>';
-      }
-      c.innerHTML = html; bindButtons();
+      myPitchIdx = 0; myEventIdx = 0;
+      renderMyPitchCard();
+      renderMyEventCard();
     }
-  } catch (e) { c.innerHTML = '<div class="empty-state"><span class="emoji">❌</span><h2>Could not load</h2></div>'; }
+  } catch (e) { document.getElementById("my-pitches-section")!.innerHTML = '<div class="empty-state"><span class="emoji">❌</span><h2>Could not load</h2></div>'; document.getElementById("my-events-section")!.innerHTML = ''; }
   myStuffLoading = false;
 }
+function renderMyPitchCard() {
+  var el = document.getElementById("my-pitches-section")!;
+  if (myPitches.length === 0) { el.innerHTML = '<div style="text-align:center;padding:8px;color:var(--muted);font-size:13px;">💡 No pitches</div>'; return; }
+  if (myPitchIdx >= myPitches.length) myPitchIdx = 0;
+  var p = myPitches[myPitchIdx];
+  var total = myPitches.length;
+  el.innerHTML = '<div class="idea-card" style="height:100%;display:flex;flex-direction:column;padding:10px;overflow:hidden;box-sizing:border-box;">' +
+    '<div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--muted);flex-shrink:0;">💡 Pitches</div>' +
+    '<h3 style="font-size:16px;font-weight:700;margin:4px 0;flex-shrink:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(p.title) + '</h3>' +
+    '<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;color:var(--muted);line-height:1.4;">' + escapeHtml(p.description) + '</div>' +
+    '<div style="flex-shrink:0;display:flex;gap:6px;justify-content:center;align-items:center;padding-top:6px;">' +
+      '<button class="btn btn-white btn-sm btn-delete-pitch" data-id="' + p.id + '" style="padding:6px 14px;font-size:12px;">🗑️ Delete</button>' +
+      (total > 1 ? '<button class="btn btn-white btn-sm btn-my-pitch-prev" style="padding:4px 10px;font-size:11px;">←</button><span style="font-size:11px;font-weight:700;">' + (myPitchIdx + 1) + '/' + total + '</span><button class="btn btn-white btn-sm btn-my-pitch-next" style="padding:4px 10px;font-size:11px;">→</button>' : '') +
+    '</div></div>';
+  bindButtons();
+}
+function renderMyEventCard() {
+  var el = document.getElementById("my-events-section")!;
+  if (myEvents.length === 0) { el.innerHTML = '<div style="text-align:center;padding:8px;color:var(--muted);font-size:13px;">📋 No events</div>'; return; }
+  if (myEventIdx >= myEvents.length) myEventIdx = 0;
+  var e = myEvents[myEventIdx];
+  var total = myEvents.length;
+  var status = e.status === "published" ? "✅ Published" : "⏳ Pending";
+  var bg = e.status === "published" ? "#00ff88" : "var(--secondary)";
+  el.innerHTML = '<div class="pending-card" style="height:100%;display:flex;flex-direction:column;padding:10px;overflow:hidden;box-sizing:border-box;background:' + bg + ';">' +
+    '<div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--muted);flex-shrink:0;">📋 My Events</div>' +
+    '<h3 style="font-size:16px;font-weight:700;margin:4px 0;flex-shrink:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
+    '<div style="flex-shrink:0;font-size:12px;color:var(--muted);font-weight:600;">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div>' +
+    '<div style="flex-shrink:0;font-size:12px;font-weight:600;">' + status + '</div>' +
+    '<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;color:var(--muted);line-height:1.4;">' + escapeHtml(e.description || "") + '</div>' +
+    '<div style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;padding-top:6px;">' +
+      (total > 1 ? '<button class="btn btn-white btn-sm btn-my-event-prev" style="padding:4px 10px;font-size:11px;">←</button><span style="font-size:11px;font-weight:700;">' + (myEventIdx + 1) + '/' + total + '</span><button class="btn btn-white btn-sm btn-my-event-next" style="padding:4px 10px;font-size:11px;">→</button>' : '') +
+    '</div></div>';
+  bindButtons();
+}
+function myPitchNext() { myPitchIdx++; if (myPitchIdx >= myPitches.length) myPitchIdx = 0; renderMyPitchCard(); }
+function myPitchPrev() { myPitchIdx--; if (myPitchIdx < 0) myPitchIdx = myPitches.length - 1; renderMyPitchCard(); }
+function myEventNext() { myEventIdx++; if (myEventIdx >= myEvents.length) myEventIdx = 0; renderMyEventCard(); }
+function myEventPrev() { myEventIdx--; if (myEventIdx < 0) myEventIdx = myEvents.length - 1; renderMyEventCard(); }
 
 // ======= CREATE MENU =======
 function toggleCreateMenu() { document.getElementById("create-menu")!.classList.toggle("active"); document.getElementById("create-backdrop")!.classList.toggle("active"); }
@@ -626,6 +662,10 @@ function bindButtons() {
     persistStep2(id);
     bindButtons();
   }); });
+  document.querySelectorAll(".btn-my-pitch-next").forEach(function (b) { b.addEventListener("click", myPitchNext); });
+  document.querySelectorAll(".btn-my-pitch-prev").forEach(function (b) { b.addEventListener("click", myPitchPrev); });
+  document.querySelectorAll(".btn-my-event-next").forEach(function (b) { b.addEventListener("click", myEventNext); });
+  document.querySelectorAll(".btn-my-event-prev").forEach(function (b) { b.addEventListener("click", myEventPrev); });
   document.querySelectorAll(".btn-att-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) + 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); log("att-next id=" + id + " page=" + cur + "/" + total); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); persistStep3(id); bindButtons(); }); });
   document.querySelectorAll(".btn-att-prev").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) - 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); log("att-prev id=" + id + " page=" + cur + "/" + total); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); persistStep3(id); bindButtons(); }); });
   // Home page card navigation
