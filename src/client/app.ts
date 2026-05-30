@@ -270,21 +270,24 @@ function slideTrack(trackId: string, page: number, totalPages: number) {
   if (track) track.style.transform = "translateX(-" + (page * (100 / totalPages)) + "%)";
 }
 
+var _measureDiv: HTMLDivElement | null = null;
 function splitTextToPages(text: string, width: number, maxHeight: number): string[] {
-  var m = document.createElement("div");
-  m.style.cssText = "position:absolute;left:-9999px;top:0;width:" + width + "px;font-size:15px;line-height:1.5;font-family:'Space Grotesk',sans-serif;padding:14px;word-break:break-word;white-space:pre-wrap;visibility:hidden;";
-  document.body.appendChild(m);
+  if (!_measureDiv) {
+    _measureDiv = document.createElement("div");
+    _measureDiv.style.cssText = "position:absolute;left:-9999px;top:0;font-size:15px;line-height:1.5;font-family:'Space Grotesk',sans-serif;padding:14px;word-break:break-word;white-space:pre-wrap;visibility:hidden;";
+    document.body.appendChild(_measureDiv);
+  }
+  _measureDiv.style.width = width + "px";
   var words = text.split(" ");
   var pages: string[] = [];
   var current = "";
   for (var i = 0; i < words.length; i++) {
     var test = current ? current + " " + words[i] : words[i];
-    m.textContent = test;
-    if (m.scrollHeight > maxHeight && current) { pages.push(current); current = words[i]; }
+    _measureDiv.textContent = test;
+    if (_measureDiv.scrollHeight > maxHeight && current) { pages.push(current); current = words[i]; }
     else { current = test; }
   }
   if (current) pages.push(current);
-  document.body.removeChild(m);
   return pages.length ? pages : [text];
 }
 
