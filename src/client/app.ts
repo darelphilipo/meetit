@@ -8,6 +8,16 @@ var homeCardIndex = 0;
 var cachedHomeEvents: any[] = [];
 var cachedHomeIsMod = false;
 var homeLoadSeq = 0;
+var detailLoading = false;
+var descPageMap: Record<string, number> = {};
+var descPageTotal: Record<string, number> = {};
+var attPageMap: Record<string, number> = {};
+var attStore: Record<string, any[]> = {};
+var descFullStore: Record<string, string> = {};
+
+function log(msg: string) {
+  console.log("[MEETIT] " + msg);
+}
 
 function showToast(msg: string, type: "success" | "error") {
   var t = document.createElement("div");
@@ -179,13 +189,6 @@ function buildAttNav(eventId: string): string {
     '<button class="btn btn-white btn-sm btn-att-next" data-id="' + eventId + '" style="padding:4px 12px;font-size:12px;" ' + (cur === total - 1 ? 'disabled' : '') + '>Next →</button>';
 }
 
-var detailLoading = false;
-var descPageMap: Record<string, number> = {};
-var descPageTotal: Record<string, number> = {};
-var attPageMap: Record<string, number> = {};
-var attStore: Record<string, any[]> = {};
-var descFullStore: Record<string, string> = {};
-
 function slideTrack(trackId: string, page: number, totalPages: number) {
   var track = document.getElementById(trackId);
   if (track) track.style.transform = "translateX(-" + (page * (100 / totalPages)) + "%)";
@@ -229,27 +232,34 @@ function buildDescNavHTML(eventId: string): string {
 }
 
 async function showEventDetails(id: string) {
+  log("showEventDetails id=" + id + " loading=" + detailLoading);
   if (detailLoading) return;
   detailLoading = true;
   currentEventId = id;
   var cachedEvent = cachedHomeEvents.find(function (event) { return event.id === id; });
   if (cachedEvent) {
+    log("showEventDetails using cached event " + id);
     openDetailsOverlay({ event: cachedEvent, rsvpCount: cachedEvent.rsvpCount || 0, hasRsvped: false, settings: {} });
   }
   try {
     var res = await fetch(API_BASE + "/api/event-details", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
     var data = await res.json();
     if (data.type === "event-details" && currentEventId === id) {
+      log("showEventDetails server response " + id + " hasRsvped=" + data.data.hasRsvped);
       openDetailsOverlay(data.data);
       detailLoading = false;
       return;
     }
-  } catch (e) { console.error(e); }
+    log("showEventDetails stale response " + id + " current=" + currentEventId);
+  } catch (e) { log("showEventDetails fetch error " + id); }
   if (!cachedEvent) openDetailsOverlay({ event: { id: id, title: "Event", date: "", time: "", location: "", description: "", organizer: "", mapUrl: "" }, rsvpCount: 0, hasRsvped: false, settings: {} });
   detailLoading = false;
 }
 function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boolean; settings: any }) {
-  var e = d.event; document.getElementById("details-overlay-title")!.textContent = e.title;
+  var e = d.event;
+  var isOpen = document.getElementById("details-overlay")!.classList.contains("active");
+  log("openDetailsOverlay event=" + e.id + " isOpen=" + isOpen + " hasRsvped=" + d.hasRsvped + " step=" + detailStep);
+  document.getElementById("details-overlay-title")!.textContent = e.title;
   var date = new Date(e.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
   // Card 1: Quick Info
@@ -260,10 +270,10 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
     '<div style="background:var(--surface);border:var(--border);padding:12px;text-align:center;font-weight:700;font-size:15px;margin-top:4px;">👥 ' + d.rsvpCount + ' people going</div>' +
     '</div>';
 
-  // Card 2: Organizer + Description (horizontal page-turn for long text)
+  // Card 2: Organizer + Description
   var descFull = e.description || "", descShort = descFull.substring(0, 100), hasMore = descFull.length > 100;
   descFullStore[e.id] = descFull;
-  descPageMap[e.id] = 0; descPageTotal[e.id] = hasMore ? 99 : 1; // 99 = "needs pagination"
+  if (!isOpen) { descPageMap[e.id] = 0; descPageTotal[e.id] = hasMore ? 99 : 1; }
   var s2 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;gap:6px;padding:8px 0;">';
   if (e.organizer) { var initial = e.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><div style="width:36px;height:36px;border:var(--border);background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(e.organizer) + '</div></div></div>'; }
   s2 += '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);" id="desc-box-' + e.id + '">' +
@@ -277,8 +287,8 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   if (e.mapUrl) { s2 += '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-url="' + escapeHtml(e.mapUrl) + '" style="background:#fff;border:var(--border);padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>'; }
   s2 += '</div>';
 
-  // Card 3: Who's Going (auto-load, horizontal pagination, no button)
-  attPageMap[e.id] = 0;
+  // Card 3: Who's Going
+  if (!isOpen) attPageMap[e.id] = 0;
   var s3 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;padding:4px 0;">' +
     '<div style="text-align:center;padding:12px 0 8px 0;font-weight:700;font-size:17px;flex-shrink:0;">👥 Who\'s Going?</div>' +
     '<div style="text-align:center;font-size:14px;color:var(--muted);padding-bottom:8px;flex-shrink:0;">' + d.rsvpCount + ' attendee' + (d.rsvpCount !== 1 ? 's' : '') + '</div>' +
@@ -302,16 +312,19 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
       '</div>';
 
   detailStep1 = s1; detailStep2 = s2; detailStep3 = s3; detailStep4 = s4;
-  detailStep = 1;
-  ["detail-dot-1", "detail-dot-2", "detail-dot-3", "detail-dot-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });
-  document.getElementById("detail-body")!.innerHTML = s1;
-  document.getElementById("detail-next-btn")!.classList.remove("hidden"); document.getElementById("detail-prev-btn")!.classList.add("hidden");
-  openOverlay("details-overlay");
+  if (!isOpen) {
+    detailStep = 1;
+    ["detail-dot-1", "detail-dot-2", "detail-dot-3", "detail-dot-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });
+    document.getElementById("detail-body")!.innerHTML = s1;
+    document.getElementById("detail-next-btn")!.classList.remove("hidden"); document.getElementById("detail-prev-btn")!.classList.add("hidden");
+    openOverlay("details-overlay");
+    // Load attendees on first open only
+    loadPublicAttendees(e.id);
+  }
   bindButtons();
-  // Load attendees in background
-  loadPublicAttendees(e.id);
 }
 function detailNext() {
+  log("detailNext from=" + detailStep);
   if (detailStep === 1) {
     document.getElementById("detail-dot-2")!.classList.add("done");
     document.getElementById("detail-body")!.innerHTML = detailStep2;
@@ -320,7 +333,6 @@ function detailNext() {
   } else if (detailStep === 2) {
     document.getElementById("detail-dot-3")!.classList.add("done");
     document.getElementById("detail-body")!.innerHTML = detailStep3;
-    // Load attendees if not loaded yet
     if (currentEventId) loadPublicAttendees(currentEventId);
     bindButtons(); detailStep = 3;
   } else if (detailStep === 3) {
@@ -332,6 +344,7 @@ function detailNext() {
   }
 }
 function detailPrev() {
+  log("detailPrev from=" + detailStep);
   if (detailStep === 2) {
     document.getElementById("detail-dot-2")!.classList.remove("done");
     document.getElementById("detail-body")!.innerHTML = detailStep1;
@@ -421,22 +434,23 @@ function bindButtons() {
   document.querySelectorAll(".btn-view-rsvps").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) viewRsvps(id); }); });
   document.querySelectorAll(".btn-load-attendees").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (id) loadPublicAttendees(id); }); });
   document.querySelectorAll(".btn-desc-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return;
+    log("desc-next id=" + id + " pageTotal=" + (descPageTotal[id] || 0) + " curPage=" + (descPageMap[id] || 0));
     if (descPageTotal[id] === 99) {
-      // First click: measure space, split text into pages, rebuild track
+      log("desc-next PAGINATING id=" + id);
       var box = document.getElementById("desc-box-" + id);
       if (!box) return;
-      var track = document.getElementById("desc-track-" + id);
-      if (!track) return;
       var pages = splitTextToPages(descFullStore[id] || "", box.clientWidth, box.clientHeight);
+      log("desc-next split into " + pages.length + " pages id=" + id);
       descPageTotal[id] = pages.length;
       descPageMap[id] = 0;
-      track.outerHTML = buildDescPagesHTML(id, pages);
+      document.getElementById("desc-track-" + id)!.outerHTML = buildDescPagesHTML(id, pages);
       document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
       bindButtons();
     } else {
       var cur = (descPageMap[id] || 0) + 1;
-      if (cur >= (descPageTotal[id] || 1)) return;
+      if (cur >= (descPageTotal[id] || 1)) { log("desc-next BLOCKED at last page id=" + id); return; }
       descPageMap[id] = cur;
+      log("desc-next slide id=" + id + " page=" + cur + "/" + descPageTotal[id]);
       slideTrack("desc-track-" + id, cur, descPageTotal[id] || 1);
       document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
       bindButtons();
@@ -444,14 +458,15 @@ function bindButtons() {
   }); });
   document.querySelectorAll(".btn-desc-prev").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return;
     var cur = (descPageMap[id] || 0) - 1;
-    if (cur < 0) return;
+    if (cur < 0) { log("desc-prev BLOCKED at first page id=" + id); return; }
     descPageMap[id] = cur;
+    log("desc-prev slide id=" + id + " page=" + cur + "/" + descPageTotal[id]);
     slideTrack("desc-track-" + id, cur, descPageTotal[id] || 1);
     document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
     bindButtons();
   }); });
-  document.querySelectorAll(".btn-att-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) + 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); bindButtons(); }); });
-  document.querySelectorAll(".btn-att-prev").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) - 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); bindButtons(); }); });
+  document.querySelectorAll(".btn-att-next").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) + 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); log("att-next id=" + id + " page=" + cur + "/" + total); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); bindButtons(); }); });
+  document.querySelectorAll(".btn-att-prev").forEach(function (b) { b.addEventListener("click", function () { var id = (b as HTMLElement).getAttribute("data-id"); if (!id) return; var cur = (attPageMap[id] || 0) - 1; attPageMap[id] = cur; var total = Math.ceil((attStore[id] || []).length / 5); log("att-prev id=" + id + " page=" + cur + "/" + total); slideTrack("att-track-" + id, cur, total); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); bindButtons(); }); });
   // Home page card navigation
   document.querySelectorAll(".btn-home-prev").forEach(function (b) { b.addEventListener("click", homePrev); });
   document.querySelectorAll(".btn-home-next").forEach(function (b) { b.addEventListener("click", homeNext); });
