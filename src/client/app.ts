@@ -494,7 +494,7 @@ function renderModCard(tab: string) {
       modDescPage[dcKey2] = 0;
       document.getElementById("mod-desc-track-" + dcKey2)!.outerHTML = buildModDescPagesHTML(dcKey2, pages);
       document.getElementById("mod-desc-nav-" + dcKey2)!.innerHTML = buildModDescNavHTML(dcKey2);
-      bindButtons();
+      bindModDescNav(dcKey2);
     }, 100);
   }
 }
@@ -516,6 +516,11 @@ function buildModDescNavHTML(key: string): string {
   return (cur > 0 ? '<button class="btn btn-white btn-sm btn-mod-desc-prev" data-key="' + key + '" style="padding:2px 10px;font-size:11px;">← Previous</button>' : '') +
     '<span style="font-size:11px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
     (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-mod-desc-next" data-key="' + key + '" style="padding:2px 10px;font-size:11px;">Next →</button>' : '');
+}
+
+function bindModDescNav(key: string) {
+  document.querySelectorAll("#mod-desc-nav-" + key + " .btn-mod-desc-next").forEach(function (b) { b.addEventListener("click", function () { var cur = (modDescPage[key] || 0) + 1; if (cur >= (modDescTotal[key] || 1)) return; modDescPage[key] = cur; slideTrack("mod-desc-track-" + key, cur, modDescTotal[key] || 1); document.getElementById("mod-desc-nav-" + key)!.innerHTML = buildModDescNavHTML(key); bindModDescNav(key); }); });
+  document.querySelectorAll("#mod-desc-nav-" + key + " .btn-mod-desc-prev").forEach(function (b) { b.addEventListener("click", function () { var cur = (modDescPage[key] || 0) - 1; if (cur < 0) return; modDescPage[key] = cur; slideTrack("mod-desc-track-" + key, cur, modDescTotal[key] || 1); document.getElementById("mod-desc-nav-" + key)!.innerHTML = buildModDescNavHTML(key); bindModDescNav(key); }); });
 }
 
 function renderModPending(events: any[]) {
@@ -673,8 +678,8 @@ function bindButtons() {
   document.querySelectorAll(".btn-mod-next").forEach(function (b) { b.addEventListener("click", function () { var tab = (b as HTMLElement).getAttribute("data-tab"); if (tab) modNext(tab); }); });
   document.querySelectorAll(".btn-mod-prev").forEach(function (b) { b.addEventListener("click", function () { var tab = (b as HTMLElement).getAttribute("data-tab"); if (tab) modPrev(tab); }); });
   // Mod desc (within-card) nav
-  document.querySelectorAll(".btn-mod-desc-next").forEach(function (b) { b.addEventListener("click", function () { var key = (b as HTMLElement).getAttribute("data-key"); if (!key) return; var cur = (modDescPage[key] || 0) + 1; if (cur >= (modDescTotal[key] || 1)) return; modDescPage[key] = cur; slideTrack("mod-desc-track-" + key, cur, modDescTotal[key] || 1); document.getElementById("mod-desc-nav-" + key)!.innerHTML = buildModDescNavHTML(key); bindButtons(); }); });
-  document.querySelectorAll(".btn-mod-desc-prev").forEach(function (b) { b.addEventListener("click", function () { var key = (b as HTMLElement).getAttribute("data-key"); if (!key) return; var cur = (modDescPage[key] || 0) - 1; if (cur < 0) return; modDescPage[key] = cur; slideTrack("mod-desc-track-" + key, cur, modDescTotal[key] || 1); document.getElementById("mod-desc-nav-" + key)!.innerHTML = buildModDescNavHTML(key); bindButtons(); }); });
+  document.querySelectorAll(".btn-mod-desc-next").forEach(function (b) { b.addEventListener("click", function () { var key = (b as HTMLElement).getAttribute("data-key"); if (!key) return; var cur = (modDescPage[key] || 0) + 1; if (cur >= (modDescTotal[key] || 1)) return; modDescPage[key] = cur; slideTrack("mod-desc-track-" + key, cur, modDescTotal[key] || 1); document.getElementById("mod-desc-nav-" + key)!.innerHTML = buildModDescNavHTML(key); bindModDescNav(key); }); });
+  document.querySelectorAll(".btn-mod-desc-prev").forEach(function (b) { b.addEventListener("click", function () { var key = (b as HTMLElement).getAttribute("data-key"); if (!key) return; var cur = (modDescPage[key] || 0) - 1; if (cur < 0) return; modDescPage[key] = cur; slideTrack("mod-desc-track-" + key, cur, modDescTotal[key] || 1); document.getElementById("mod-desc-nav-" + key)!.innerHTML = buildModDescNavHTML(key); bindModDescNav(key); }); });
   // Detail nav
   document.querySelectorAll("#detail-next-btn").forEach(function (b) { b.addEventListener("click", detailNext); });
   document.querySelectorAll("#detail-prev-btn").forEach(function (b) { b.addEventListener("click", detailPrev); });
