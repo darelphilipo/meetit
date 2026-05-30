@@ -412,9 +412,9 @@ function renderModCard(tab: string) {
   if (!modDescTotal[dcKey]) modDescTotal[dcKey] = desc.length > 100 ? 99 : 1;
   modDescPage[dcKey] = 0;
 
-  var html = '<div class="' + cardClass + '" style="height:100%;display:flex;flex-direction:column;gap:6px;padding:12px;overflow:hidden;">';
-  html += '<div style="flex-shrink:0;"><h3 style="font-size:17px;font-weight:700;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(item.title) + '</h3></div>';
-  html += '<div style="flex-shrink:0;font-size:12px;color:var(--muted);font-weight:600;">';
+  var html = '<div class="' + cardClass + '" style="height:100%;display:flex;flex-direction:column;padding:10px;overflow:hidden;box-sizing:border-box;">';
+  html += '<div style="flex-shrink:0;"><h3 style="font-size:17px;font-weight:700;margin:0 0 4px 0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(item.title) + '</h3></div>';
+  html += '<div style="flex-shrink:0;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px;">';
   if (tab === "pitches") { html += '👤 u/' + escapeHtml(item.submittedBy) + ' · ' + escapeHtml(new Date(item.submittedAt).toLocaleString()); }
   else { html += '📅 ' + escapeHtml(item.date) + ' at ' + escapeHtml(item.time) + ' · 📍 ' + escapeHtml(item.location || ""); }
   html += '</div>';
@@ -520,7 +520,24 @@ async function approveEvent(id: string) { log("approveEvent id=" + id); if (acti
 function deleteEvent(id: string, type: string) { log("deleteEvent id=" + id + " type=" + type); if (actionInProgress) return; actionInProgress = true; var sel = type === "pending" ? ".btn-decline-event" : ".btn-delete-published"; var btn = document.querySelector('[data-id="' + id + '"]' + sel) as HTMLElement; if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; } var parent = btn ? btn.closest(".pending-card,.event-card") as HTMLElement : null; if (parent) parent.style.opacity = "0.3"; var endpoint = type === "pending" ? "/api/delete-pending" : "/api/delete-published"; fetch(API_BASE + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }).then(function () { showToast("Deleted", "success"); setTimeout(function () { loadModTab(type === "pending" ? "pending" : "published"); }, 300); }).catch(function () { showToast("Error", "error"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } }); setTimeout(function () { actionInProgress = false; }, 500); }
 async function dismissIdea(id: string) { log("dismissIdea id=" + id); try { await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) }); showToast("Idea dismissed", "success"); loadModTab("pitches"); } catch (e) { showToast("Error", "error"); } }
 function deletePitch(id: string) { log("deletePitch id=" + id); if (actionInProgress) return; actionInProgress = true; fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) }).then(function () { showToast("Deleted", "success"); loadMySubmissions(); }).catch(function () { showToast("Error", "error"); }); setTimeout(function () { actionInProgress = false; }, 500); }
-async function viewRsvps(eventId: string) { log("viewRsvps id=" + eventId); var el = document.getElementById("rsvps-" + eventId)!; if (!el.classList.contains("hidden")) { el.classList.add("hidden"); return; } try { var res = await fetch(API_BASE + "/api/rsvp-list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: eventId, includeContactDetails: true }) }); var data = await res.json(); if (data.type === "rsvp-list") { var att = data.attendees || []; if (att.length === 0) el.innerHTML = '<div style="font-size:13px;">No RSVPs</div>'; else { var list = '<div style="font-weight:700;font-size:11px;margin-bottom:8px;">' + att.length + ' Attendees</div>'; for (var i = 0; i < att.length; i++) { var a = att[i]; list += '<div style="font-size:13px;font-weight:600;padding:6px 0;border-bottom:1px solid var(--outline-v);">👤 u/' + escapeHtml(a.username); if (a.email) list += '<span style="font-weight:400;color:var(--muted);"> ✉️ ' + escapeHtml(a.email) + '</span>'; if (a.phone) list += '<span style="font-weight:400;color:var(--muted);"> 📱 ' + escapeHtml(a.phone) + '</span>'; list += '</div>'; } list += '<button class="copy-btn btn-copy-rsvp" data-rsvps="' + escapeHtml(JSON.stringify(att)) + '" style="margin-top:8px;background:var(--primary);padding:6px 14px;font-size:12px;">📋 Copy CSV</button>'; el.innerHTML = list; } el.classList.remove("hidden"); } } catch (e) { console.error(e); } bindButtons(); }
+async function viewRsvps(eventId: string) { log("viewRsvps id=" + eventId);
+  var el = document.getElementById("rsvps-" + eventId)!;
+  if (!el.classList.contains("hidden")) { el.classList.add("hidden"); return; }
+  try {
+    var res = await fetch(API_BASE + "/api/rsvp-list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: eventId, includeContactDetails: true }) });
+    var data = await res.json();
+    if (data.type === "rsvp-list") {
+      var att = data.attendees || [];
+      if (att.length === 0) el.innerHTML = '<div style="font-size:13px;">No RSVPs</div>';
+      else {
+        var list = '<div style="font-weight:700;font-size:11px;margin-bottom:8px;">' + att.length + ' Attendees</div>';
+        for (var i = 0; i < att.length; i++) { var a = att[i]; list += '<div style="font-size:13px;font-weight:600;padding:6px 0;border-bottom:1px solid var(--outline-v);">👤 u/' + escapeHtml(a.username); if (a.email) list += '<span style="font-weight:400;color:var(--muted);"> ✉️ ' + escapeHtml(a.email) + '</span>'; if (a.phone) list += '<span style="font-weight:400;color:var(--muted);"> 📱 ' + escapeHtml(a.phone) + '</span>'; list += '</div>'; }
+        el.innerHTML = list;
+      }
+      el.classList.remove("hidden");
+    }
+  } catch (e) { console.error(e); }
+}
 
 // ======= RSVP / LEAVE / PITCH / SUBMIT =======
 async function submitRsvp() {
@@ -631,7 +648,6 @@ function bindButtons() {
   document.querySelectorAll("#event-submit-btn").forEach(function (b) { b.addEventListener("click", submitEvent); });
   document.querySelectorAll(".close-overlay").forEach(function (b) { b.addEventListener("click", showHomePage); });
   document.querySelectorAll(".btn-copy-link").forEach(function (b) { b.addEventListener("click", function () { var url = (b as HTMLElement).getAttribute("data-url") || ""; if (navigator.clipboard) navigator.clipboard.writeText(url); else { var ta = document.createElement("textarea"); ta.value = url; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); } showCopyToast(); }); });
-  document.querySelectorAll(".btn-copy-rsvp").forEach(function (b) { b.addEventListener("click", function () { var raw = (b as HTMLElement).getAttribute("data-rsvps") || "[]", arr = JSON.parse(raw), csv = "username,email,phone,timestamp\n"; for (var i = 0; i < arr.length; i++) csv += arr[i].username + "," + (arr[i].email || "") + "," + (arr[i].phone || "") + "," + (arr[i].timestamp || "") + "\n"; try { navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(csv).then(function () { showToast("Copied!", "success"); }).catch(fc) : fc(); } catch (e) { fc(); } function fc() { var ta = document.createElement("textarea"); ta.value = csv; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); showToast("Copied!", "success"); } }); });
 }
 
 document.addEventListener("DOMContentLoaded", function () {
