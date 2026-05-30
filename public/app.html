@@ -108,6 +108,10 @@
     .detail-desc-scroll { max-height: min(42vh, 260px); overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .detail-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
     #events-container { min-height: calc(100vh - 170px); }
+    /* Debug log panel */
+    #debug-panel { display: none; position: fixed; bottom: 10px; left: 10px; right: 10px; max-height: 200px; overflow-y: auto; background: #1c1c0f; color: #00ff88; font-family: monospace; font-size: 11px; padding: 8px; border: 2px solid #00ff88; z-index: 9999; border-radius: 4px; -webkit-overflow-scrolling: touch; }
+    #debug-panel .log-entry { padding: 2px 0; border-bottom: 1px solid #333; word-break: break-all; }
+    #debug-toggle { position: fixed; bottom: 10px; right: 10px; z-index: 10000; background: #1c1c0f; color: #00ff88; border: 2px solid #00ff88; font-family: monospace; font-size: 11px; padding: 4px 8px; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -238,6 +242,8 @@
       <div class="overlay-footer"><button class="btn btn-pink btn-submit-rsvp">Confirm RSVP →</button></div>
     </div>
   </div>
+  <button id="debug-toggle">🐛</button>
+  <div id="debug-panel"></div>
   <script src="app.js"></script>
 </body>
 </html>
