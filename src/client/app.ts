@@ -322,7 +322,7 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   var date = new Date(e.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
   // Card 1: Quick Info
-  var s1 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;justify-content:center;gap:12px;padding:16px;">' +
+  var s1 = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;justify-content:center;gap:12px;padding:16px;">' +
     '<div style="text-align:center;"><div style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">📅 Date</div><div style="font-size:18px;font-weight:700;">' + date + '</div></div>' +
     '<div style="text-align:center;"><div style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">⏰ Time</div><div style="font-size:18px;font-weight:700;">' + escapeHtml(e.time) + '</div></div>' +
     '<div style="text-align:center;"><div style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">📍 Location</div><div style="font-size:16px;font-weight:700;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;max-height:42px;">' + escapeHtml(e.location) + '</div></div>' +
@@ -333,7 +333,7 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   var descFull = e.description || "", descShort = descFull.substring(0, 100), hasMore = descFull.length > 100;
   descFullStore[e.id] = descFull;
   if (!isOpen) { descPageMap[e.id] = 0; descPageTotal[e.id] = hasMore ? 99 : 1; }
-  var s2 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;gap:6px;padding:8px 0;">';
+  var s2 = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:6px;padding:8px 0;">';
   if (e.organizer) { var initial = e.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><div style="width:36px;height:36px;border:var(--border);background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(e.organizer) + '</div></div></div>'; }
   s2 += '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);position:relative;" id="desc-box-' + e.id + '">' +
     '<div id="desc-track-' + e.id + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
@@ -348,7 +348,7 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
 
   // Card 3: Who's Going
   if (!isOpen) attPageMap[e.id] = 0;
-  var s3 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;padding:4px 0;">' +
+  var s3 = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;padding:4px 0;">' +
     '<div style="text-align:center;padding:12px 0 8px 0;font-weight:700;font-size:17px;flex-shrink:0;">👥 Who\'s Going?</div>' +
     '<div style="text-align:center;font-size:14px;color:var(--muted);padding-bottom:8px;flex-shrink:0;">' + d.rsvpCount + ' attendee' + (d.rsvpCount !== 1 ? 's' : '') + '</div>' +
     '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);position:relative;"><div id="rsvps-public-' + e.id + '" style="position:absolute;top:0;left:0;width:100%;height:100%;"></div></div>' +
@@ -357,13 +357,13 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
 
   // Card 4: RSVP / Leave
   var s4 = d.hasRsvped
-    ? '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:12px;padding:20px;text-align:center;padding-top:40px;">' +
+    ? '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:12px;padding:20px;text-align:center;padding-top:40px;">' +
       '<div style="font-size:56px;">🎉</div>' +
       '<div style="font-size:18px;font-weight:700;">You\'re on the list!</div>' +
       '<div style="font-size:14px;color:var(--muted);">See you there</div>' +
       '<button class="btn btn-white btn-leave-event" data-id="' + e.id + '" style="margin-top:12px;width:auto;padding:10px 20px;">❌ Leave Event</button>' +
       '</div>'
-    : '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;text-align:center;">' +
+    : '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;text-align:center;">' +
       '<div style="font-size:64px;">🎟️</div>' +
       '<div style="font-size:20px;font-weight:700;">Ready to join?</div>' +
       '<div style="font-size:14px;color:var(--muted);">' + d.rsvpCount + ' people are going</div>' +
