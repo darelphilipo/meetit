@@ -133,27 +133,25 @@ function groupByDate(events: any[]): Record<string, any[]> { var g: Record<strin
 
 // ======= MY STUFF (horizontal cards) =======
 var myStuffLoading = false;
-function openMyStuff() { loadMySubmissions(); openOverlay("my-stuff-overlay"); }
+function openMyStuff() { log("openMyStuff"); loadMySubmissions(); openOverlay("my-stuff-overlay"); }
 async function loadMySubmissions() {
-  myStuffLoading = true;
-  var c = document.getElementById("my-submissions-container")!;
-  c.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><span class="emoji">⏳</span><h2>Loading...</h2></div>';
+  log("loadMySubmissions");
+  document.getElementById("my-pitches-section")!.innerHTML = '<div class="empty-state"><span class="emoji">⏳</span><h2>Loading...</h2></div>';
+  document.getElementById("my-events-section")!.innerHTML = '';
   try {
     var res = await fetch(API_BASE + "/api/my-submissions");
     var data = await res.json();
     if (data.type === "my-submissions") {
       myPitches = data.pitches || [];
       myEvents = data.events || [];
-      if (myPitches.length === 0 && myEvents.length === 0) {
-        document.getElementById("my-pitches-section")!.innerHTML = '<div class="empty-state"><span class="emoji">📭</span><h2>Nothing yet</h2></div>';
-        document.getElementById("my-events-section")!.innerHTML = '';
-        bindButtons(); myStuffLoading = false; return;
-      }
       myPitchIdx = 0; myEventIdx = 0;
       renderMyPitchCard();
       renderMyEventCard();
     }
-  } catch (e) { document.getElementById("my-pitches-section")!.innerHTML = '<div class="empty-state"><span class="emoji">❌</span><h2>Could not load</h2></div>'; document.getElementById("my-events-section")!.innerHTML = ''; }
+  } catch (e) {
+    document.getElementById("my-pitches-section")!.innerHTML = '<div class="empty-state"><span class="emoji">❌</span><h2>Could not load</h2></div>';
+    document.getElementById("my-events-section")!.innerHTML = '';
+  }
   myStuffLoading = false;
 }
 function renderMyPitchCard() {
