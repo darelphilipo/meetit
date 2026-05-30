@@ -12,7 +12,6 @@ import {
   type PitchFormData,
   type RsvpAttendee,
   type SubmitEventFormData,
-  type UpdateEventFormData,
 } from "../shared/api.ts";
 import { buildAttendees, createPendingEvent, isConfiguredModerator, isSubmissionOwner } from "../shared/meetit.ts";
 import { once } from "node:events";
@@ -74,9 +73,6 @@ async function onRequest(
       break;
     case ApiEndpoint.SubmitEvent:
       body = await onSubmitEvent(req);
-      break;
-    case ApiEndpoint.UpdateEvent:
-      body = await onUpdateEvent(req);
       break;
     case ApiEndpoint.ApproveEvent:
       body = await onApproveEvent(req);
@@ -286,15 +282,14 @@ async function onEventDetails(req: IncomingMessage): Promise<ApiResponse> {
   }
 
   const username = context.username || "";
-  const isOrganizer = normalizeUsername(username) === normalizeUsername(event.organizer || "");
-  console.log(`[EVENT-DETAILS] eventId=${eventId} username=${username} isOrganizer=${isOrganizer}`);
+  console.log(`[EVENT-DETAILS] eventId=${eventId} username=${username}`);
   const rsvpCount = await getRsvpCount(eventId);
   const hasRsvped = await isUserRsvped(eventId, username);
   const appSettings = await getSettings();
 
   return {
     type: "event-details",
-    data: { event, rsvpCount, hasRsvped, isOrganizer, settings: appSettings },
+    data: { event, rsvpCount, hasRsvped, settings: appSettings },
   };
 }
 
@@ -380,36 +375,6 @@ async function onSubmitEvent(req: IncomingMessage): Promise<ApiResponse> {
   const saved = !!(await redis.hGet("meetit:pending_events", eventId));
   console.log(`[SUBMIT] "${event.title}" by ${context.username} | saved=${saved} | id=${eventId}`);
   return { type: "submit-event", success: saved };
-}
-
-async function onUpdateEvent(req: IncomingMessage): Promise<ApiResponse> {
-  const formData = await readJSON<UpdateEventFormData>(req);
-  const eventId = formData.eventId;
-  const existingJson = await redis.hGet("meetit:active_events", eventId);
-
-  if (!existingJson) {
-    return { error: "Event not found", status: 404 };
-  }
-
-  const existing = JSON.parse(existingJson) as MeetitEvent;
-  const username = context.username || "";
-  if (!isSubmissionOwner(username, existing.organizer)) {
-    return { error: "forbidden", status: 403 };
-  }
-
-  const updated: MeetitEvent = {
-    ...existing,
-    title: formData.title,
-    date: formData.date,
-    time: formData.time,
-    location: formData.location,
-    description: formData.desc,
-    mapUrl: formData.mapUrl,
-  };
-
-  await redis.hSet("meetit:active_events", { [eventId]: JSON.stringify(updated) });
-  console.log(`[UPDATE] "${updated.title}" by ${username} | id=${eventId}`);
-  return { type: "submit-event", success: true };
 }
 
 async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
