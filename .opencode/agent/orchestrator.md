@@ -1,7 +1,7 @@
 ---
 description: Analyzes user requests, plans solutions, and delegates coding tasks to the general subagent. Handles architecture, research, and non-coding questions directly.
 mode: primary
-model: opencode-go/qwen-3.7-max
+model: opencode-go/qwen3.7-max
 ---
 
 # Orchestrator Agent

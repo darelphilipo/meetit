@@ -6,7 +6,7 @@
   "default_agent": "orchestrator",
   "agent": {
     "orchestrator": {
-      "model": "opencode-go/qwen-3.7-max",
+      "model": "opencode-go/qwen3.7-max",
       "mode": "primary",
       "description": "Analyzes tasks, plans architecture, and delegates coding work to the general subagent. Handles non-coding questions directly."
     },
