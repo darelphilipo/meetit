@@ -975,3 +975,58 @@ devvit-cli logs r/meetup_hub2_dev
 ```
 
 Unlike `npm run deploy` which does `devvit upload` only, `devvit-cli upload --bump patch --copy-paste` bumps the version and offers copy-paste installation. The `devvit-cli logs` command provides real-time log streaming for debugging.
+
+### 12.15 iOS Safari Flex + height:100% Bug (2026-05-30)
+
+**Bug:** On iOS Safari, elements with `height:100%` inside flex containers expand to fit their content instead of filling the parent. This caused the description text to push the "Read more" button below the card's `overflow:hidden` clip boundary on iOS, while Android rendered it correctly.
+
+**Root cause:** iOS Safari resolves `height:100%` as `auto` when the parent element is a flex item with `flex:1` but no explicit `height` property. The chain was:
+- `overlay-body` (flex:1, no explicit height)
+- `detail-card` (height:100%) → iOS treats as auto → expands to content
+- `desc-box` (flex:1) → expands with parent
+- `desc-track` (height:100%) → also expands
+- Text fills the expanded area, "Read more" button pushed below clip boundary
+
+**Fix:** Replace `height:100%` on detail cards with `position:absolute; top:0; left:0; right:0; bottom:0`. This locks the card to the `overlay-body` bounds regardless of flex resolution. The `overlay-body` gets `position:relative` to establish the positioning context.
+
+**Pattern for all scrollable tracks:**
+```css
+/* Container */
+position: relative;
+overflow: hidden;
+
+/* Track (horizontal slide container) */
+position: absolute;
+top: 0;
+left: 0;
+width: 100%;
+height: 100%;
+```
+
+This pattern was applied to:
+- Detail overlay cards (all 4 steps)
+- Description track (detail card 2)
+- Attendee track (detail card 3)
+- Mod dashboard description tracks
+
+**Lesson:** When building for iOS Safari, never rely on `height:100%` inside flex containers. Use absolute positioning to lock elements to their parent bounds. Test on both iOS and Android after every UI change.
+
+### 13.0 Cross-Platform Requirement (2026-05-30)
+
+**Rule:** All UI changes must work on both iOS and Android. Test on both platforms after every commit.
+
+**iOS Safari quirks to watch for:**
+- `height:100%` inside flex containers → use `position:absolute` instead
+- `-webkit-line-clamp` may not work reliably → add `max-height` fallback
+- `overflow-y:auto` inside flex may expand instead of scroll → lock with absolute positioning
+- Touch events can fire multiple times → use loading guards and disabled attributes
+- `-webkit-overflow-scrolling:touch` can cause expansion → combine with absolute positioning
+
+**Testing checklist:**
+1. Deploy to playtest sub
+2. Test on iOS device (iPhone/iPad)
+3. Test on Android device
+4. Verify all overlays open/close correctly
+5. Verify horizontal pagination works (description, attendees, mod cards)
+6. Verify buttons are visible and clickable
+7. Verify no content overflow or clipping
