@@ -219,7 +219,7 @@ async function loadPublicAttendees(eventId: string) {
         }
         pages += '</div>';
       }
-      el.innerHTML = '<div id="att-track-' + eventId + '" style="display:flex;width:' + (totalPages * 100) + '%;height:100%;transition:transform 0.25s;">' + pages + '</div>';
+      el.innerHTML = '<div id="att-track-' + eventId + '" style="display:flex;width:' + (totalPages * 100) + '%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' + pages + '</div>';
       document.getElementById("att-nav-" + eventId)!.innerHTML = buildAttNav(eventId);
       if (detailStep === 3) persistStep3(eventId);
       bindButtons();
@@ -261,7 +261,7 @@ function splitTextToPages(text: string, width: number, maxHeight: number): strin
 
 function buildDescPagesHTML(eventId: string, pages: string[]): string {
   var pct = (100 / pages.length);
-  var html = '<div id="desc-track-' + eventId + '" style="display:flex;width:' + (pages.length * 100) + '%;height:100%;transition:transform 0.25s;">';
+  var html = '<div id="desc-track-' + eventId + '" style="display:flex;width:' + (pages.length * 100) + '%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">';
   for (var i = 0; i < pages.length; i++) {
     html += '<div style="min-width:' + pct + '%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;font-size:15px;line-height:1.5;word-break:break-word;">' + escapeHtml(pages[i]) + '</div>';
   }
@@ -335,8 +335,8 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   if (!isOpen) { descPageMap[e.id] = 0; descPageTotal[e.id] = hasMore ? 99 : 1; }
   var s2 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;gap:6px;padding:8px 0;">';
   if (e.organizer) { var initial = e.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><div style="width:36px;height:36px;border:var(--border);background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(e.organizer) + '</div></div></div>'; }
-  s2 += '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);" id="desc-box-' + e.id + '">' +
-    '<div id="desc-track-' + e.id + '" style="display:flex;width:100%;height:100%;transition:transform 0.25s;">' +
+  s2 += '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);position:relative;" id="desc-box-' + e.id + '">' +
+    '<div id="desc-track-' + e.id + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
     '<div id="desc-page-initial-' + e.id + '" style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;font-size:15px;line-height:1.5;word-break:break-word;">' +
       escapeHtml(descShort) + (hasMore ? '...' : '') +
     '</div></div></div>' +
@@ -351,7 +351,7 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   var s3 = '<div class="detail-card" style="height:100%;display:flex;flex-direction:column;padding:4px 0;">' +
     '<div style="text-align:center;padding:12px 0 8px 0;font-weight:700;font-size:17px;flex-shrink:0;">👥 Who\'s Going?</div>' +
     '<div style="text-align:center;font-size:14px;color:var(--muted);padding-bottom:8px;flex-shrink:0;">' + d.rsvpCount + ' attendee' + (d.rsvpCount !== 1 ? 's' : '') + '</div>' +
-    '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);"><div id="rsvps-public-' + e.id + '" style="height:100%;"></div></div>' +
+    '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);position:relative;"><div id="rsvps-public-' + e.id + '" style="position:absolute;top:0;left:0;width:100%;height:100%;"></div></div>' +
     '<div id="att-nav-' + e.id + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:6px 8px 0 8px;min-height:32px;"></div>' +
     '</div>';
 
@@ -453,8 +453,8 @@ function renderModCard(tab: string) {
   else { html += '📅 ' + escapeHtml(item.date) + ' at ' + escapeHtml(item.time) + ' · 📍 ' + escapeHtml(item.location || ""); }
   html += '</div>';
   // Description with horizontal pages
-  html += '<div id="mod-desc-box-' + dcKey + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);">' +
-    '<div id="mod-desc-track-' + dcKey + '" style="display:flex;width:100%;height:100%;transition:transform 0.25s;">' +
+  html += '<div id="mod-desc-box-' + dcKey + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
+    '<div id="mod-desc-track-' + dcKey + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
     '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, 100)) + (desc.length > 100 ? '...' : '') + '</div>' +
     '</div></div>' +
     '<div id="mod-desc-nav-' + dcKey + '" style="flex-shrink:0;min-height:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
@@ -501,7 +501,7 @@ function renderModCard(tab: string) {
 
 function buildModDescPagesHTML(key: string, pages: string[]): string {
   var pct = 100 / pages.length;
-  var html = '<div id="mod-desc-track-' + key + '" style="display:flex;width:' + (pages.length * 100) + '%;height:100%;transition:transform 0.25s;">';
+  var html = '<div id="mod-desc-track-' + key + '" style="display:flex;width:' + (pages.length * 100) + '%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">';
   for (var i = 0; i < pages.length; i++) {
     html += '<div style="min-width:' + pct + '%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(pages[i]) + '</div>';
   }
