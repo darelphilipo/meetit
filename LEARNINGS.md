@@ -904,3 +904,74 @@ Key insight: `to: /r/<subreddit>` (modmail) works, but `to: <username>` (individ
 - ✅ `reddit.submitCustomPost` from CRON — works (creates alert posts as fallback)
 - ❌ Individual user reminders via DM — still broken
 - ❌ `reddit.submitComment` — still broken from all contexts
+
+### 12.10 No Vertical Scrolling — Multi-Card Overlay Pattern (2026-05-30)
+
+**Problem:** Devvit Web inline webview has no page-level vertical scroll on mobile. The 3-card detail overlay had organizer, description, map, and attendees all crammed into card 2 — long content overflowed the viewport with no way to scroll.
+
+**Solution:** Split into 4 cards, each filling the full overlay body (`height:100%`). Individual content areas that might overflow (description, attendee list) get `flex:1; min-height:0; overflow-y:auto` — they scroll internally while the card itself stays fixed.
+
+**Card layout after redesign:**
+
+| Card | Content | Scrolling |
+|------|---------|-----------|
+| 1 | Date, Time, Location, RSVP count | None (always fits) |
+| 2 | Organizer + Description (truncated with Read More toggle) + Map link | Only description box scrolls |
+| 3 | "Who's Going?" attendee list + Load button | Only attendee list scrolls |
+| 4 | RSVP / Leave action | None (always fits) |
+
+**Key decisions:**
+- Overlay body is `overflow:hidden` — each card handles its own internal overflow
+- Description box: `flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch`
+- Attendee list box: same pattern, fills remaining card height
+- Attendees preload in background (`loadPublicAttendees`) when overlay opens — card 3 data is ready before user navigates there
+- RSVP button moved from overlay footer into card 4 (footer now only has Back/Next nav)
+- Removed 4th overlay-footer elements (`#detail-rsvp-btn`, `#detail-rsvped`) since RSVP UI lives in card 4 now
+
+### 12.11 Race Condition Guard — Load Sequence Counter (2026-05-30)
+
+**Problem:** When `loadHome()` is called multiple times rapidly (e.g., after RSVP, leave, or navigation), a slower response could overwrite data from a faster, newer request. This caused stale data flickers.
+
+**Solution (from codex agent):**
+```javascript
+var homeLoadSeq = 0;
+
+async function loadHome() {
+  var loadSeq = ++homeLoadSeq;
+  // ... fetch ...
+  if (loadSeq !== homeLoadSeq) return; // bail — newer request in flight
+  // ... render only if still latest ...
+}
+```
+
+Pattern: increment a global counter before fetch, check it after every `await`. If the counter changed, a newer `loadHome()` started — discard this stale response.
+
+Applied at multiple checkpoints: after fetch, after JSON parse, and before `setTimeout` render.
+
+### 12.12 Stale Response Guard — showEventDetails (2026-05-30)
+
+Two guards added to `showEventDetails()`:
+1. **`detailLoading` flag:** `if (detailLoading) return` — blocks concurrent detail requests from rapid "View Details" taps. Reset on both success and failure paths.
+2. **`currentEventId === id` check:** After server fetch completes, verifies user hasn't navigated to a different event in the meantime. Discards stale detail data.
+
+Combined with the cache-first approach (open overlay instantly from `cachedHomeEvents`, then fetch server data), this eliminates flicker from stale responses.
+
+### 12.13 Duplicate Button Binding — bindButtons Audit (2026-05-30)
+
+**Bug:** `btn-load-attendees` was bound twice in `bindButtons()` — once at the mod-section bindings area and again at the detail-nav area. This meant every click triggered two fetches and two DOM updates.
+
+**Root cause:** When adding the new binding during 4-card redesign, the old binding was left in place. `querySelectorAll` + `forEach` pattern silently allows duplicates.
+
+**Lesson:** Audit `bindButtons()` for duplicate selectors after any refactor that moves button classes. Better yet, long-term: use event delegation (one listener on a parent element) instead of individual bindings.
+
+### 12.14 Deploy & Monitor Commands (2026-05-30)
+
+```bash
+# Deploy: bump patch version + copy-paste install on playtest sub
+devvit-cli upload --bump patch --copy-paste
+
+# Monitor: tail logs from playtest subreddit
+devvit-cli logs r/meetup_hub2_dev
+```
+
+Unlike `npm run deploy` which does `devvit upload` only, `devvit-cli upload --bump patch --copy-paste` bumps the version and offers copy-paste installation. The `devvit-cli logs` command provides real-time log streaming for debugging.
