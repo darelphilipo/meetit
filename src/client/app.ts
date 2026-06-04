@@ -527,26 +527,26 @@ function renderModCard(tab: string) {
     '</div></div>' +
     '<div id="mod-desc-nav-' + dcKey + '" style="flex-shrink:0;min-height:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
   // Actions
-  html += '<div style="flex-shrink:0;display:flex;flex-wrap:wrap;gap:6px;">';
+  html += '<div style="flex-shrink:0;padding-top:10px;">';
   if (tab === "pending") {
-    html += '<button class="btn btn-green btn-sm btn-approve-event" data-id="' + item.id + '" data-action="approve-event" style="font-size:13px;padding:8px 16px;">✅ Approve</button>';
-    html += '<button class="btn btn-white btn-sm btn-decline-event" data-id="' + item.id + '" data-action="decline-event" style="font-size:13px;padding:8px 16px;">🗑️ Decline</button>';
+    html += '<div style="display:flex;gap:8px;margin-bottom:' + (total > 1 ? '6px' : '0') + ';">';
+    html += '<button class="btn btn-green btn-approve-event" data-id="' + item.id + '" data-action="approve-event" style="flex:1;padding:10px 12px;font-size:13px;">✅ Approve</button>';
+    html += '<button class="btn btn-white btn-decline-event" data-id="' + item.id + '" data-action="decline-event" style="flex:1;padding:10px 12px;font-size:13px;">🗑️ Decline</button>';
+    html += '</div>';
   } else if (tab === "published") {
-    html += '<button class="btn btn-white btn-sm btn-view-rsvps" data-id="' + item.id + '" data-action="view-rsvps" style="font-size:13px;padding:8px 16px;">👥 Attendees (' + (item.rsvpCount || 0) + ')</button>';
-    html += '<button class="btn btn-white btn-sm btn-delete-published" data-id="' + item.id + '" data-action="delete-published" style="font-size:13px;padding:8px 16px;">🗑️ Delete</button>';
+    html += '<div style="display:flex;gap:8px;">';
+    html += '<button class="btn btn-white btn-view-rsvps" data-id="' + item.id + '" data-action="view-rsvps" style="flex:1;padding:10px 12px;font-size:13px;">👥 Attendees (' + (item.rsvpCount || 0) + ')</button>';
+    html += '<button class="btn btn-white btn-delete-published" data-id="' + item.id + '" data-action="delete-published" style="flex:1;padding:10px 12px;font-size:13px;">🗑️ Delete</button>';
+    html += '</div><div class="rsvp-attendees hidden" id="rsvps-' + item.id + '" style="flex-shrink:0;background:#fff;border:var(--border);padding:8px;margin-top:-2px;"></div>';
   } else {
-    html += '<button class="btn btn-white btn-sm btn-dismiss-idea" data-id="' + item.id + '" data-action="dismiss-idea" style="font-size:13px;padding:8px 16px;">🗑️ Dismiss</button>';
+    html += '<button class="btn btn-white btn-dismiss-idea" data-id="' + item.id + '" data-action="dismiss-idea" style="width:100%;padding:10px 12px;font-size:13px;">🗑️ Dismiss</button>';
   }
-  if (tab === "pending") {
-    html += '<button class="btn btn-white btn-sm btn-view-rsvps" data-id="' + item.id + '" data-action="view-rsvps" style="font-size:13px;padding:8px 16px;">👥 RSVPs</button>';
-  }
-  html += '</div><div class="rsvp-attendees hidden" id="rsvps-' + item.id + '" style="flex-shrink:0;background:#fff;border:var(--border);padding:8px;margin-top:-2px;"></div>';
   // Card nav
   if (total > 1) {
-    html += '<div style="flex-shrink:0;display:flex;gap:4px;justify-content:center;align-items:center;padding-top:6px;">' +
-      '<button class="btn btn-white btn-sm btn-mod-prev" data-tab="' + tab + '" data-action="mod-prev" style="padding:4px 12px;font-size:12px;">← Prev</button>' +
-      '<span style="font-size:12px;font-weight:700;">' + (idx + 1) + '/' + total + '</span>' +
-      '<button class="btn btn-white btn-sm btn-mod-next" data-tab="' + tab + '" data-action="mod-next" style="padding:4px 12px;font-size:12px;">Next →</button></div>';
+    html += '<div style="display:flex;gap:4px;justify-content:center;align-items:center;">' +
+      '<button class="btn btn-white btn-sm btn-mod-prev" data-tab="' + tab + '" data-action="mod-prev" style="flex:1;padding:6px;font-size:12px;">← Prev</button>' +
+      '<span style="font-size:12px;font-weight:700;padding:0 4px;">' + (idx + 1) + '/' + total + '</span>' +
+      '<button class="btn btn-white btn-sm btn-mod-next" data-tab="' + tab + '" data-action="mod-next" style="flex:1;padding:6px;font-size:12px;">Next →</button></div>';
   }
   html += '</div>';
   c.innerHTML = html;
@@ -562,7 +562,6 @@ function renderModCard(tab: string) {
       modDescPageIdx[dcKey2] = 0;
       document.getElementById("mod-desc-track-" + dcKey2)!.outerHTML = buildModDescPagesHTML(dcKey2, pages);
       document.getElementById("mod-desc-nav-" + dcKey2)!.innerHTML = buildModDescNavHTML(dcKey2);
-      bindModDescNav(dcKey2);
     }, AUTO_PAGINATE_DELAY);
   }
 }
@@ -584,11 +583,6 @@ function buildModDescNavHTML(key: string): string {
   return (cur > 0 ? '<button class="btn btn-white btn-sm btn-mod-desc-prev" data-key="' + key + '" data-action="mod-desc-prev" style="padding:2px 10px;font-size:11px;">← Previous</button>' : '') +
     '<span style="font-size:11px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
     (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-mod-desc-next" data-key="' + key + '" data-action="mod-desc-next" style="padding:2px 10px;font-size:11px;">Next →</button>' : '');
-}
-
-function bindModDescNav(key: string) {
-  document.querySelectorAll("#mod-desc-nav-" + key + " .btn-mod-desc-next").forEach(function (b) { b.addEventListener("click", function () { var cur = (modDescPageIdx[key] || 0) + 1; if (cur >= (modDescTotal[key] || 1)) return; modDescPageIdx[key] = cur; slideTrack("mod-desc-track-" + key, cur, modDescTotal[key] || 1); document.getElementById("mod-desc-nav-" + key)!.innerHTML = buildModDescNavHTML(key); bindModDescNav(key); }); });
-  document.querySelectorAll("#mod-desc-nav-" + key + " .btn-mod-desc-prev").forEach(function (b) { b.addEventListener("click", function () { var cur = (modDescPageIdx[key] || 0) - 1; if (cur < 0) return; modDescPageIdx[key] = cur; slideTrack("mod-desc-track-" + key, cur, modDescTotal[key] || 1); document.getElementById("mod-desc-nav-" + key)!.innerHTML = buildModDescNavHTML(key); bindModDescNav(key); }); });
 }
 
 function renderModPending(events: any[]) {
@@ -780,21 +774,27 @@ function handleAction(action: string, id: string | null) {
     case "mod-prev": if (id) modPrev(id); break;
     case "mod-desc-next": {
       if (!id) break;
+      var lockKey = "mod-desc-" + id;
+      if (isLocked(lockKey)) return;
+      lock(lockKey);
       var c5 = (modDescPageIdx[id] || 0) + 1;
-      if (c5 >= (modDescTotal[id] || 1)) return;
+      if (c5 >= (modDescTotal[id] || 1)) { unlock(lockKey); return; }
       modDescPageIdx[id] = c5;
       slideTrack("mod-desc-track-" + id, c5, modDescTotal[id] || 1);
       document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDescNavHTML(id);
-      bindModDescNav(id);
+      setTimeout(function() { unlock(lockKey); }, 300);
     } break;
     case "mod-desc-prev": {
       if (!id) break;
+      var lockKey = "mod-desc-" + id;
+      if (isLocked(lockKey)) return;
+      lock(lockKey);
       var c6 = (modDescPageIdx[id] || 0) - 1;
-      if (c6 < 0) return;
+      if (c6 < 0) { unlock(lockKey); return; }
       modDescPageIdx[id] = c6;
       slideTrack("mod-desc-track-" + id, c6, modDescTotal[id] || 1);
       document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDescNavHTML(id);
-      bindModDescNav(id);
+      setTimeout(function() { unlock(lockKey); }, 300);
     } break;
     case "copy-link": if (id) { if (navigator.clipboard) navigator.clipboard.writeText(id); else { var ta = document.createElement("textarea"); ta.value = id; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); } showCopyToast(); } break;
     case "toggle-create": toggleCreateMenu(); break;
