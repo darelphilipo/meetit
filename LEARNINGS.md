@@ -1030,3 +1030,64 @@ This pattern was applied to:
 5. Verify horizontal pagination works (description, attendees, mod cards)
 6. Verify buttons are visible and clickable
 7. Verify no content overflow or clipping
+
+### 14. Event Delegation vs Direct Listeners — Double-Fire Bug (2026-06-03)
+
+**Bug:** Mod dashboard description pagination (Prev/Next) was skipping pages — clicking Next once would advance 2 pages instead of 1.
+
+**Root cause:** Two event listeners were firing on every click:
+1. The **event delegation** system (`handleAction` via `data-action` on `document.body`) — the primary handler
+2. **Direct `addEventListener`** calls in `bindModDescNav()` — attached to individual Prev/Next buttons
+
+When a user clicked "Next →", both handlers fired: `bindModDescNav`'s direct listener incremented the page index, then `handleAction` incremented it again. Result: double-increment, skipping pages.
+
+**Fix:** Removed `bindModDescNav()` entirely. All navigation is now handled through the single event delegation dispatcher (`handleAction`). The `buildModDescNavHTML()` function only generates the HTML with `data-action` attributes; it no longer attaches direct listeners.
+
+**Lesson:** When using an event delegation pattern (`data-action` + single `document.body` listener), never add direct `addEventListener` calls on the same elements. Pick one pattern and stick with it throughout. Mixing them causes silent double-fires that are hard to diagnose because both handlers look correct in isolation.
+
+### 15. Per-Instance Pagination Lock Pattern (2026-06-03)
+
+**Bug:** After removing the direct listeners, rapid clicking on Prev/Next could still cause skipped pages or out-of-bounds states due to touch event edge cases (iOS double-tap, fast repeat clicks).
+
+**Fix:** Added a per-instance action lock in `handleAction`:
+
+```javascript
+case "mod-desc-next": {
+  var lockKey = "mod-desc-" + id;
+  if (isLocked(lockKey)) return;
+  lock(lockKey);
+  // ... increment, re-render ...
+  setTimeout(function() { unlock(lockKey); }, 300);
+} break;
+```
+
+**Key pattern details:**
+- Lock key includes the item ID: `"mod-desc-" + id` — so navigating one card's description doesn't block another card
+- `setTimeout(unlock, 300)` — 300ms is long enough to suppress rapid double-taps but short enough that users don't notice
+- Unlock happens on both success and early-return paths (e.g., `if (c5 >= total) { unlock(); return; }`)
+
+**Lesson:** Per-instance locks (keyed by item ID) are better than global locks for pagination — they prevent cross-card blocking while still protecting against rapid-fire on a single card. Always unlock on early-return branches to avoid stuck locks.
+
+### 16. Mod Card Layout — Feature-Based Conditional Rendering (2026-06-03)
+
+**Context:** Mod dashboard cards for pending/published/ideas tabs had accumulated UI cruft: every card showed the same action buttons regardless of context. Pending cards showed an "RSVPs" button even though no one RSVPs to pending events.
+
+**Changes made:**
+
+1. **Pending cards (`tab === "pending"`):**
+   - Removed "RSVPs" button — pointless on pending events
+   - Removed `border-top` separator line — cleaner look
+   - Made **Approve/Decline** buttons full-width with `flex:1` — primary actions should dominate the card
+   - Larger padding (`10px 12px` instead of `8px 16px`) — easier tap targets on mobile
+   - Card nav (Prev/Next) also full-width `flex:1`
+
+2. **Published cards (`tab === "published"`):**
+   - Attendees and Delete buttons in horizontal flex row with `flex:1`
+   - Attendee list `<div>` moved **inside** the published-only branch — no longer rendered for pending/ideas cards
+   - Margin adjustments between button row and nav
+
+3. **Ideas cards (`else`):**
+   - Dismiss button `width:100%` instead of fixed padding
+   - No attendees div (never needed for ideas)
+
+**Lesson:** Conditional rendering should be feature-based, not one-size-fits-all. Each card state (pending/published/idea) has different user needs, and the UI should reflect that. Removing irrelevant buttons reduces cognitive load and makes primary actions more prominent. Use `flex:1` for action buttons in card footers to create balanced, full-width layouts on mobile.
