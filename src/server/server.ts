@@ -298,17 +298,21 @@ async function onEventDetails(req: IncomingMessage): Promise<ApiResponse> {
 }
 
 async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
-  const { email, phone, eventId } = await readJSON<{ eventId: string } & RsvpFormData>(req);
+  const { eventId, email: rawEmail, phone: rawPhone } = await readJSON<{ eventId: string } & RsvpFormData>(req);
+  const email = (rawEmail || "").trim();
+  const phone = (rawPhone || "").trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "Invalid email format", status: 400 };
+  if (phone && !/^[\d\s\-\+\(\)]{7,20}$/.test(phone)) return { error: "Invalid phone format", status: 400 };
   const username = context.username || "";
   console.log(`[RSVP] ${username} → ${eventId} (email=${email ? "yes" : "no"}, phone=${phone ? "yes" : "no"})`);
-  await addRsvp(eventId, username, email || "", phone || "");
+  await addRsvp(eventId, username, email, phone);
 
   if (GOOGLE_SHEETS_WEBHOOK_URL) {
     try {
       await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, email: email || "", phone: phone || "", event_id: eventId }),
+        body: JSON.stringify({ username, email, phone, event_id: eventId }),
       });
     } catch (e) { console.log(`Webhook send failed (ignored): ${e}`); }
   }

@@ -4,21 +4,21 @@ var currentUsername: string | null = null;
 var eventStep = 1;
 var detailStep = 1;
 var detailStep1 = "", detailStep2 = "", detailStep3 = "", detailStep4 = "";
-var homeCardIndex = 0;
+var homeCardIdx = 0;
 var cachedHomeEvents: any[] = [];
 var cachedHomeIsMod = false;
 var homeLoadSeq = 0;
 var detailLoading = false;
-var descPageMap: Record<string, number> = {};
+var descPageIdx: Record<string, number> = {};
 var descPageTotal: Record<string, number> = {};
-var attPageMap: Record<string, number> = {};
-var attStore: Record<string, any[]> = {};
-var descFullStore: Record<string, string> = {};
-var modCardIndex: Record<string, number> = {};
+var attPageIdx: Record<string, number> = {};
+var attListStore: Record<string, any[]> = {};
+var descFullText: Record<string, string> = {};
+var modCardIdx: Record<string, number> = {};
 var modItems: Record<string, any[]> = {};
-var modDescPage: Record<string, number> = {};
+var modDescPageIdx: Record<string, number> = {};
 var modDescTotal: Record<string, number> = {};
-var modDescFull: Record<string, string> = {};
+var modDescFullText: Record<string, string> = {};
 var myPitchIdx = 0, myEventIdx = 0;
 var myPitches: any[] = [], myEvents: any[] = [];
 
@@ -27,6 +27,17 @@ var CACHE_TTL_HOME = 30000;      // 30 seconds
 var CACHE_TTL_DETAIL = 30000;    // 30 seconds
 var CACHE_TTL_ATTENDEES = 30000; // 30 seconds
 var CACHE_TTL_MOD = 60000;       // 60 seconds
+
+// UI Constants
+var MAX_DEBUG_ENTRIES = 50;
+var TOAST_DURATION = 3000;
+var COPY_TOAST_DURATION = 1500;
+var DEBOUNCE_DELAY = 150;
+var RENDER_DELAY = 200;
+var DESC_PREVIEW_LENGTH = 120;
+var ATTENDEES_PER_PAGE = 5;
+var DESC_SHORT_LENGTH = 100;
+var AUTO_PAGINATE_DELAY = 100;
 
 // Fetch debounce / caches
 var homeFetchTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -42,15 +53,15 @@ function log(msg: string) {
   entry.className = "log-entry";
   entry.textContent = new Date().toISOString().substring(11, 23) + " " + msg;
   panel.prepend(entry);
-  if (panel.children.length > 50) panel.removeChild(panel.lastChild!);
+  if (panel.children.length > MAX_DEBUG_ENTRIES) panel.removeChild(panel.lastChild!);
 }
 
 function showToast(msg: string, type: "success" | "error") {
   var t = document.createElement("div");
   t.style.cssText = "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:" + (type === "success" ? "#00ff88" : "#ff4444") + ";color:#1c1c0f;padding:14px 24px;font-weight:700;z-index:2000;font-family:'Space Grotesk',sans-serif;border:4px solid #1c1c0f;box-shadow:6px 6px 0 #1c1c0f;";
-  t.textContent = msg; document.body.appendChild(t); setTimeout(function () { t.remove(); }, 3000);
+  t.textContent = msg; document.body.appendChild(t); setTimeout(function () { t.remove(); }, TOAST_DURATION);
 }
-function showCopyToast() { var t = document.createElement("div"); t.className = "toast-copied"; t.textContent = "📍 Copied!"; document.body.appendChild(t); setTimeout(function () { t.remove(); }, 1500); }
+function showCopyToast() { var t = document.createElement("div"); t.className = "toast-copied"; t.textContent = "📍 Copied!"; document.body.appendChild(t); setTimeout(function () { t.remove(); }, COPY_TOAST_DURATION); }
 function escapeHtml(s: string | undefined | null) { var d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
 
 // ======= HOME - Single card navigation =======
@@ -72,23 +83,23 @@ async function loadHome() {
       if (bar) bar.style.width = "100%"; if (msg) msg.textContent = "Ready!";
       if (data.type === "home") {
         var allEvents = flattenHomeEvents(data.data.eventsByDate);
-        var currentEvent = cachedHomeEvents[homeCardIndex];
+        var currentEvent = cachedHomeEvents[homeCardIdx];
         var currentId = currentEvent && currentEvent.id;
         cachedHomeEvents = allEvents;
         cachedHomeIsMod = data.data.isMod;
         if (currentId) {
           var updatedIndex = allEvents.findIndex(function (event) { return event.id === currentId; });
-          if (updatedIndex >= 0) homeCardIndex = updatedIndex;
-          else if (homeCardIndex >= allEvents.length) homeCardIndex = Math.max(0, allEvents.length - 1);
-        } else if (homeCardIndex >= allEvents.length) {
-          homeCardIndex = Math.max(0, allEvents.length - 1);
+          if (updatedIndex >= 0) homeCardIdx = updatedIndex;
+          else if (homeCardIdx >= allEvents.length) homeCardIdx = Math.max(0, allEvents.length - 1);
+        } else if (homeCardIdx >= allEvents.length) {
+          homeCardIdx = Math.max(0, allEvents.length - 1);
         }
         setTimeout(function () {
           if (loadSeq === homeLoadSeq) renderHomeCard(data.data);
-        }, 200);
+        }, RENDER_DELAY);
       }
     } catch (e) { console.error(e); if (msg) msg.textContent = "Could not load."; }
-  }, 150);
+  }, DEBOUNCE_DELAY);
 }
 
 function flattenHomeEvents(eventsByDate: Record<string, any[]>): any[] {
@@ -112,8 +123,8 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
     var all = flattenHomeEvents(state.eventsByDate);
     cachedHomeEvents = all;
     cachedHomeIsMod = state.isMod;
-    if (homeCardIndex >= all.length) homeCardIndex = 0;
-    var event = all[homeCardIndex];
+    if (homeCardIdx >= all.length) homeCardIdx = 0;
+    var event = all[homeCardIdx];
     if (!event) return;
     var count = all.length;
     var dateStr = event._date ? new Date(event._date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) : "";
@@ -121,7 +132,7 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
     c.innerHTML =
       '<div class="event-card" style="padding:20px;height:calc(100vh - 180px);display:flex;flex-direction:column;">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0;">' +
-      '<span style="font-size:11px;font-weight:700;background:var(--surface);border:var(--border);padding:3px 10px;">' + (homeCardIndex + 1) + '/' + count + '</span>' +
+      '<span style="font-size:11px;font-weight:700;background:var(--surface);border:var(--border);padding:3px 10px;">' + (homeCardIdx + 1) + '/' + count + '</span>' +
       '<span style="font-size:12px;font-weight:700;color:var(--muted);">📅 ' + dateStr + '</span>' +
       '</div>' +
       '<div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;">' +
@@ -130,7 +141,7 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
       '<span class="event-tag" style="font-size:12px;padding:2px 8px;">⏰ ' + escapeHtml(event.time) + '</span>' +
       '<span class="event-tag" style="font-size:12px;padding:2px 8px;background:var(--primary);">👥 ' + (event.rsvpCount || 0) + '</span>' +
       '</div>' +
-      '<div style="font-size:14px;color:var(--muted);line-height:1.5;padding-bottom:4px;">' + escapeHtml((event.description || "").substring(0, 120)) + ((event.description || "").length > 120 ? "..." : "") + '</div>' +
+      '<div style="font-size:14px;color:var(--muted);line-height:1.5;padding-bottom:4px;">' + escapeHtml((event.description || "").substring(0, DESC_PREVIEW_LENGTH)) + ((event.description || "").length > DESC_PREVIEW_LENGTH ? "..." : "") + '</div>' +
       '</div>' +
       '<div style="flex-shrink:0;padding-top:10px;border-top:2px solid var(--outline-v);">' +
       '<div style="display:flex;gap:8px;align-items:center;">' +
@@ -147,8 +158,8 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
   
 }
 
-function homePrev() { log("homePrev idx=" + homeCardIndex + " total=" + cachedHomeEvents.length); if (cachedHomeEvents.length > 1) { homeCardIndex = (homeCardIndex - 1 + cachedHomeEvents.length) % cachedHomeEvents.length; renderHomeCard({ eventsByDate: groupByDate(cachedHomeEvents), isMod: cachedHomeIsMod, settings: {} }); } }
-function homeNext() { log("homeNext idx=" + homeCardIndex + " total=" + cachedHomeEvents.length); if (cachedHomeEvents.length > 1) { homeCardIndex = (homeCardIndex + 1) % cachedHomeEvents.length; renderHomeCard({ eventsByDate: groupByDate(cachedHomeEvents), isMod: cachedHomeIsMod, settings: {} }); } }
+function homePrev() { log("homePrev idx=" + homeCardIdx + " total=" + cachedHomeEvents.length); if (cachedHomeEvents.length > 1) { homeCardIdx = (homeCardIdx - 1 + cachedHomeEvents.length) % cachedHomeEvents.length; renderHomeCard({ eventsByDate: groupByDate(cachedHomeEvents), isMod: cachedHomeIsMod, settings: {} }); } }
+function homeNext() { log("homeNext idx=" + homeCardIdx + " total=" + cachedHomeEvents.length); if (cachedHomeEvents.length > 1) { homeCardIdx = (homeCardIdx + 1) % cachedHomeEvents.length; renderHomeCard({ eventsByDate: groupByDate(cachedHomeEvents), isMod: cachedHomeIsMod, settings: {} }); } }
 function groupByDate(events: any[]): Record<string, any[]> { var g: Record<string, any[]> = {}; for (var i = 0; i < events.length; i++) { var event = events[i]; if (!event) continue; var d = event._date || ""; if (!g[d]) g[d] = []; g[d]!.push(event); } return g; }
 
 // ======= MY STUFF (horizontal cards) =======
@@ -222,10 +233,10 @@ function closeCreateMenu() { document.getElementById("create-menu")!.classList.r
 function renderAttendees(eventId: string, att: any[]) {
   var el = document.getElementById("rsvps-public-" + eventId);
   if (!el) return;
-  attStore[eventId] = att;
+  attListStore[eventId] = att;
   if (att.length === 0) { el.innerHTML = '<div style="text-align:center;padding:20px;font-size:14px;color:var(--muted);">No one yet — be the first!</div>'; return; }
-  var perPage = 5, totalPages = Math.ceil(att.length / perPage);
-  attPageMap[eventId] = 0;
+  var perPage = ATTENDEES_PER_PAGE, totalPages = Math.ceil(att.length / perPage);
+  attPageIdx[eventId] = 0;
   var pages = '';
   for (var p = 0; p < totalPages; p++) {
     pages += '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;">';
@@ -257,9 +268,9 @@ async function loadPublicAttendees(eventId: string) {
 }
 
 function buildAttNav(eventId: string): string {
-  var total = Math.ceil((attStore[eventId] || []).length / 5);
+  var total = Math.ceil((attListStore[eventId] || []).length / ATTENDEES_PER_PAGE);
   if (total <= 1) return '';
-  var cur = attPageMap[eventId] || 0;
+  var cur = attPageIdx[eventId] || 0;
   return (cur > 0 ? '<button class="btn btn-white btn-sm btn-att-prev" data-id="' + eventId + '" data-action="att-prev" style="padding:4px 12px;font-size:12px;">← Prev</button>' : '') +
     '<span style="font-size:12px;font-weight:700;padding:4px 8px;">' + (cur + 1) + '/' + total + '</span>' +
     (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-att-next" data-id="' + eventId + '" data-action="att-next" style="padding:4px 12px;font-size:12px;">Next →</button>' : '');
@@ -304,7 +315,7 @@ function buildDescPagesHTML(eventId: string, pages: string[]): string {
 function buildDescNavHTML(eventId: string): string {
   var total = descPageTotal[eventId] || 1;
   if (total <= 1) return '';
-  var cur = descPageMap[eventId] || 0;
+  var cur = descPageIdx[eventId] || 0;
   return (cur > 0 ? '<button class="btn btn-white btn-sm btn-desc-prev" data-id="' + eventId + '" data-action="desc-prev" style="padding:4px 12px;font-size:12px;">← Previous</button>' : '') +
     '<span style="font-size:12px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
     (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + eventId + '" data-action="desc-next" style="padding:4px 12px;font-size:12px;">Next →</button>' : '');
@@ -374,9 +385,9 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
     '</div>';
 
   // Card 2: Organizer + Description
-  var descFull = e.description || "", descShort = descFull.substring(0, 100), hasMore = descFull.length > 100;
-  descFullStore[e.id] = descFull;
-  if (!isOpen) { descPageMap[e.id] = 0; descPageTotal[e.id] = hasMore ? 99 : 1; }
+  var descFull = e.description || "", descShort = descFull.substring(0, DESC_SHORT_LENGTH), hasMore = descFull.length > DESC_SHORT_LENGTH;
+  descFullText[e.id] = descFull;
+  if (!isOpen) { descPageIdx[e.id] = 0; descPageTotal[e.id] = hasMore ? 99 : 1; }
   var s2 = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:6px;padding:8px 0;">';
   if (e.organizer) { var initial = e.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><div style="width:36px;height:36px;border:var(--border);background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(e.organizer) + '</div></div></div>'; }
   s2 += '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);position:relative;" id="desc-box-' + e.id + '">' +
@@ -391,7 +402,7 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   s2 += '</div>';
 
   // Card 3: Who's Going
-  if (!isOpen) attPageMap[e.id] = 0;
+  if (!isOpen) attPageIdx[e.id] = 0;
   var s3 = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;padding:4px 0;">' +
     '<div style="text-align:center;padding:12px 0 8px 0;font-weight:700;font-size:17px;flex-shrink:0;">👥 Who\'s Going?</div>' +
     '<div style="text-align:center;font-size:14px;color:var(--muted);padding-bottom:8px;flex-shrink:0;">' + d.rsvpCount + ' attendee' + (d.rsvpCount !== 1 ? 's' : '') + '</div>' +
@@ -467,8 +478,8 @@ function detailPrev() {
   }
 }
 
-function modNext(tab: string) { log("modNext tab=" + tab); var idx = (modCardIndex[tab] || 0) + 1; modCardIndex[tab] = idx; renderModCard(tab); }
-function modPrev(tab: string) { log("modPrev tab=" + tab); var idx = (modCardIndex[tab] || 0) - 1; if (idx < 0) idx = 0; modCardIndex[tab] = idx; renderModCard(tab); }
+function modNext(tab: string) { log("modNext tab=" + tab); var idx = (modCardIdx[tab] || 0) + 1; modCardIdx[tab] = idx; renderModCard(tab); }
+function modPrev(tab: string) { log("modPrev tab=" + tab); var idx = (modCardIdx[tab] || 0) - 1; if (idx < 0) idx = 0; modCardIdx[tab] = idx; renderModCard(tab); }
 var modTab = "pending";
 function showModDashboard() { openOverlay("mod-screen"); loadModTab("pending"); }
 function switchModTab(tab: string) { if (tab === modTab) return; modTab = tab; document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) { t.classList.toggle("active", (t as HTMLElement).dataset.mtab === tab); }); loadModTab(tab); }
@@ -489,9 +500,9 @@ async function loadModTab(tab: string) {
 }
 function renderModCard(tab: string) {
   var items = modItems[tab] || [];
-  var idx = modCardIndex[tab] || 0;
+  var idx = modCardIdx[tab] || 0;
   if (items.length === 0) return;
-  if (idx >= items.length) { modCardIndex[tab] = 0; idx = 0; }
+  if (idx >= items.length) { modCardIdx[tab] = 0; idx = 0; }
   var item = items[idx];
   var total = items.length;
   var c = document.getElementById("pending-events-container")!;
@@ -499,9 +510,9 @@ function renderModCard(tab: string) {
   var desc = item.description || "";
   var dcKey = tab + "-" + idx;
 
-  modDescFull[dcKey] = desc;
-  if (!modDescTotal[dcKey]) modDescTotal[dcKey] = desc.length > 100 ? 99 : 1;
-  modDescPage[dcKey] = 0;
+  modDescFullText[dcKey] = desc;
+  if (!modDescTotal[dcKey]) modDescTotal[dcKey] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
+  modDescPageIdx[dcKey] = 0;
 
   var html = '<div class="' + cardClass + '" style="height:100%;display:flex;flex-direction:column;padding:10px;overflow:hidden;box-sizing:border-box;">';
   html += '<div style="flex-shrink:0;"><h3 style="font-size:17px;font-weight:700;margin:0 0 4px 0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(item.title) + '</h3></div>';
@@ -512,7 +523,7 @@ function renderModCard(tab: string) {
   // Description with horizontal pages
   html += '<div id="mod-desc-box-' + dcKey + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
     '<div id="mod-desc-track-' + dcKey + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
-    '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, 100)) + (desc.length > 100 ? '...' : '') + '</div>' +
+    '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
     '</div></div>' +
     '<div id="mod-desc-nav-' + dcKey + '" style="flex-shrink:0;min-height:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
   // Actions
@@ -542,17 +553,17 @@ function renderModCard(tab: string) {
   
   // Auto-paginate description after DOM settles
   var dcKey2 = dcKey;
-  if (desc.length > 100) {
+  if (desc.length > DESC_SHORT_LENGTH) {
     setTimeout(function () {
       var box = document.getElementById("mod-desc-box-" + dcKey2);
       if (!box) return;
-      var pages = splitTextToPages(modDescFull[dcKey2] || "", box.clientWidth, box.clientHeight);
+      var pages = splitTextToPages(modDescFullText[dcKey2] || "", box.clientWidth, box.clientHeight);
       modDescTotal[dcKey2] = pages.length;
-      modDescPage[dcKey2] = 0;
+      modDescPageIdx[dcKey2] = 0;
       document.getElementById("mod-desc-track-" + dcKey2)!.outerHTML = buildModDescPagesHTML(dcKey2, pages);
       document.getElementById("mod-desc-nav-" + dcKey2)!.innerHTML = buildModDescNavHTML(dcKey2);
       bindModDescNav(dcKey2);
-    }, 100);
+    }, AUTO_PAGINATE_DELAY);
   }
 }
 
@@ -569,20 +580,20 @@ function buildModDescPagesHTML(key: string, pages: string[]): string {
 function buildModDescNavHTML(key: string): string {
   var total = modDescTotal[key] || 1;
   if (total <= 1) return '';
-  var cur = modDescPage[key] || 0;
+  var cur = modDescPageIdx[key] || 0;
   return (cur > 0 ? '<button class="btn btn-white btn-sm btn-mod-desc-prev" data-key="' + key + '" data-action="mod-desc-prev" style="padding:2px 10px;font-size:11px;">← Previous</button>' : '') +
     '<span style="font-size:11px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
     (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-mod-desc-next" data-key="' + key + '" data-action="mod-desc-next" style="padding:2px 10px;font-size:11px;">Next →</button>' : '');
 }
 
 function bindModDescNav(key: string) {
-  document.querySelectorAll("#mod-desc-nav-" + key + " .btn-mod-desc-next").forEach(function (b) { b.addEventListener("click", function () { var cur = (modDescPage[key] || 0) + 1; if (cur >= (modDescTotal[key] || 1)) return; modDescPage[key] = cur; slideTrack("mod-desc-track-" + key, cur, modDescTotal[key] || 1); document.getElementById("mod-desc-nav-" + key)!.innerHTML = buildModDescNavHTML(key); bindModDescNav(key); }); });
-  document.querySelectorAll("#mod-desc-nav-" + key + " .btn-mod-desc-prev").forEach(function (b) { b.addEventListener("click", function () { var cur = (modDescPage[key] || 0) - 1; if (cur < 0) return; modDescPage[key] = cur; slideTrack("mod-desc-track-" + key, cur, modDescTotal[key] || 1); document.getElementById("mod-desc-nav-" + key)!.innerHTML = buildModDescNavHTML(key); bindModDescNav(key); }); });
+  document.querySelectorAll("#mod-desc-nav-" + key + " .btn-mod-desc-next").forEach(function (b) { b.addEventListener("click", function () { var cur = (modDescPageIdx[key] || 0) + 1; if (cur >= (modDescTotal[key] || 1)) return; modDescPageIdx[key] = cur; slideTrack("mod-desc-track-" + key, cur, modDescTotal[key] || 1); document.getElementById("mod-desc-nav-" + key)!.innerHTML = buildModDescNavHTML(key); bindModDescNav(key); }); });
+  document.querySelectorAll("#mod-desc-nav-" + key + " .btn-mod-desc-prev").forEach(function (b) { b.addEventListener("click", function () { var cur = (modDescPageIdx[key] || 0) - 1; if (cur < 0) return; modDescPageIdx[key] = cur; slideTrack("mod-desc-track-" + key, cur, modDescTotal[key] || 1); document.getElementById("mod-desc-nav-" + key)!.innerHTML = buildModDescNavHTML(key); bindModDescNav(key); }); });
 }
 
 function renderModPending(events: any[]) {
   modItems["pending"] = events;
-  modCardIndex["pending"] = 0;
+  modCardIdx["pending"] = 0;
   if (events.length === 0) {
     document.getElementById("pending-events-container")!.innerHTML = '<div class="empty-state"><span class="emoji">📋</span><h2>No pending events</h2></div>';
      return;
@@ -591,7 +602,7 @@ function renderModPending(events: any[]) {
 }
 function renderModPublished(events: any[]) {
   modItems["published"] = events;
-  modCardIndex["published"] = 0;
+  modCardIdx["published"] = 0;
   if (events.length === 0) {
     document.getElementById("pending-events-container")!.innerHTML = '<div class="empty-state"><span class="emoji">✅</span><h2>No published events</h2></div>';
      return;
@@ -600,7 +611,7 @@ function renderModPublished(events: any[]) {
 }
 function renderModPitches(ideas: any[]) {
   modItems["pitches"] = ideas;
-  modCardIndex["pitches"] = 0;
+  modCardIdx["pitches"] = 0;
   if (ideas.length === 0) {
     document.getElementById("pending-events-container")!.innerHTML = '<div class="empty-state"><span class="emoji">💡</span><h2>No pitched ideas</h2></div>';
      return;
@@ -678,9 +689,11 @@ async function viewRsvps(eventId: string) { log("viewRsvps id=" + eventId);
 async function submitRsvp() {
   log("submitRsvp eventId=" + currentEventId);
   if (!currentEventId) return;
+  var email = (document.getElementById("rsvp-email") as HTMLInputElement).value.trim();
+  var phone = (document.getElementById("rsvp-phone") as HTMLInputElement).value.trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast("Invalid email format", "error"); return; }
+  if (phone && !/^[\d\s\-\+\(\)]{7,20}$/.test(phone)) { showToast("Invalid phone format", "error"); return; }
   setBtnLoading(".btn-submit-rsvp", true, "⏳ RSVPing...");
-  var email = (document.getElementById("rsvp-email") as HTMLInputElement).value;
-  var phone = (document.getElementById("rsvp-phone") as HTMLInputElement).value;
   try {
     await fetch(API_BASE + "/api/rsvp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: currentEventId, email: email, phone: phone }) });
     showToast("RSVP confirmed! 🎉", "success");
@@ -717,22 +730,22 @@ function handleAction(action: string, id: string | null) {
     case "home-prev": homePrev(); break;
     case "home-next": homeNext(); break;
     case "desc-next": if (id) {
-      log("desc-next id=" + id + " pageTotal=" + (descPageTotal[id] || 0) + " curPage=" + (descPageMap[id] || 0));
+      log("desc-next id=" + id + " pageTotal=" + (descPageTotal[id] || 0) + " curPage=" + (descPageIdx[id] || 0));
       if (descPageTotal[id] === 99) {
         log("desc-next PAGINATING id=" + id);
         var box = document.getElementById("desc-box-" + id);
         if (!box) return;
-        var pages = splitTextToPages(descFullStore[id] || "", box.clientWidth, box.clientHeight);
+        var pages = splitTextToPages(descFullText[id] || "", box.clientWidth, box.clientHeight);
         log("desc-next split into " + pages.length + " pages id=" + id);
         descPageTotal[id] = pages.length;
-        descPageMap[id] = 0;
+        descPageIdx[id] = 0;
         document.getElementById("desc-track-" + id)!.outerHTML = buildDescPagesHTML(id, pages);
         document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
         persistStep2(id);
       } else {
-        var cur = (descPageMap[id] || 0) + 1;
+        var cur = (descPageIdx[id] || 0) + 1;
         if (cur >= (descPageTotal[id] || 1)) { log("desc-next BLOCKED at last page id=" + id); return; }
-        descPageMap[id] = cur;
+        descPageIdx[id] = cur;
         log("desc-next slide id=" + id + " page=" + cur + "/" + descPageTotal[id]);
         slideTrack("desc-track-" + id, cur, descPageTotal[id] || 1);
         document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
@@ -740,16 +753,16 @@ function handleAction(action: string, id: string | null) {
       }
     } break;
     case "desc-prev": if (id) {
-      var cur2 = (descPageMap[id] || 0) - 1;
+      var cur2 = (descPageIdx[id] || 0) - 1;
       if (cur2 < 0) { log("desc-prev BLOCKED at first page id=" + id); return; }
-      descPageMap[id] = cur2;
+      descPageIdx[id] = cur2;
       log("desc-prev slide id=" + id + " page=" + cur2 + "/" + descPageTotal[id]);
       slideTrack("desc-track-" + id, cur2, descPageTotal[id] || 1);
       document.getElementById("desc-nav-" + id)!.innerHTML = buildDescNavHTML(id);
       persistStep2(id);
     } break;
-    case "att-next": if (id) { var c3 = (attPageMap[id] || 0) + 1; attPageMap[id] = c3; var t3 = Math.ceil((attStore[id] || []).length / 5); log("att-next id=" + id + " page=" + c3 + "/" + t3); slideTrack("att-track-" + id, c3, t3); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); persistStep3(id); } break;
-    case "att-prev": if (id) { var c4 = (attPageMap[id] || 0) - 1; attPageMap[id] = c4; var t4 = Math.ceil((attStore[id] || []).length / 5); log("att-prev id=" + id + " page=" + c4 + "/" + t4); slideTrack("att-track-" + id, c4, t4); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); persistStep3(id); } break;
+    case "att-next": if (id) { var c3 = (attPageIdx[id] || 0) + 1; attPageIdx[id] = c3; var t3 = Math.ceil((attListStore[id] || []).length / ATTENDEES_PER_PAGE); log("att-next id=" + id + " page=" + c3 + "/" + t3); slideTrack("att-track-" + id, c3, t3); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); persistStep3(id); } break;
+    case "att-prev": if (id) { var c4 = (attPageIdx[id] || 0) - 1; attPageIdx[id] = c4; var t4 = Math.ceil((attListStore[id] || []).length / ATTENDEES_PER_PAGE); log("att-prev id=" + id + " page=" + c4 + "/" + t4); slideTrack("att-track-" + id, c4, t4); document.getElementById("att-nav-" + id)!.innerHTML = buildAttNav(id); persistStep3(id); } break;
     case "my-pitch-next": myPitchNext(); break;
     case "my-pitch-prev": myPitchPrev(); break;
     case "my-event-next": myEventNext(); break;
@@ -767,18 +780,18 @@ function handleAction(action: string, id: string | null) {
     case "mod-prev": if (id) modPrev(id); break;
     case "mod-desc-next": {
       if (!id) break;
-      var c5 = (modDescPage[id] || 0) + 1;
+      var c5 = (modDescPageIdx[id] || 0) + 1;
       if (c5 >= (modDescTotal[id] || 1)) return;
-      modDescPage[id] = c5;
+      modDescPageIdx[id] = c5;
       slideTrack("mod-desc-track-" + id, c5, modDescTotal[id] || 1);
       document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDescNavHTML(id);
       bindModDescNav(id);
     } break;
     case "mod-desc-prev": {
       if (!id) break;
-      var c6 = (modDescPage[id] || 0) - 1;
+      var c6 = (modDescPageIdx[id] || 0) - 1;
       if (c6 < 0) return;
-      modDescPage[id] = c6;
+      modDescPageIdx[id] = c6;
       slideTrack("mod-desc-track-" + id, c6, modDescTotal[id] || 1);
       document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDescNavHTML(id);
       bindModDescNav(id);

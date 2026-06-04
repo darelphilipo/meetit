@@ -7,6 +7,10 @@
       "model": "opencode-go/qwen3.7-plus",
       "mode": "primary",
       "description": "Plans architecture and reviews code quality. Delegates implementation to the coding subagent."
+    },
+    "general": {
+      "model": "opencode-go/deepseek-v4-flash",
+      "description": "Coding subagent for implementation tasks."
     }
   }
 }
