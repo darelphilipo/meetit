@@ -1,0 +1,12 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode-go/deepseek-v4-flash",
+  "default_agent": "planner",
+  "agent": {
+    "planner": {
+      "model": "opencode-go/qwen3.7-plus",
+      "mode": "primary",
+      "description": "Plans architecture and reviews code quality. Delegates implementation to the coding subagent."
+    }
+  }
+}
