@@ -1070,6 +1070,119 @@ case "mod-desc-next": {
 
 ### 16. Mod Card Layout — Feature-Based Conditional Rendering (2026-06-03)
 
+### 17. Date Validation — Past Events Rejected on Submit (2026-06-05)
+
+**Bug:** Users could submit events with dates in the past. These events would immediately disappear from the home page (filtered by `getActiveEvents()`) but still exist in Redis, confusing users.
+
+**Fix:** Client + server validation on `/api/submit-event` and `/api/approve-event`:
+
+```ts
+// Server (server.ts)
+const today = new Date().toISOString().split("T")[0];
+if (date < today) {
+  return { type: "error", message: "Event date cannot be in the past" };
+}
+```
+
+Client also validates before submit:
+```javascript
+var today = new Date().toISOString().split("T")[0];
+if (date < today) { showToast("Date cannot be in the past", "error"); return; }
+```
+
+**Lesson:** Validate at BOTH client and server. Client prevents the round-trip, server is the security boundary.
+
+### 18. User Cancel/Delete Their Own Events (2026-06-05)
+
+**Feature:** Users can now cancel their pending events and delete their published events from "My Stuff" tab.
+
+**Implementation:**
+- My Stuff shows `❌ Cancel` button for `status === "pending"` events
+- My Stuff shows `🗑️ Delete` button for `status === "published"` events
+- Calls `/api/delete-pending` or `/api/delete-published` with `{ eventId }`
+
+**Server authorization — owner-or-mod pattern:**
+```ts
+async function onDeletePending(req) {
+  const { eventId } = readJSON(req);
+  const ownerCheck = await isSubmissionOwner("meetit:pending_events", eventId);
+  if (ownerCheck) return ownerCheck; // owner can delete
+  return await requireMod(); // non-owner must be mod
+}
+```
+
+**Lesson:** Two-tier auth — owner gets automatic access, non-owners require mod role. This prevents users from deleting other users' events while allowing mods to clean up anything.
+
+### 19. Mod Dashboard Past Event Visibility Bug (2026-06-05)
+
+**Bug:** After an event's date passed, it vanished from the mod dashboard's "Published" tab. Mods could no longer view RSVPs, manage, or delete past events.
+
+**Root cause:** `onAllApprovedEvents()` used `getActiveEvents()` which filters `date < today`:
+```ts
+// ❌ WRONG - mods can't see past events
+const events = await getActiveEvents();
+```
+
+**Fix:** Split into two functions:
+```ts
+// Public home page — ONLY future/current events
+async function getActiveEvents(): Promise<MeetitEvent[]> {
+  const events = await redis.hGetAll("meetit:active_events");
+  const eventList = Object.values(events).map(v => JSON.parse(v));
+  const today = new Date().toISOString().split("T")[0];
+  return eventList.filter(e => e.date >= today).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Mod dashboard — ALL events (no date filter)
+async function getAllApprovedEvents(): Promise<MeetitEvent[]> {
+  const events = await redis.hGetAll("meetit:active_events");
+  const eventList = Object.values(events).map(v => JSON.parse(v));
+  return eventList.sort((a, b) => a.date.localeCompare(b.date));
+}
+```
+
+**UI addition:** Past events in mod dashboard show a grey **⏰ Past Event** badge so mods can distinguish them.
+
+**Lesson:** Different audiences need different data filters. The public view shows only actionable (future) events. The mod view shows ALL events for moderation, cleanup, and record-keeping. Never use the same filtered query for both.
+
+### 20. Event Disappearance Mystery — Solved (2026-06-05)
+
+**Report:** "Events disappearing automatically from the app after some time."
+
+**Investigation:**
+1. Checked CRON scheduler — does NOT delete events, only sends reminders
+2. Checked delete endpoints — only triggered by explicit button clicks with confirmation dialogs
+3. Checked `getActiveEvents()` — filters `date < today` from UI response
+
+**Root cause:** User created events with yesterday's date. `getActiveEvents()` correctly filtered them out as past events. They still existed in Redis but were hidden from the UI.
+
+**Resolution:**
+- Not a real bug — the date filter was working as designed
+- However, exposed the mod dashboard bug (Section 19 above) because mods couldn't see these "disappeared" events either
+- Added date validation (Section 17) to prevent creating past events in the first place
+
+**Lesson:** Before investigating "data loss", verify if it's actually filtering. Check Redis directly (`hGetAll`) vs the filtered API response. The data was never lost — it was just hidden by business logic.
+
+### 21. Agent System Overhaul (2026-06-05)
+
+**Change:** Replaced the single `planner` agent with an orchestrator + 5 specialized agents:
+
+| Agent | Model | Role |
+|-------|-------|------|
+| `orchestrator` | kimi-k2.6 | Task planning, delegation, coordination |
+| `general` | deepseek-v4-flash | Single-file edits, patterns, boilerplate |
+| `coder_complex` | deepseek-v4-pro | Cross-file architecture, hard bugs, platform quirks |
+| `search_docs` | qwen3.6-plus | Documentation lookup, Devvit API, web search |
+| `git_commits` | deepseek-v4-flash | Commit messages, diffs, changelog |
+| `documentation` | minimax-m2.5 | LEARNINGS.md, ADRs, devlog, session summaries |
+
+**Files:**
+- `~/.config/opencode/opencode.json` — global config with 6 agents + Stitch MCP
+- `.opencode/opencode.json` — project-level overrides (deep-merges with global)
+- `~/.config/opencode/prompts/*.md` — individual prompt files for each agent
+
+**Deleted:** `~/.config/opencode/agents/planner.md`, `.opencode/agent/planner.md`
+
 **Context:** Mod dashboard cards for pending/published/ideas tabs had accumulated UI cruft: every card showed the same action buttons regardless of context. Pending cards showed an "RSVPs" button even though no one RSVPs to pending events.
 
 **Changes made:**
