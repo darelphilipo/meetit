@@ -7,6 +7,7 @@ var detailStep1 = "", detailStep2 = "", detailStep3 = "", detailStep4 = "";
 var homeCardIdx = 0;
 var cachedHomeEvents: any[] = [];
 var cachedHomeIsMod = false;
+var homeShareUrl = "";
 var homeLoadSeq = 0;
 var detailLoading = false;
 var descPageIdx: Record<string, number> = {};
@@ -66,6 +67,9 @@ function escapeHtml(s: string | undefined | null) { var d = document.createEleme
 
 // ======= HOME - Single card navigation =======
 async function loadHome() {
+  // Clear search on refresh
+  var searchInput = document.getElementById("home-search") as HTMLInputElement | null;
+  if (searchInput && searchInput.value) { searchInput.value = ""; searchFilteredEvents = null; }
   // Show loading bar immediately
   var bar = document.getElementById("loading-bar"), msg = document.getElementById("loading-msg");
   if (bar) bar.style.width = "30%"; if (msg) msg.textContent = "Fetching events...";
@@ -87,6 +91,7 @@ async function loadHome() {
         var currentId = currentEvent && currentEvent.id;
         cachedHomeEvents = allEvents;
         cachedHomeIsMod = data.data.isMod;
+        homeShareUrl = data.data.shareUrl || "";
         if (currentId) {
           var updatedIndex = allEvents.findIndex(function (event) { return event.id === currentId; });
           if (updatedIndex >= 0) homeCardIdx = updatedIndex;
@@ -150,6 +155,9 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
         ? '<button class="btn btn-green btn-sm btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">✅ Going</button>'
         : '<button class="btn btn-pink btn-sm btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">🎟️ RSVP</button>') +
       '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:6px;">' +
+      (homeShareUrl ? '<button class="btn btn-white btn-sm btn-share-event" data-action="share-event" style="flex:1;padding:8px 12px;font-size:13px;">📤 Share</button>' : '') +
+      '</div>' +
       (count > 1 ? '<div style="display:flex;gap:4px;margin-top:6px;"><button class="btn btn-white btn-sm btn-home-prev" data-action="home-prev" style="flex:1;padding:6px;font-size:12px;">← Prev</button><button class="btn btn-white btn-sm btn-home-next" data-action="home-next" style="flex:1;padding:6px;font-size:12px;">Next →</button></div>' : '') +
       '</div>' +
       '</div>';
@@ -158,9 +166,65 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
   
 }
 
-function homePrev() { log("homePrev idx=" + homeCardIdx + " total=" + cachedHomeEvents.length); if (cachedHomeEvents.length > 1) { homeCardIdx = (homeCardIdx - 1 + cachedHomeEvents.length) % cachedHomeEvents.length; renderHomeCard({ eventsByDate: groupByDate(cachedHomeEvents), isMod: cachedHomeIsMod, settings: {} }); } }
-function homeNext() { log("homeNext idx=" + homeCardIdx + " total=" + cachedHomeEvents.length); if (cachedHomeEvents.length > 1) { homeCardIdx = (homeCardIdx + 1) % cachedHomeEvents.length; renderHomeCard({ eventsByDate: groupByDate(cachedHomeEvents), isMod: cachedHomeIsMod, settings: {} }); } }
+function homePrev() { var events = searchFilteredEvents || cachedHomeEvents; log("homePrev idx=" + homeCardIdx + " total=" + events.length); if (events.length > 1) { homeCardIdx = (homeCardIdx - 1 + events.length) % events.length; renderHomeCard({ eventsByDate: groupByDate(events), isMod: cachedHomeIsMod, settings: {} }); } }
+function homeNext() { var events = searchFilteredEvents || cachedHomeEvents; log("homeNext idx=" + homeCardIdx + " total=" + events.length); if (events.length > 1) { homeCardIdx = (homeCardIdx + 1) % events.length; renderHomeCard({ eventsByDate: groupByDate(events), isMod: cachedHomeIsMod, settings: {} }); } }
 function groupByDate(events: any[]): Record<string, any[]> { var g: Record<string, any[]> = {}; for (var i = 0; i < events.length; i++) { var event = events[i]; if (!event) continue; var d = event._date || ""; if (!g[d]) g[d] = []; g[d]!.push(event); } return g; }
+
+// Search/filter events client-side
+var searchFilteredEvents: any[] | null = null;
+function filterHomeEvents(query: string) {
+  log("filterHomeEvents query=" + query);
+  if (!query || !query.trim()) {
+    searchFilteredEvents = null;
+    homeCardIdx = 0;
+    renderHomeCard({ eventsByDate: groupByDate(cachedHomeEvents), isMod: cachedHomeIsMod, settings: {} });
+    return;
+  }
+  var q = query.toLowerCase().trim();
+  var filtered = cachedHomeEvents.filter(function(event) {
+    return (event.title || "").toLowerCase().includes(q) ||
+           (event.location || "").toLowerCase().includes(q) ||
+           (event.date || "").includes(q) ||
+           (event.time || "").includes(q);
+  });
+  searchFilteredEvents = filtered;
+  homeCardIdx = 0;
+  if (filtered.length === 0) {
+    var c = document.getElementById("events-container")!;
+    c.innerHTML = '<div class="empty-state"><span class="emoji">🔍</span><h2>No events found</h2><p>No events match "' + escapeHtml(query) + '"</p></div>';
+  } else {
+    renderHomeCard({ eventsByDate: groupByDate(filtered), isMod: cachedHomeIsMod, settings: {} });
+  }
+}
+
+function shareEvent() {
+  log("shareEvent url=" + homeShareUrl);
+  if (!homeShareUrl) { showToast("Share link unavailable", "error"); return; }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(homeShareUrl).then(function() {
+      showToast("Link copied! 📋", "success");
+    }).catch(function() {
+      fallbackCopy(homeShareUrl);
+    });
+  } else {
+    fallbackCopy(homeShareUrl);
+  }
+}
+function fallbackCopy(text: string) {
+  var textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    document.execCommand("copy");
+    showToast("Link copied! 📋", "success");
+  } catch (e) {
+    showToast("Could not copy link", "error");
+  }
+  document.body.removeChild(textarea);
+}
 
 // ======= MY STUFF (horizontal cards) =======
 var myStuffLoading = false;
@@ -777,6 +841,7 @@ function handleAction(action: string, id: string | null) {
     case "rsvp-card": if (id) { var evt = cachedHomeEvents.find(function(e) { return e.id === id; }); if (evt && evt.hasRsvped) showEventDetails(id); else showRsvpOverlay(id); } break;
     case "home-prev": homePrev(); break;
     case "home-next": homeNext(); break;
+    case "share-event": shareEvent(); break;
     case "desc-next": if (id) {
       log("desc-next id=" + id + " pageTotal=" + (descPageTotal[id] || 0) + " curPage=" + (descPageIdx[id] || 0));
       if (descPageTotal[id] === 99) {
@@ -894,6 +959,14 @@ document.addEventListener("DOMContentLoaded", function () {
     var id = btn.getAttribute("data-id") || btn.getAttribute("data-key") || btn.getAttribute("data-tab") || btn.getAttribute("data-mtab");
     if (action) handleAction(action, id);
   });
+
+  // Search input listener
+  var searchInput = document.getElementById("home-search") as HTMLInputElement | null;
+  if (searchInput) {
+    searchInput.addEventListener("input", function() {
+      filterHomeEvents(searchInput.value);
+    });
+  }
 
   loadHome();
 });

@@ -14,6 +14,7 @@ export type HomeState = {
   eventsByDate: Record<string, MeetitEvent[]>;
   isMod: boolean;
   settings: AppSettings;
+  shareUrl?: string;
 };
 
 export type EventDetails = {

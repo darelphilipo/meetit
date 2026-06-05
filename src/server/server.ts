@@ -276,12 +276,16 @@ async function onHome(): Promise<ApiResponse> {
     eventsByDate[event.date]!.push(event);
   }
 
+  const postId = context.postId || "";
+  const shareUrl = postId ? `https://www.reddit.com/comments/${postId.replace(/^t3_/, '')}/` : "";
+
   return {
     type: "home",
     data: {
       eventsByDate,
       isMod: modStatus,
       settings: appSettings,
+      shareUrl,
     },
   };
 }
