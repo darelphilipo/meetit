@@ -1329,3 +1329,125 @@ Covers:
 - Choosing between architecture approaches
 - Finding production-grade library recommendations
 - Understanding new Devvit features before official docs are complete
+
+---
+
+## 24. Security & Privacy Patterns (2026-06-05)
+
+### 24.1 PII Data Cleanup on Leave/Delete (C1)
+
+**Bug:** When a user left an event, their email/phone contact info persisted forever in `meetit:rsvp_details:{eventId}` hash. When a mod deleted an event, the entire RSVP sorted set and contact details hash remained in Redis indefinitely.
+
+**Fix:**
+```ts
+// onLeaveEvent: remove user from both RSVP set AND contact hash
+await redis.zRem(`meetit:rsvps:${eventId}`, [username]);
+await redis.hDel(`meetit:rsvp_details:${eventId}`, [username]); // ← added
+
+// onDeletePublished: delete all RSVP data for the event
+const members = await redis.zRange(`meetit:rsvps:${eventId}`, "-inf", "+inf", { by: "score" });
+if (members.length > 0) await redis.zRem(`meetit:rsvps:${eventId}`, members.map(m => m.member));
+const detailFields = await redis.hKeys(`meetit:rsvp_details:${eventId}`);
+if (detailFields.length > 0) await redis.hDel(`meetit:rsvp_details:${eventId}`, detailFields);
+```
+
+**Lesson:** Anytime you store PII (email, phone) in a companion hash keyed by user ID, you MUST clean it up when:
+- The user leaves/removes themselves
+- The parent entity (event) is deleted
+- The user's account is deleted (if applicable)
+
+Redis hashes don't auto-expire or cascade-delete. Explicit cleanup is required.
+
+### 24.2 Double-Submit Prevention with Per-Action Locks (C2)
+
+**Bug:** Rapid double-tap on "Submit Idea", "Submit Event", or "RSVP" created duplicate records because IDs were generated client-side with `Math.random()` and there was no lock.
+
+**Fix:** Added `isLocked()` / `lock()` / `unlock()` guards:
+```ts
+async function submitPitch() {
+  if (isLocked("submit-pitch")) return;
+  lock("submit-pitch");
+  // ... validation ...
+  try {
+    await fetch("/api/pitch-idea", {...});
+  } finally {
+    unlock("submit-pitch"); // always unlock, even on error
+  }
+}
+```
+
+**Lesson:** Every destructive or write action needs a lock. The lock should be released in `finally` so early returns and errors don't leave the UI permanently disabled.
+
+### 24.3 Validate Event Existence Before Writing (C6)
+
+**Bug:** `onRsvp` accepted any `eventId` and wrote RSVP data to Redis even if the event didn't exist. A crafted POST could fill Redis with garbage data.
+
+**Fix:**
+```ts
+async function onRsvp(req) {
+  const { eventId } = readJSON(req);
+  const event = await getActiveEvent(eventId);
+  if (!event) return { error: "Event not found", status: 404 };
+  // ... proceed with RSVP
+}
+```
+
+**Lesson:** Never assume the client sends valid IDs. Always verify the referenced entity exists before performing operations on it. This prevents both data corruption and potential abuse.
+
+### 24.4 Return 404 for Missing Entities (C7)
+
+**Bug:** `onApproveEvent` returned `{ success: true }` even when the event ID didn't exist in `pending_events`, because the `if (eventJson)` block was skipped silently.
+
+**Fix:**
+```ts
+async function onApproveEvent(req) {
+  const eventJson = await redis.hGet("meetit:pending_events", eventId);
+  if (!eventJson) {
+    return { error: "Event not found in pending queue", status: 404 };
+  }
+  // ... proceed with approval
+}
+```
+
+**Lesson:** When a resource is not found, return an explicit error (404) instead of silently succeeding. Silent success misleads the user and hides bugs.
+
+---
+
+## 25. UI/UX Polish Patterns (2026-06-05)
+
+### 25.1 Backdrop Click to Close Menus (C3/Q1)
+
+**Bug:** The create menu's dark backdrop was a dead click zone. Users had to tap the ✨ button again to close the menu.
+
+**Fix:** Added `data-action` to the backdrop element:
+```html
+<div class="backdrop" id="create-backdrop" data-action="close-create-menu"></div>
+```
+
+And handled it in the event delegation dispatcher:
+```ts
+case "close-create-menu": closeCreateMenu(); break;
+```
+
+**Lesson:** Any overlay, menu, or modal should close when tapping outside it. Use `data-action` on the backdrop to delegate the close action without adding individual listeners.
+
+### 25.2 Button State Reset on Overlay Open
+
+**Bug:** The "Update Contact" button appeared blank because `showRsvpOverlay()` set the button text, then called `setBtnLoading(..., false)` which restored `dataset.originalText` — but `dataset.originalText` was deleted on the previous close, so it restored `""` (empty string).
+
+**Fix:** Manually reset button state instead of using `setBtnLoading()`:
+```ts
+function showRsvpOverlay(id, email?, phone?) {
+  // ... set text ...
+  var btnEl = document.querySelector(".btn-submit-rsvp");
+  if (btnEl) {
+    btnEl.textContent = email !== undefined ? "Update →" : "Confirm RSVP →";
+    btnEl.style.opacity = "1";
+    btnEl.style.pointerEvents = "auto";
+    (btnEl as any).disabled = false;
+    delete btnEl.dataset.originalText;
+  }
+}
+```
+
+**Lesson:** `setBtnLoading()` stores/restores `dataset.originalText` for loading state management. If you change button text after a load operation, either reset `dataset.originalText` first, or bypass `setBtnLoading()` and manually set the styles.
