@@ -61,7 +61,7 @@ var CAT_MAP: Record<string, { label: string; emoji: string; color: string }> = {
 function catBadge(cat: string | undefined): string {
   var id = cat || "other";
   var c = CAT_MAP[id];
-  if (!c) c = CAT_MAP["other"];
+  if (!c) c = CAT_MAP["other"]!;
   return '<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;padding:2px 8px;border:3px solid #1c1c0f;background:' + c.color + ';color:#fff;">' + c.emoji + ' ' + escapeHtml(c.label) + '</span>';
 }
 var AUTO_PAGINATE_DELAY = 100;
@@ -511,9 +511,10 @@ function splitTextToPages(text: string, width: number, maxHeight: number): strin
   var pages: string[] = [];
   var current = "";
   for (var i = 0; i < words.length; i++) {
-    var test = current ? current + " " + words[i] : words[i];
+    var word = words[i] || "";
+    var test = current ? current + " " + word : word;
     _measureDiv.textContent = test;
-    if (_measureDiv.scrollHeight > maxHeight && current) { pages.push(current); current = words[i]; }
+    if (_measureDiv.scrollHeight > maxHeight && current) { pages.push(current); current = word; }
     else { current = test; }
   }
   if (current) pages.push(current);
@@ -747,7 +748,7 @@ function renderModCard(tab: string) {
   if (tab !== "pitches" && item.category) { html += '<div style="flex-shrink:0;margin-bottom:6px;">' + catBadge(item.category) + '</div>'; }
   // Past event badge for mods
   if (tab !== "pitches") {
-    var today2 = new Date().toISOString().split("T")[0];
+    var today2 = new Date().toISOString().split("T")[0] || "";
     if (item.date < today2) {
       html += '<div style="flex-shrink:0;font-size:11px;font-weight:700;color:#fff;background:#999;border:var(--border);padding:2px 8px;margin-bottom:6px;display:inline-block;">⏰ Past Event</div>';
     }
@@ -1034,7 +1035,7 @@ function resetEventForm() { eventStep = 1; ["event-step-1", "event-step-2", "eve
 function eventPrev() { if (eventStep === 2) { document.getElementById("event-dot-2")!.classList.remove("done"); document.getElementById("event-step-2")!.classList.add("hidden"); document.getElementById("event-step-1")!.classList.remove("hidden"); document.getElementById("event-prev-btn")!.classList.add("hidden"); eventStep = 1; } else if (eventStep === 3) { document.getElementById("event-dot-3")!.classList.remove("done"); document.getElementById("event-step-3")!.classList.add("hidden"); document.getElementById("event-step-2")!.classList.remove("hidden"); eventStep = 2; } else if (eventStep === 4) { document.getElementById("event-dot-4")!.classList.remove("done"); document.getElementById("event-step-4")!.classList.add("hidden"); document.getElementById("event-step-3")!.classList.remove("hidden"); document.getElementById("event-next-btn")!.classList.remove("hidden"); document.getElementById("event-submit-btn")!.classList.add("hidden"); eventStep = 3; } }
 function eventNext() { log("eventNext step=" + eventStep); if (eventStep === 1) { var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var org = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var cat = (document.getElementById("event-category") as HTMLSelectElement).value; if (!title || !org) { showToast("Fill all fields", "error"); return; } if (!cat) { showToast("Select a category", "error"); return; } document.getElementById("event-dot-2")!.classList.add("done"); document.getElementById("event-step-1")!.classList.add("hidden"); document.getElementById("event-step-2")!.classList.remove("hidden"); document.getElementById("event-prev-btn")!.classList.remove("hidden"); eventStep = 2; } else if (eventStep === 2) { var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); if (!date || !time) { showToast("Fill all fields", "error"); return; } document.getElementById("event-dot-3")!.classList.add("done"); document.getElementById("event-step-2")!.classList.add("hidden"); document.getElementById("event-step-3")!.classList.remove("hidden"); eventStep = 3; } else if (eventStep === 3) { var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); if (!loc) { showToast("Location required", "error"); return; } document.getElementById("event-dot-4")!.classList.add("done"); document.getElementById("event-step-3")!.classList.add("hidden"); document.getElementById("event-step-4")!.classList.remove("hidden"); document.getElementById("event-next-btn")!.classList.add("hidden"); document.getElementById("event-submit-btn")!.classList.remove("hidden"); document.getElementById("event-review-title-preview")!.textContent = (document.getElementById("event-title") as HTMLInputElement).value; document.getElementById("event-review-meta-preview")!.textContent = (document.getElementById("event-date") as HTMLInputElement).value + " at " + (document.getElementById("event-time") as HTMLInputElement).value + " · " + loc; eventStep = 4; } }
 async function submitEvent() { log("submitEvent"); if (isLocked("submit-event")) return; lock("submit-event"); var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var organizer = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); var mapUrl = (document.getElementById("event-map-url") as HTMLInputElement).value.trim(); var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim(); var category = (document.getElementById("event-category") as HTMLSelectElement).value; log("submitEvent values: title=" + title + " category=" + category);   if (!title || !organizer || !date || !time || !loc || !desc) { showToast("Fill all fields", "error"); unlock("submit-event"); return; }
-  var today = new Date().toISOString().split("T")[0];
+  var today = new Date().toISOString().split("T")[0] || "";
   if (date < today) { showToast("Event date must be today or in the future", "error"); unlock("submit-event"); return; }
   setBtnLoading("#event-submit-btn", true, "⏳ Submitting..."); try { await fetch(API_BASE + "/api/submit-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, organizer: organizer, date: date, time: time, location: loc, mapUrl: mapUrl, desc: desc, category: category }) }); showToast("Event submitted! ✅", "success"); closeOverlay("event-overlay"); } catch (e) { showToast("Error", "error"); setBtnLoading("#event-submit-btn", false); } finally { unlock("submit-event"); } }
 var usernameCached: string | null = null, prefillLoading = false;
@@ -1188,9 +1189,10 @@ document.addEventListener("DOMContentLoaded", function () {
   var emojiIdx = 0;
   var emojiEl = document.getElementById("loading-emoji");
   if (emojiEl) {
+    var loadingEmojiEl = emojiEl;
     setInterval(function() {
       emojiIdx = (emojiIdx + 1) % wholesomeEmojis.length;
-      emojiEl.textContent = wholesomeEmojis[emojiIdx];
+      loadingEmojiEl.textContent = wholesomeEmojis[emojiIdx] || "";
     }, 600);
   }
 

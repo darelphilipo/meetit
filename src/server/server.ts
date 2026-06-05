@@ -13,7 +13,7 @@ import {
   type RsvpAttendee,
   type SubmitEventFormData,
 } from "../shared/api.ts";
-import { buildAttendees, createPendingEvent, isConfiguredModerator, isSubmissionOwner } from "../shared/meetit.ts";
+import { buildAttendees, createPendingEvent, isConfiguredModerator, isSubmissionOwner, normalizeUsername } from "../shared/meetit.ts";
 import { once } from "node:events";
 
 const GOOGLE_SHEETS_WEBHOOK_URL = ""; // Set to your Zapier/Google Sheets webhook URL
@@ -146,6 +146,7 @@ type ApiResponse =
   | { type: "all-approved-events"; events: any[] }
   | { type: "dismiss-idea"; success: boolean }
   | { type: "my-submissions"; pitches: any[]; events: MeetitEvent[]; rsvps: any[] }
+  | { type: "my-rsvp"; email: string; phone: string }
   | { type: "export-attendees"; csv: string; filename: string }
   | ErrorResponse;
 
@@ -215,26 +216,38 @@ async function getPendingEventsList(): Promise<MeetitEvent[]> {
 
 async function getRsvpData(eventId: string, username: string): Promise<{ count: number; hasRsvped: boolean }> {
   const results = await redis.zRange(`meetit:rsvps:${eventId}`, "-inf", "+inf", { by: "score" });
-  const members = results.map((r) => r.member);
-  return { count: members.length, hasRsvped: members.includes(username) };
+  const userKey = normalizeUsername(username);
+  const hasRsvped = Boolean(userKey) && results.some((r) => normalizeUsername(r.member) === userKey);
+  return { count: results.length, hasRsvped };
 }
 
 async function getRsvpCount(eventId: string): Promise<number> {
   return await redis.zCard(`meetit:rsvps:${eventId}`);
 }
 async function isUserRsvped(eventId: string, username: string): Promise<boolean> {
-  const score = await redis.zScore(`meetit:rsvps:${eventId}`, username);
+  const score = await getUserRsvpScore(eventId, username);
   return score != null;
 }
 
 async function addRsvp(eventId: string, username: string, email: string, phone: string): Promise<void> {
+  const userKey = normalizeUsername(username);
   const key = `meetit:rsvps:${eventId}`;
-  await redis.zAdd(key, { score: Date.now(), member: username });
+  await redis.zAdd(key, { score: Date.now(), member: userKey });
   if (email || phone) {
-    await redis.hSet(`meetit:rsvp_details:${eventId}`, { [username]: JSON.stringify({ email: email || "", phone: phone || "" }) });
+    await redis.hSet(`meetit:rsvp_details:${eventId}`, { [userKey]: JSON.stringify({ email: email || "", phone: phone || "" }) });
   }
-  const verifyScore = await redis.zScore(key, username);
+  const verifyScore = await redis.zScore(key, userKey);
   console.log(`[RSVP] ${username} → ${eventId} | score=${verifyScore} | email=${!!email} phone=${!!phone}`);
+}
+
+async function getUserRsvpScore(eventId: string, username: string): Promise<number | undefined> {
+  const userKey = normalizeUsername(username);
+  if (!userKey) return undefined;
+  const key = `meetit:rsvps:${eventId}`;
+  const score = await redis.zScore(key, userKey);
+  if (score != null) return score;
+  const results = await redis.zRange(key, "-inf", "+inf", { by: "score" });
+  return results.find((entry) => normalizeUsername(entry.member) === userKey)?.score;
 }
 
 async function getRsvpList(eventId: string): Promise<string[]> {
@@ -397,7 +410,8 @@ async function onSubmitEvent(req: IncomingMessage): Promise<ApiResponse> {
   if (!formData.title || formData.title.length > 200) return { error: "Title too long", status: 400 };
   if (!formData.desc || formData.desc.length > 2000) return { error: "Description too long", status: 400 };
   if (!formData.location || formData.location.length > 200) return { error: "Location too long", status: 400 };
-  if (formData.date < new Date().toISOString().split("T")[0]) return { error: "Event date must be today or in the future", status: 400 };
+  const today = new Date().toISOString().split("T")[0] || "";
+  if (formData.date < today) return { error: "Event date must be today or in the future", status: 400 };
   const eventId = `event_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   const event = createPendingEvent(eventId, formData, new Date().toISOString());
 
@@ -529,14 +543,22 @@ async function onDeletePublished(req: IncomingMessage): Promise<ApiResponse> {
 async function onLeaveEvent(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
   const username = context.username || "";
+  const userKey = normalizeUsername(username);
   const key = `meetit:rsvps:${eventId}`;
   console.log(`[LEAVE] Removing ${username} from ${key}`);
 
   // zRem with array is what works (write-behind, eventually consistent)
-  await redis.zRem(key, [username]);
+  const rsvpEntries = await redis.zRange(key, "-inf", "+inf", { by: "score" });
+  const membersToRemove = rsvpEntries
+    .map((entry) => entry.member)
+    .filter((member) => normalizeUsername(member) === userKey);
+  if (membersToRemove.length > 0) await redis.zRem(key, membersToRemove);
 
   // C1: PII leak fix — also remove contact details when user leaves
-  await redis.hDel(`meetit:rsvp_details:${eventId}`, [username]);
+  const detailsKey = `meetit:rsvp_details:${eventId}`;
+  const detailFields = await redis.hKeys(detailsKey);
+  const detailFieldsToRemove = detailFields.filter((field) => normalizeUsername(field) === userKey);
+  if (detailFieldsToRemove.length > 0) await redis.hDel(detailsKey, detailFieldsToRemove);
 
   // Don't verify immediately - Redis in Devvit is eventually consistent
   // The next event-details fetch will show the correct state
@@ -555,14 +577,20 @@ async function onRsvpList(req: IncomingMessage): Promise<ApiResponse> {
 
 async function onMyRsvp(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
-  const username = context.username || "";
-  const detailsRaw = await redis.hGet(`meetit:rsvp_details:${eventId}`, username);
+  const username = normalizeUsername(context.username || "");
+  const detailsKey = `meetit:rsvp_details:${eventId}`;
+  let detailsRaw = await redis.hGet(detailsKey, username);
+  if (!detailsRaw) {
+    const detailFields = await redis.hKeys(detailsKey);
+    const legacyField = detailFields.find((field) => normalizeUsername(field) === username);
+    if (legacyField) detailsRaw = await redis.hGet(detailsKey, legacyField);
+  }
   const details = detailsRaw ? JSON.parse(detailsRaw) : { email: "", phone: "" };
   return { type: "my-rsvp", email: details.email || "", phone: details.phone || "" };
 }
 
 async function onMySubmissions(): Promise<ApiResponse> {
-  const normUser = (context.username || "").toLowerCase();
+  const normUser = normalizeUsername(context.username || "");
   const matchOrg = (org: string) => org?.toLowerCase().replace(/^u\//, "") === normUser;
 
   // Pitches
@@ -591,7 +619,7 @@ async function onMySubmissions(): Promise<ApiResponse> {
   const rsvpEvents: any[] = [];
   for (const [eventId, eventJson] of Object.entries(activeJson)) {
     const event = JSON.parse(eventJson);
-    const rsvpScore = await redis.zScore(`meetit:rsvps:${eventId}`, normUser);
+    const rsvpScore = await getUserRsvpScore(eventId, normUser);
     if (rsvpScore != null) {
       rsvpEvents.push({ ...event, status: "rsvpd", rsvpScore });
     }
@@ -606,13 +634,12 @@ async function onExportAttendees(req: IncomingMessage): Promise<ApiResponse> {
   if (!eventId) return { error: "Missing eventId", status: 400 };
 
   // Verify user is mod or event organizer
-  const appSettings = await getSettings();
-  const isMod = isConfiguredModerator(context.username, appSettings.moderator_list);
+  const userIsMod = await isMod();
   const eventJson = await redis.hGet("meetit:active_events", eventId);
   if (!eventJson) return { error: "Event not found", status: 404 };
   const event = JSON.parse(eventJson) as MeetitEvent;
   const isOwner = isSubmissionOwner(context.username, event.organizer);
-  if (!isMod && !isOwner) return { error: "Unauthorized", status: 403 };
+  if (!userIsMod && !isOwner) return { error: "Unauthorized", status: 403 };
 
   // Fetch RSVPs with contact details
   const results = await redis.zRange(`meetit:rsvps:${eventId}`, 0, -1, { by: "rank", reverse: false });
