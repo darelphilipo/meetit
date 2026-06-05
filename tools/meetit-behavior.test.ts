@@ -5,6 +5,7 @@ import {
   createPendingEvent,
   isConfiguredModerator,
   isSubmissionOwner,
+  normalizeUsername,
 } from "../src/shared/meetit.ts";
 
 test("isConfiguredModerator only allows configured usernames", () => {
@@ -57,4 +58,10 @@ test("isSubmissionOwner matches usernames with optional u prefix", () => {
   assert.equal(isSubmissionOwner("alice", "u/alice"), true);
   assert.equal(isSubmissionOwner("alice", "Alice"), true);
   assert.equal(isSubmissionOwner("alice", "bob"), false);
+});
+
+test("normalizeUsername creates stable RSVP member keys", () => {
+  assert.equal(normalizeUsername("DarelPhilip"), "darelphilip");
+  assert.equal(normalizeUsername("u/DarelPhilip"), "darelphilip");
+  assert.equal(normalizeUsername("  u/Alice  "), "alice");
 });

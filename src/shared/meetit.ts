@@ -89,6 +89,6 @@ function parseRsvpDetails(raw: string | undefined): { email: string; phone: stri
   }
 }
 
-function normalizeUsername(username: string): string {
+export function normalizeUsername(username: string): string {
   return username.trim().toLowerCase().replace(/^u\//, "");
 }
