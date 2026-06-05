@@ -133,12 +133,15 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
 
     c.innerHTML =
       '<div class="event-card" style="display:flex;flex-direction:column;">' +
-      (event.emoji ? '<div class="event-emoji">' + event.emoji + '</div>' : '') +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-shrink:0;">' +
+      '<div style="display:flex;align-items:center;gap:6px;">' +
+      (event.emoji ? '<div style="width:36px;height:36px;background:var(--primary);border:var(--border);display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:var(--shadow-sm);flex-shrink:0;">' + event.emoji + '</div>' : '<div style="width:36px;height:36px;background:var(--surface);border:var(--border);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;box-shadow:var(--shadow-sm);flex-shrink:0;">📅</div>') +
       '<span style="font-size:11px;font-weight:700;background:var(--surface);border:var(--border);padding:2px 8px;">' + (homeCardIdx + 1) + '/' + count + '</span>' +
-      '<span style="font-size:11px;font-weight:700;color:var(--muted);">📅 ' + dateStr + '</span>' +
       '</div>' +
-      '<h3 style="font-size:17px;font-weight:700;margin-bottom:4px;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;max-height:47px;">' + escapeHtml(event.title) + '</h3>' +
+      '<span style="font-size:11px;font-weight:700;color:var(--muted);">' + dateStr + '</span>' +
+      '</div>' +
+      '<h3 style="font-size:17px;font-weight:700;margin-bottom:2px;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;max-height:47px;">' + escapeHtml(event.title) + '</h3>' +
+      '<div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:6px;">by ' + escapeHtml(event.organizer || "Anonymous") + '</div>' +
       '<div class="event-meta" style="margin-bottom:6px;">' +
       '<span class="event-tag" style="font-size:11px;padding:2px 6px;">⏰ ' + escapeHtml(event.time) + '</span>' +
       '<span class="event-tag" style="font-size:11px;padding:2px 6px;background:var(--primary);">👥 ' + (event.rsvpCount || 0) + '</span>' +
