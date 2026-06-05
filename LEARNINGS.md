@@ -1451,3 +1451,41 @@ function showRsvpOverlay(id, email?, phone?) {
 ```
 
 **Lesson:** `setBtnLoading()` stores/restores `dataset.originalText` for loading state management. If you change button text after a load operation, either reset `dataset.originalText` first, or bypass `setBtnLoading()` and manually set the styles.
+
+---
+
+## 26. Future Enhancement Backlog (2026-06-05)
+
+### P1: Client Success Toast Fires Even on Server Rejection
+
+**Observation:** RSVP, pitch, and event submit paths do not check `res.ok` or server error JSON before showing success. A rejected past-date event, invalid server-side validation, or auth failure can appear successful to the user.
+
+**Affected lines in `src/client/app.ts`:**
+- `submitEvent` — line 1032: shows "Event submitted! ✅" before checking server response
+- `submitPitch` — line 1014: shows "Idea sent! ✅" before checking server response
+- `submitRsvp` — line 1039: shows "RSVP confirmed!" before checking server response
+
+**Fix pattern (already applied elsewhere):**
+```ts
+var res = await fetch(endpoint, { ... });
+if (res.ok) { showToast("Success!", "success"); }
+else { const err = await res.json(); showToast(err.error || "Failed", "error"); }
+```
+
+### P2: Reminder Timing Assumes UTC (Incorrect for Local Times)
+
+**Observation:** The scheduler builds `new Date(event.date + "T" + event.time + ":00Z")` in `src/server/server.ts:722`. Meetup times are typically local to the subreddit/community. Reminders can fire hours early or late unless the app records timezone or treats dates consistently.
+
+**Potential approaches:**
+- Add a `timezone` field to the event form (e.g., "America/New_York")
+- Or treat all dates as community-local and document the assumption
+- Or shift reminders to a wider window (e.g., 12h before instead of 24h)
+
+### P2: Public Post Fallback for Mod Alerts
+
+**Observation:** When the CRON scheduler detects new pending items and mod messaging fails, it creates a public `submitCustomPost` in `src/server/server.ts:753-760`. For a meetup organizer tool, review-queue alerts should not become public subreddit posts by default.
+
+**Potential approaches:**
+- Remove the `submitCustomPost` fallback entirely (let mods check manually)
+- Or gate it behind an opt-in setting
+- Or send to a mod-only wiki page instead of a public post
