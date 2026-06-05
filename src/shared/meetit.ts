@@ -55,6 +55,7 @@ export function createPendingEvent(
     description: formData.desc,
     organizer: formData.organizer,
     mapUrl: formData.mapUrl,
+    emoji: formData.emoji,
     submittedAt,
   };
 }

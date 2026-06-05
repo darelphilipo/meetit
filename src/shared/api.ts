@@ -8,6 +8,7 @@ export type MeetitEvent = {
   organizer?: string;
   mapUrl?: string;
   submittedAt?: string;
+  emoji?: string;
 };
 
 export type HomeState = {
@@ -50,6 +51,7 @@ export type SubmitEventFormData = {
   location: string;
   desc: string;
   mapUrl?: string;
+  emoji?: string;
 };
 
 export type RsvpAttendee = {
