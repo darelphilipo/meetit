@@ -145,17 +145,18 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
       '</div>' +
       '<div style="font-size:14px;color:var(--muted);line-height:1.5;padding-bottom:4px;">' + escapeHtml((event.description || "").substring(0, DESC_PREVIEW_LENGTH)) + ((event.description || "").length > DESC_PREVIEW_LENGTH ? "..." : "") + '</div>' +
       '</div>' +
-      '<div style="flex-shrink:0;padding-top:10px;border-top:2px solid var(--outline-v);">' +
-      '<div style="display:flex;gap:8px;align-items:center;">' +
-      '<button class="btn btn-white btn-sm btn-view-details" data-id="' + event.id + '" data-action="view-details" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">View Details →</button>' +
+      '<div style="flex-shrink:0;padding-top:8px;border-top:2px solid var(--outline-v);">' +
+      '<div style="display:flex;gap:6px;align-items:center;">' +
+      '<button class="btn btn-white btn-sm btn-view-details" data-id="' + event.id + '" data-action="view-details" style="flex:1;margin-top:0;padding:8px 10px;font-size:12px;">View Details →</button>' +
       (event.hasRsvped
-        ? '<button class="btn btn-green btn-sm btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">✅ Going</button>'
-        : '<button class="btn btn-pink btn-sm btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">🎟️ RSVP</button>') +
+        ? '<button class="btn btn-green btn-sm btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:1;margin-top:0;padding:8px 10px;font-size:12px;">✅ Going</button>'
+        : '<button class="btn btn-pink btn-sm btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:1;margin-top:0;padding:8px 10px;font-size:12px;">🎟️ RSVP</button>') +
       '</div>' +
-      '<div style="display:flex;gap:8px;margin-top:6px;">' +
-      (homeShareUrl ? '<button class="btn btn-white btn-sm btn-share-event" data-action="share-event" style="flex:1;padding:8px 12px;font-size:13px;">📤 Share</button>' : '') +
+      '<div style="display:flex;gap:6px;margin-top:6px;align-items:center;">' +
+      (count > 1 ? '<button class="btn btn-white btn-sm btn-home-prev" data-action="home-prev" style="flex:1;padding:6px;font-size:11px;">← Prev</button>' : '') +
+      (homeShareUrl ? '<button class="btn btn-white btn-sm btn-share-event" data-action="share-event" style="padding:6px 10px;font-size:11px;margin-top:0;">📤 Share</button>' : '') +
+      (count > 1 ? '<button class="btn btn-white btn-sm btn-home-next" data-action="home-next" style="flex:1;padding:6px;font-size:11px;">Next →</button>' : '') +
       '</div>' +
-      (count > 1 ? '<div style="display:flex;gap:4px;margin-top:6px;"><button class="btn btn-white btn-sm btn-home-prev" data-action="home-prev" style="flex:1;padding:6px;font-size:12px;">← Prev</button><button class="btn btn-white btn-sm btn-home-next" data-action="home-next" style="flex:1;padding:6px;font-size:12px;">Next →</button></div>' : '') +
       '</div>' +
       '</div>';
   }

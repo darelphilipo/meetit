@@ -25,9 +25,9 @@
     .container { max-width: 600px; margin: 0 auto; position: relative; z-index: 1; }
     .container { max-width: 600px; margin: 0 auto; }
 
-    .header { background: var(--primary); border: var(--border); padding: 14px 20px; margin-bottom: 16px; box-shadow: var(--shadow-sm); }
-    .header h1 { font-size: 28px; font-weight: 700; }
-    .header .sub { font-size: 14px; font-weight: 500; color: #626200; }
+    .header { background: var(--primary); border: var(--border); padding: 10px 14px; margin-bottom: 12px; box-shadow: var(--shadow-sm); }
+    .header h1 { font-size: 22px; font-weight: 700; line-height: 1.2; }
+    .header .sub { font-size: 12px; font-weight: 500; color: #626200; }
 
     .tabs { display: flex; margin-bottom: 16px; border: var(--border); background: #fff; }
     .tab { flex: 1; text-align: center; padding: 12px 8px; font-size: 14px; font-weight: 700; cursor: pointer; border-right: 4px solid #1c1c0f; background: #fff; font-family: var(--font); }
@@ -36,9 +36,9 @@
 
     /* Timeline event card with vertical date */
     .timeline { position: relative; padding-left: 0; }
-    .event-card { background: #fff; border: var(--border); padding: 16px; margin-bottom: 14px; box-shadow: var(--shadow-md); position: relative; }
-    .event-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
-    .event-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; }
+    .event-card { background: #fff; border: var(--border); padding: 12px; margin-bottom: 10px; box-shadow: var(--shadow-md); position: relative; }
+    .event-card h3 { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+    .event-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
     .event-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; background: var(--surface); border: 3px solid #1c1c0f; padding: 4px 10px; }
     .event-date-badge { background: var(--primary); border: var(--border); padding: 8px 12px; text-align: center; font-weight: 700; font-size: 13px; margin-bottom: 10px; box-shadow: var(--shadow-sm); display: inline-block; }
     .event-date-badge .day { font-size: 24px; line-height: 1; font-weight: 700; }
@@ -46,13 +46,13 @@
 
     .rsvp-success { background: #00ff88; border: var(--border); padding: 16px; text-align: center; font-size: 18px; font-weight: 700; margin-top: 14px; }
 
-    .btn { display: block; width: 100%; background: var(--primary); border: var(--border); border-radius: 9999px; padding: 14px 20px; font-size: 15px; font-weight: 700; font-family: var(--font); cursor: pointer; margin-top: 14px; color: var(--on-surface); box-shadow: var(--shadow-sm); transition: box-shadow 0.1s, transform 0.1s; }
+    .btn { display: block; width: 100%; background: var(--primary); border: var(--border); border-radius: 0; padding: 10px 16px; font-size: 14px; font-weight: 700; font-family: var(--font); cursor: pointer; margin-top: 10px; color: var(--on-surface); box-shadow: var(--shadow-sm); transition: box-shadow 0.1s, transform 0.1s; }
     .btn:active { box-shadow: 0px 0px 0 #1c1c0f; transform: translate(4px,4px); }
     .btn-pink { background: var(--secondary); }
     .btn-green { background: #00ff88; }
     .btn-black { background: #1c1c0f; color: #fff; }
     .btn-white { background: #fff; }
-    .btn-sm { width: auto; display: inline-block; padding: 8px 18px; font-size: 14px; margin-top: 0; }
+    .btn-sm { width: auto; display: inline-block; padding: 6px 14px; font-size: 13px; margin-top: 0; }
     .btn-inline { width: auto; display: inline-block; padding: 8px 18px; font-size: 13px; margin-top: 8px; }
 
     .empty-state { background: #fff; border: var(--border); text-align: center; padding: 40px 20px; box-shadow: var(--shadow-md); }
@@ -88,8 +88,8 @@
   /* Icon bar in header */
   .header-row { display: flex; align-items: center; justify-content: space-between; }
   .header-actions { display: flex; gap: 4px; }
-  .icon-btn { background: #1c1c0f; color: #fff; border: var(--border); width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 20px; cursor: pointer; box-shadow: var(--shadow-sm); }
-  .icon-btn:active { box-shadow: none; transform: translate(4px,4px); }
+  .icon-btn { background: #fff; color: var(--on-surface); border: 3px solid #1c1c0f; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 16px; cursor: pointer; box-shadow: 3px 3px 0 #1c1c0f; }
+  .icon-btn:active { box-shadow: none; transform: translate(3px,3px); }
   /* Create menu popup */
   .backdrop { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 900; }
   .create-menu { display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #fff; border: var(--border); box-shadow: var(--shadow-md); z-index: 901; padding: 16px; width: 260px; }
