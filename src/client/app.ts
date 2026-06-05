@@ -216,6 +216,10 @@ function renderMyEventCard() {
     '<div style="flex-shrink:0;font-size:12px;font-weight:600;">' + status + '</div>' +
     '<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;color:var(--muted);line-height:1.4;">' + escapeHtml(e.description || "") + '</div>' +
     '<div style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;padding-top:6px;">' +
+      (e.status === "pending" ?
+        '<button class="btn btn-white btn-sm btn-cancel-event" data-id="' + e.id + '" data-action="cancel-my-event" style="padding:6px 14px;font-size:12px;">❌ Cancel</button>' :
+        '<button class="btn btn-white btn-sm btn-delete-my-event" data-id="' + e.id + '" data-action="delete-my-event" style="padding:6px 14px;font-size:12px;">🗑️ Delete</button>'
+      ) +
       (total > 1 ? '<button class="btn btn-white btn-sm btn-my-event-prev" data-action="my-event-prev" style="padding:4px 10px;font-size:11px;">←</button><span style="font-size:11px;font-weight:700;">' + (myEventIdx + 1) + '/' + total + '</span><button class="btn btn-white btn-sm btn-my-event-next" data-action="my-event-next" style="padding:4px 10px;font-size:11px;">→</button>' : '') +
     '</div></div>';
   
@@ -520,6 +524,13 @@ function renderModCard(tab: string) {
   if (tab === "pitches") { html += '👤 u/' + escapeHtml(item.submittedBy) + ' · ' + escapeHtml(new Date(item.submittedAt).toLocaleString()); }
   else { html += '📅 ' + escapeHtml(item.date) + ' at ' + escapeHtml(item.time) + ' · 📍 ' + escapeHtml(item.location || ""); }
   html += '</div>';
+  // Past event badge for mods
+  if (tab !== "pitches") {
+    var today2 = new Date().toISOString().split("T")[0];
+    if (item.date < today2) {
+      html += '<div style="flex-shrink:0;font-size:11px;font-weight:700;color:#fff;background:#999;border:var(--border);padding:2px 8px;margin-bottom:6px;display:inline-block;">⏰ Past Event</div>';
+    }
+  }
   // Description with horizontal pages
   html += '<div id="mod-desc-box-' + dcKey + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
     '<div id="mod-desc-track-' + dcKey + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
@@ -658,6 +669,36 @@ async function approveEvent(id: string) { log("approveEvent id=" + id); var k = 
 async function deleteEvent(id: string, type: string) { log("deleteEvent id=" + id + " type=" + type); var k = type + "-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) { unlock(k); return; } var sel = type === "pending" ? ".btn-decline-event" : ".btn-delete-published"; var btn = document.querySelector('[data-id="' + id + '"]' + sel) as HTMLElement; if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; } var parent = btn ? btn.closest(".pending-card,.event-card") as HTMLElement : null; if (parent) parent.style.opacity = "0.3"; var endpoint = type === "pending" ? "/api/delete-pending" : "/api/delete-published"; try { await fetch(API_BASE + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); showToast("Deleted", "success"); delete modTabCache[type]; setTimeout(function () { loadModTab(type === "pending" ? "pending" : "published"); }, 300); } catch (e) { showToast("Error", "error"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } finally { unlock(k); } }
 async function dismissIdea(id: string) { log("dismissIdea id=" + id); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Dismiss "' + title + '"? This cannot be undone.')) return; setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', true, "⏳ Dismissing..."); try { await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) }); showToast("Idea dismissed", "success"); loadModTab("pitches"); } catch (e) { showToast("Error", "error"); setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', false); } }
 async function deletePitch(id: string) { log("deletePitch id=" + id); var title = getItemTitle(id, { myPitches: myPitches }); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) return; var k = "pitch-" + id; if (isLocked(k)) return; lock(k); setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', true, "⏳ Deleting..."); try { await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) }); showToast("Deleted", "success"); loadMySubmissions(); } catch (e) { showToast("Error", "error"); } finally { setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', false); unlock(k); } }
+async function cancelMyEvent(id: string) {
+  log("cancelMyEvent id=" + id);
+  var k = "my-cancel-" + id;
+  if (isLocked(k)) return;
+  lock(k);
+  var title = getItemTitle(id, { myEvents: myEvents });
+  if (!await confirmDestructive('Cancel "' + title + '"? It will be removed from the review queue.')) { unlock(k); return; }
+  setBtnLoading('[data-action="cancel-my-event"][data-id="' + id + '"]', true, "⏳ Cancelling...");
+  try {
+    await fetch(API_BASE + "/api/delete-pending", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
+    showToast("Cancelled", "success");
+    loadMySubmissions();
+  } catch (e) { showToast("Error", "error"); }
+  finally { setBtnLoading('[data-action="cancel-my-event"][data-id="' + id + '"]', false); unlock(k); }
+}
+async function deleteMyEvent(id: string) {
+  log("deleteMyEvent id=" + id);
+  var k = "my-delete-" + id;
+  if (isLocked(k)) return;
+  lock(k);
+  var title = getItemTitle(id, { myEvents: myEvents });
+  if (!await confirmDestructive('Delete "' + title + '"? All RSVPs will be lost. This cannot be undone.')) { unlock(k); return; }
+  setBtnLoading('[data-action="delete-my-event"][data-id="' + id + '"]', true, "⏳ Deleting...");
+  try {
+    await fetch(API_BASE + "/api/delete-published", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
+    showToast("Deleted", "success");
+    loadMySubmissions();
+  } catch (e) { showToast("Error", "error"); }
+  finally { setBtnLoading('[data-action="delete-my-event"][data-id="' + id + '"]', false); unlock(k); }
+}
 async function viewRsvps(eventId: string) { log("viewRsvps id=" + eventId);
   var el = document.getElementById("rsvps-" + eventId)!;
   if (!el.classList.contains("hidden")) { el.classList.add("hidden"); return; }
@@ -707,7 +748,10 @@ async function submitPitch() { log("submitPitch"); var title = (document.getElem
 function resetEventForm() { eventStep = 1; ["event-step-1", "event-step-2", "event-step-3", "event-step-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("hidden", i !== 0); }); document.getElementById("event-next-btn")!.classList.remove("hidden"); document.getElementById("event-submit-btn")!.classList.add("hidden"); document.getElementById("event-prev-btn")!.classList.add("hidden"); ["event-dot-1", "event-dot-2", "event-dot-3", "event-dot-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); }); ["event-title", "event-organizer", "event-date", "event-time", "event-location", "event-map-url", "event-desc"].forEach(function (id) { (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement).value = ""; }); }
 function eventPrev() { if (eventStep === 2) { document.getElementById("event-dot-2")!.classList.remove("done"); document.getElementById("event-step-2")!.classList.add("hidden"); document.getElementById("event-step-1")!.classList.remove("hidden"); document.getElementById("event-prev-btn")!.classList.add("hidden"); eventStep = 1; } else if (eventStep === 3) { document.getElementById("event-dot-3")!.classList.remove("done"); document.getElementById("event-step-3")!.classList.add("hidden"); document.getElementById("event-step-2")!.classList.remove("hidden"); eventStep = 2; } else if (eventStep === 4) { document.getElementById("event-dot-4")!.classList.remove("done"); document.getElementById("event-step-4")!.classList.add("hidden"); document.getElementById("event-step-3")!.classList.remove("hidden"); document.getElementById("event-next-btn")!.classList.remove("hidden"); document.getElementById("event-submit-btn")!.classList.add("hidden"); eventStep = 3; } }
 function eventNext() { log("eventNext step=" + eventStep); if (eventStep === 1) { var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var org = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); if (!title || !org) { showToast("Fill all fields", "error"); return; } document.getElementById("event-dot-2")!.classList.add("done"); document.getElementById("event-step-1")!.classList.add("hidden"); document.getElementById("event-step-2")!.classList.remove("hidden"); document.getElementById("event-prev-btn")!.classList.remove("hidden"); eventStep = 2; } else if (eventStep === 2) { var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); if (!date || !time) { showToast("Fill all fields", "error"); return; } document.getElementById("event-dot-3")!.classList.add("done"); document.getElementById("event-step-2")!.classList.add("hidden"); document.getElementById("event-step-3")!.classList.remove("hidden"); eventStep = 3; } else if (eventStep === 3) { var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); if (!loc) { showToast("Location required", "error"); return; } document.getElementById("event-dot-4")!.classList.add("done"); document.getElementById("event-step-3")!.classList.add("hidden"); document.getElementById("event-step-4")!.classList.remove("hidden"); document.getElementById("event-next-btn")!.classList.add("hidden"); document.getElementById("event-submit-btn")!.classList.remove("hidden"); document.getElementById("event-review-title-preview")!.textContent = (document.getElementById("event-title") as HTMLInputElement).value; document.getElementById("event-review-meta-preview")!.textContent = (document.getElementById("event-date") as HTMLInputElement).value + " at " + (document.getElementById("event-time") as HTMLInputElement).value + " · " + loc; eventStep = 4; } }
-async function submitEvent() { log("submitEvent"); var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var organizer = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); var mapUrl = (document.getElementById("event-map-url") as HTMLInputElement).value.trim(); var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim(); if (!title || !organizer || !date || !time || !loc || !desc) { showToast("Fill all fields", "error"); return; } setBtnLoading("#event-submit-btn", true, "⏳ Submitting..."); try { await fetch(API_BASE + "/api/submit-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, organizer: organizer, date: date, time: time, location: loc, mapUrl: mapUrl, desc: desc }) }); showToast("Event submitted! ✅", "success"); closeOverlay("event-overlay"); } catch (e) { showToast("Error", "error"); setBtnLoading("#event-submit-btn", false); } }
+async function submitEvent() { log("submitEvent"); var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var organizer = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); var mapUrl = (document.getElementById("event-map-url") as HTMLInputElement).value.trim(); var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim();   if (!title || !organizer || !date || !time || !loc || !desc) { showToast("Fill all fields", "error"); return; }
+  var today = new Date().toISOString().split("T")[0];
+  if (date < today) { showToast("Event date must be today or in the future", "error"); return; }
+  setBtnLoading("#event-submit-btn", true, "⏳ Submitting..."); try { await fetch(API_BASE + "/api/submit-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, organizer: organizer, date: date, time: time, location: loc, mapUrl: mapUrl, desc: desc }) }); showToast("Event submitted! ✅", "success"); closeOverlay("event-overlay"); } catch (e) { showToast("Error", "error"); setBtnLoading("#event-submit-btn", false); } }
 var usernameCached: string | null = null, prefillLoading = false;
 async function prefillOrganizer() { if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; } if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; } if (prefillLoading) return; prefillLoading = true; try { var res = await fetch(API_BASE + "/api/init"); var data = await res.json(); if (data.type === "init" && data.username) { currentUsername = data.username; usernameCached = data.username; (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username; } } catch (e) { console.error(e); } prefillLoading = false; }
 
@@ -761,6 +805,8 @@ function handleAction(action: string, id: string | null) {
     case "my-pitch-prev": myPitchPrev(); break;
     case "my-event-next": myEventNext(); break;
     case "my-event-prev": myEventPrev(); break;
+    case "cancel-my-event": if (id) cancelMyEvent(id); break;
+    case "delete-my-event": if (id) deleteMyEvent(id); break;
     case "approve-event": if (id) approveEvent(id); break;
     case "decline-event": if (id) deleteEvent(id, "pending"); break;
     case "delete-published": if (id) deleteEvent(id, "published"); break;

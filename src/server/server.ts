@@ -190,6 +190,12 @@ async function getActiveEvents(): Promise<MeetitEvent[]> {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+async function getAllApprovedEvents(): Promise<MeetitEvent[]> {
+  const events = await redis.hGetAll("meetit:active_events");
+  const eventList = Object.values(events).map((val) => JSON.parse(val));
+  return eventList.sort((a, b) => a.date.localeCompare(b.date));
+}
+
 async function getActiveEvent(eventId: string): Promise<MeetitEvent | undefined> {
   const eventJson = await redis.hGet("meetit:active_events", eventId);
   return eventJson ? JSON.parse(eventJson) : undefined;
@@ -376,6 +382,7 @@ async function onSubmitEvent(req: IncomingMessage): Promise<ApiResponse> {
   if (!formData.title || formData.title.length > 200) return { error: "Title too long", status: 400 };
   if (!formData.desc || formData.desc.length > 2000) return { error: "Description too long", status: 400 };
   if (!formData.location || formData.location.length > 200) return { error: "Location too long", status: 400 };
+  if (formData.date < new Date().toISOString().split("T")[0]) return { error: "Event date must be today or in the future", status: 400 };
   const eventId = `event_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   const event = createPendingEvent(eventId, formData, new Date().toISOString());
 
@@ -431,7 +438,7 @@ async function onPitchedIdeas(): Promise<ApiResponse> {
 async function onAllApprovedEvents(): Promise<ApiResponse> {
   const authError = await requireMod();
   if (authError) return authError;
-  const events = await getActiveEvents();
+  const events = await getAllApprovedEvents();
   // Filter out hardcoded default event
   const realEvents = events.filter(e => e.id !== "default-bangalore-tech-chai");
   const eventsWithCounts = await Promise.all(
@@ -460,9 +467,15 @@ async function onDismissIdea(req: IncomingMessage): Promise<ApiResponse> {
 }
 
 async function onDeletePending(req: IncomingMessage): Promise<ApiResponse> {
-  const authError = await requireMod();
-  if (authError) return authError;
   const { eventId } = await readJSON<{ eventId: string }>(req);
+  const eventJson = await redis.hGet("meetit:pending_events", eventId);
+  if (eventJson) {
+    const event = JSON.parse(eventJson) as MeetitEvent;
+    if (!isSubmissionOwner(context.username, event.organizer)) {
+      const authError = await requireMod();
+      if (authError) return authError;
+    }
+  }
   await redis.hDel("meetit:pending_events", [eventId]);
   const ok = !(await redis.hGet("meetit:pending_events", eventId));
   console.log(`[DEL-PEND] ${eventId} | removed=${ok}${!ok ? " ⚠️ FAILED!" : ""}`);
@@ -470,9 +483,15 @@ async function onDeletePending(req: IncomingMessage): Promise<ApiResponse> {
 }
 
 async function onDeletePublished(req: IncomingMessage): Promise<ApiResponse> {
-  const authError = await requireMod();
-  if (authError) return authError;
   const { eventId } = await readJSON<{ eventId: string }>(req);
+  const eventJson = await redis.hGet("meetit:active_events", eventId);
+  if (eventJson) {
+    const event = JSON.parse(eventJson) as MeetitEvent;
+    if (!isSubmissionOwner(context.username, event.organizer)) {
+      const authError = await requireMod();
+      if (authError) return authError;
+    }
+  }
   await redis.hDel("meetit:active_events", [eventId]);
   const ok = !(await redis.hGet("meetit:active_events", eventId));
   console.log(`[DEL-PUB] ${eventId} | removed=${ok}${!ok ? " ⚠️ FAILED!" : ""}`);

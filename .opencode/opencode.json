@@ -1,16 +1,32 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "opencode-go/deepseek-v4-flash",
-  "default_agent": "planner",
+  "default_agent": "orchestrator",
   "agent": {
-    "planner": {
-      "model": "opencode-go/qwen3.7-plus",
+    "orchestrator": {
+      "model": "opencode-go/kimi-k2.6",
       "mode": "primary",
-      "description": "Plans architecture and reviews code quality. Delegates implementation to the coding subagent."
+      "description": "Decomposes tasks, routes to the right subagent, manages context across the session."
     },
     "general": {
       "model": "opencode-go/deepseek-v4-flash",
-      "description": "Coding subagent for implementation tasks."
+      "description": "Coder Simple — boilerplate, single-file edits, patterns, tests, refactors."
+    },
+    "coder_complex": {
+      "model": "opencode-go/deepseek-v4-pro",
+      "description": "Coder Complex — Devvit SDK, cross-file architecture, hard bugs, platform quirks."
+    },
+    "search_docs": {
+      "model": "opencode-go/qwen3.6-plus",
+      "description": "Search and Docs — GitHub pattern search, Devvit docs, web lookup, summarization."
+    },
+    "git_commits": {
+      "model": "opencode-go/deepseek-v4-flash",
+      "description": "Git — diff to commit message, changelog entries, branch naming."
+    },
+    "documentation": {
+      "model": "opencode-go/minimax-m2.5",
+      "description": "Documentation — LEARNINGS.md, ADRs, devlog, session summaries."
     }
   }
 }
