@@ -95,6 +95,9 @@ async function onRequest(
     case ApiEndpoint.DeletePublished:
       body = await onDeletePublished(req);
       break;
+    case ApiEndpoint.MyRsvp:
+      body = await onMyRsvp(req);
+      break;
     case InternalEndpoint.OnPostCreate:
       body = await onMenuCreatePost();
       break;
@@ -520,6 +523,14 @@ async function onRsvpList(req: IncomingMessage): Promise<ApiResponse> {
   const canViewContactDetails = Boolean(includeContactDetails) && (await isMod());
   const attendees = buildAttendees(results, detailsHash, canViewContactDetails);
   return { type: "rsvp-list", attendees };
+}
+
+async function onMyRsvp(req: IncomingMessage): Promise<ApiResponse> {
+  const { eventId } = await readJSON<{ eventId: string }>(req);
+  const username = context.username || "";
+  const detailsRaw = await redis.hGet(`meetit:rsvp_details:${eventId}`, username);
+  const details = detailsRaw ? JSON.parse(detailsRaw) : { email: "", phone: "" };
+  return { type: "my-rsvp", email: details.email || "", phone: details.phone || "" };
 }
 
 async function onMySubmissions(): Promise<ApiResponse> {

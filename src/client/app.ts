@@ -416,11 +416,14 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
 
   // Card 4: RSVP / Leave
   var s4 = d.hasRsvped
-    ? '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:12px;padding:20px;text-align:center;padding-top:40px;">' +
+    ? '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;padding:20px;text-align:center;padding-top:32px;">' +
       '<div style="font-size:56px;">🎉</div>' +
       '<div style="font-size:18px;font-weight:700;">You\'re on the list!</div>' +
       '<div style="font-size:14px;color:var(--muted);">See you there</div>' +
-      '<button class="btn btn-white btn-leave-event" data-id="' + e.id + '" data-action="leave-event" style="margin-top:12px;width:auto;padding:10px 20px;">❌ Leave Event</button>' +
+      '<div style="display:flex;gap:8px;margin-top:8px;width:100%;max-width:260px;">' +
+      '<button class="btn btn-white btn-update-rsvp" data-id="' + e.id + '" data-action="update-rsvp" style="flex:1;padding:10px 12px;font-size:13px;">✏️ Update Contact</button>' +
+      '<button class="btn btn-white btn-leave-event" data-id="' + e.id + '" data-action="leave-event" style="flex:1;padding:10px 12px;font-size:13px;">❌ Leave</button>' +
+      '</div>' +
       '</div>'
     : '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;text-align:center;">' +
       '<div style="font-size:64px;">🎟️</div>' +
@@ -728,21 +731,23 @@ async function submitRsvp() {
   var phone = (document.getElementById("rsvp-phone") as HTMLInputElement).value.trim();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast("Invalid email format", "error"); return; }
   if (phone && !/^[\d\s\-\+\(\)]{7,20}$/.test(phone)) { showToast("Invalid phone format", "error"); return; }
-  setBtnLoading(".btn-submit-rsvp", true, "⏳ RSVPing...");
+  var isUpdate = document.querySelector("#rsvp-overlay .overlay-header h2")?.textContent?.includes("Update");
+  setBtnLoading(".btn-submit-rsvp", true, isUpdate ? "⏳ Updating..." : "⏳ RSVPing...");
   try {
     await fetch(API_BASE + "/api/rsvp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: currentEventId, email: email, phone: phone }) });
-    showToast("RSVP confirmed! 🎉", "success");
+    showToast(isUpdate ? "Contact updated! ✅" : "RSVP confirmed! 🎉", "success");
     delete detailCache[currentEventId];
     delete attendeeCache[currentEventId];
     closeOverlay("rsvp-overlay");
     closeOverlay("details-overlay");
     showHomePage();
   } catch (e) {
-    showToast("RSVP failed - retry", "error");
+    showToast(isUpdate ? "Update failed - retry" : "RSVP failed - retry", "error");
     setBtnLoading(".btn-submit-rsvp", false);
   }
 }
-function showRsvpOverlay(id: string) { log("showRsvpOverlay id=" + id); currentEventId = id; (document.getElementById("rsvp-email") as HTMLInputElement).value = ""; (document.getElementById("rsvp-phone") as HTMLInputElement).value = ""; openOverlay("rsvp-overlay"); }
+function showRsvpOverlay(id: string, email?: string, phone?: string) { log("showRsvpOverlay id=" + id); currentEventId = id; (document.getElementById("rsvp-email") as HTMLInputElement).value = email || ""; (document.getElementById("rsvp-phone") as HTMLInputElement).value = phone || ""; var titleEl = document.querySelector("#rsvp-overlay .overlay-header h2"); if (titleEl) titleEl.textContent = email !== undefined ? "✏️ Update Contact" : "🎟️ RSVP"; var btnEl = document.querySelector(".btn-submit-rsvp"); if (btnEl) btnEl.textContent = email !== undefined ? "Update →" : "Confirm RSVP →"; openOverlay("rsvp-overlay"); }
+async function showUpdateRsvpOverlay(id: string) { log("showUpdateRsvpOverlay id=" + id); setBtnLoading('[data-action="update-rsvp"][data-id="' + id + '"]', true, "⏳..."); try { var res = await fetch(API_BASE + "/api/my-rsvp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); var data = await res.json(); if (data.type === "my-rsvp") { showRsvpOverlay(id, data.email || "", data.phone || ""); } else { showToast("Could not load contact info", "error"); } } catch (e) { showToast("Error loading contact info", "error"); } finally { setBtnLoading('[data-action="update-rsvp"][data-id="' + id + '"]', false); } }
 async function leaveEvent(id: string) { log("leaveEvent id=" + id); var title = document.getElementById("details-overlay-title")!.textContent || "this event"; if (!await confirmDestructive('Leave "' + title + '"? You can RSVP again later.')) return; setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', true, "⏳ Leaving..."); try { var res = await fetch(API_BASE + "/api/leave-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); var data = await res.json(); if (data.type === "leave-event" && data.success) { showToast("You've left", "success"); delete detailCache[id]; delete attendeeCache[id]; closeOverlay("details-overlay"); showHomePage(); } else { showToast("Failed", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } } catch (e) { showToast("Error", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } }
 async function submitPitch() { log("submitPitch"); var title = (document.getElementById("pitch-title") as HTMLInputElement).value.trim(); var desc = (document.getElementById("pitch-description") as HTMLTextAreaElement).value.trim(); if (!title || !desc) { showToast("Fill all fields", "error"); return; } setBtnLoading("#pitch-submit-btn", true, "⏳ Submitting..."); try { await fetch(API_BASE + "/api/pitch-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, description: desc }) }); showToast("Idea sent! ✅", "success"); closeOverlay("pitch-overlay"); } catch (e) { showToast("Error", "error"); setBtnLoading("#pitch-submit-btn", false); } }
 function resetEventForm() { eventStep = 1; ["event-step-1", "event-step-2", "event-step-3", "event-step-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("hidden", i !== 0); }); document.getElementById("event-next-btn")!.classList.remove("hidden"); document.getElementById("event-submit-btn")!.classList.add("hidden"); document.getElementById("event-prev-btn")!.classList.add("hidden"); ["event-dot-1", "event-dot-2", "event-dot-3", "event-dot-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); }); ["event-title", "event-organizer", "event-date", "event-time", "event-location", "event-map-url", "event-desc"].forEach(function (id) { (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement).value = ""; }); }
@@ -813,6 +818,7 @@ function handleAction(action: string, id: string | null) {
     case "dismiss-idea": if (id) dismissIdea(id); break;
     case "delete-pitch": if (id) deletePitch(id); break;
     case "rsvp-now": if (id) showRsvpOverlay(id); break;
+    case "update-rsvp": if (id) showUpdateRsvpOverlay(id); break;
     case "leave-event": if (id) leaveEvent(id); break;
     case "view-rsvps": if (id) viewRsvps(id); break;
     case "load-attendees": { if (!id) break; loadPublicAttendees(id); } break;

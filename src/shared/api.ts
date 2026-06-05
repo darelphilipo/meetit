@@ -75,6 +75,7 @@ export const ApiEndpoint = {
   DeletePending: "/api/delete-pending",
   DeletePublished: "/api/delete-published",
   MySubmissions: "/api/my-submissions",
+  MyRsvp: "/api/my-rsvp",
 } as const;
 
 export type ApiEndpoint = (typeof ApiEndpoint)[keyof typeof ApiEndpoint];
