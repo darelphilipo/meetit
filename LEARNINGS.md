@@ -583,8 +583,12 @@ Confirmed for `hDel`, `hSet`, `zAdd`, `zRem`. Writes succeed but reads immediate
 
 ### 11.2 Devvit Web API Limitations (Confirmed)
 
-**📌 `reddit.submitComment()` fails in inline webview**
-Error: `ERR_INVALID_ARG_TYPE: "string" argument ... Received undefined`. Even with `postId: "t3_xxx"`, `text: "message"`, and `runAs: "APP"`. Not available in Devvit Web inline context.
+**📌 `reddit.submitComment()` — Documented but empirically broken**
+Official docs show it as a working Devvit Web API:
+```ts
+reddit.submitComment({ postId: 't3_123456', text: 'This is a comment', runAs: 'APP' });
+```
+**However, empirical testing fails with:** `ERR_INVALID_ARG_TYPE: "string" argument ... Received undefined` in both webview HTTP handlers AND CRON endpoint handlers. Likely a platform bug or incomplete implementation. Not usable as of v0.13.
 
 **📌 `reddit.modMail.createConversation()` not available in Devvit Web**
 Workaround: Save data to Redis and display in Mod Dashboard.
@@ -595,6 +599,42 @@ Workaround: Save data to Redis and display in Mod Dashboard.
 
 **📌 `reddit.getModerators()` returns `{children: []}` in playtest subreddits**
 Both in inline webview AND trigger context. Works on real production subreddits. Modlist cache pattern (AppInstall/AppUpgrade trigger → cache in Redis) works in production.
+
+**📌 `getModPermissionsForSubreddit()` — More reliable mod detection**
+From Community Chats app — works when `getModerators()` fails:
+```ts
+const user = await reddit.getCurrentUser();
+const perms = await user.getModPermissionsForSubreddit(subredditName);
+const isModerator = perms && perms.length > 0;
+```
+Cache result in Redis with 1-minute TTL to avoid calling on every request.
+
+**📌 Redis Transactions (`watch`/`multi`/`exec`) — Available in Devvit Web**
+Fully documented atomic operations:
+```ts
+const txn = await redis.watch('key');
+await txn.multi();
+await txn.hSet('users', { [username]: JSON.stringify(data) });
+await txn.zAdd('scores', { member: username, score: data.score });
+await txn.exec();
+```
+- Max 20 concurrent transactions per installation
+- 5-second execution timeout
+- Use for atomic RSVP counts, approve-lock operations, or any multi-step Redis write
+
+**📌 `runAs: 'USER'` Permissions — Requires explicit approval**
+To act as the Reddit user (not the app), add to `devvit.json`:
+```json
+"permissions": {
+  "reddit": {
+    "asUser": ["SUBMIT_POST", "SUBMIT_COMMENT", "SUBSCRIBE_TO_SUBREDDIT"]
+  }
+}
+```
+- Supported APIs: `submitPost()`, `submitCustomPost()`, `submitComment()`
+- Playtest: falls back to app account unless app owner takes the action
+- Requires explicit approval during app review (extends review time)
+- Rules: always ask permission, no automated actions, distinct choices, no gating
 
 ### 11.3 Browser API Blockers (CSP in Devvit Web)
 
@@ -618,8 +658,15 @@ Returns raw ID like `1t9207d` (not `t3_` prefixed). Some APIs need the `t3_` pre
 
 ### 11.5 Scheduler Gotchas
 
-**📌 `scheduler.runJob()` — one-shot jobs NEVER fire in Devvit Web inline context**
-Jobs are scheduled (logs confirm `[APPROVE] Reminder scheduled: 2026-05-14T00:00:00.000Z`) but never execute. No `[SCHEDULER] FIRED` log ever appears. Use CRON-based scheduler instead.
+**📌 `scheduler.runJob()` — one-shot jobs NEVER fire in Devvit Web inline context (Empirical)**
+Jobs are scheduled (logs confirm `[APPROVE] Reminder scheduled: 2026-05-14T00:00:00.000Z`) but never execute. No `[SCHEDULER] FIRED` log ever appears.
+
+**⚠️ CONTRADICTION:** Official Devvit docs (v0.13) show one-shot `runAt` jobs as fully supported:
+```ts
+const job = { id: `job-one-off-for-post${postId}`, name: "one-off-task", data: { postId }, runAt: oneMinuteFromNow };
+const jobId = await scheduler.runJob(job);
+```
+The docs also show `runAt: new Date()` (immediate execution) for job daisy-chaining. **However, empirical testing in Devvit Web inline webview confirms they do NOT fire.** This may be a platform bug or context-specific limitation not yet documented. Use CRON-based scheduler as the reliable alternative.
 
 **📌 CRON-based scheduler WORKS in Devvit Web — tested and confirmed**
 ```json
@@ -1204,3 +1251,81 @@ async function getAllApprovedEvents(): Promise<MeetitEvent[]> {
    - No attendees div (never needed for ideas)
 
 **Lesson:** Conditional rendering should be feature-based, not one-size-fits-all. Each card state (pending/published/idea) has different user needs, and the UI should reflect that. Removing irrelevant buttons reduces cognitive load and makes primary actions more prominent. Use `flex:1` for action buttons in card footers to create balanced, full-width layouts on mobile.
+
+### 22. Devvit v0.13 New Capabilities (May 2026)
+
+**📌 Push Notifications (`@devvit/notifications` — experimental)**
+```ts
+import { notifications } from '@devvit/notifications';
+await notifications.optInCurrentUser();
+await notifications.enqueue({
+  title: 'Your daily reward!',
+  body: 'Come back and play',
+  recipients: [{ userId: 'abc', data: { streak: '5' } }], // Mustache: {{streak}}
+});
+```
+Rate limits: 2/user/day, 25K/app/day. Built-in opt-in/opt-out UX.
+
+**📌 Realtime Pub/Sub (`realtime.send` / `connectRealtime`)**
+Push live events from server to webview without polling:
+```ts
+// Server
+await realtime.send(channel, msg); // No ':' in channel names
+
+// Client
+const conn = connectRealtime({ channel, onMessage });
+```
+**Note:** Removed from `@devvit/public-api` (Blocks API). Only available in `@devvit/web` (Devvit Web).
+
+**📌 Second-Level Cron (experimental)**
+6-part cron expression for per-second granularity: `*/30 * * * * *` = every 30 seconds.
+
+**📌 Media Uploads**
+```ts
+import { media } from '@devvit/web/server';
+await media.upload({ url: 'https://...', type: 'image' }); // PNG/JPEG/WEBP/GIF, 20MB max
+```
+
+**📌 Share Sheets (client-side)**
+```ts
+import { showShareSheet } from '@devvit/web/client';
+showShareSheet({ title: 'My Score', text: 'I scored 9000!', data: 'abc' });
+```
+
+**📌 Streak System (Redis bitmap-based)**
+1 bit per day, 365 bits/year (~46 bytes). Cross-year continuity:
+```ts
+await redis.bitField(`streak:${userId}:2026`, [
+  { operation: 'SET', encoding: 'u1', offset: dayOfYear },
+  { operation: 'GET', encoding: 'u1', offset: 0 },
+]);
+```
+
+**📌 Post Styles**
+```ts
+await reddit.submitCustomPost({
+  styles: { backgroundColor: { light: '#FFF', dark: '#000' } }
+});
+```
+
+### 23. External Resources
+
+**📌 `devvit-for-noobs` — Community Knowledge Base**
+Comprehensive reference maintained by the community:
+https://github.com/darelphilipo/devvit-for-noobs/blob/master/skills.md
+
+Covers:
+- 30+ production app patterns (bot-bouncer, only-flairs, user-scorer, mod-mentions, admin-tattler, etc.)
+- Architecture decision tree (mod tool vs game vs notification bot)
+- File organization patterns (single-file, 6-file, full client/server, monorepo)
+- Redis patterns (TTL scheduler, modlist CSV, hash-per-field, capped arrays, ZSET queues)
+- Scheduler patterns (self-chaining, randomized cron, dual scheduling, ZSET cleanup)
+- Settings & configuration with validators
+- Production library stack (Hono, Tailwind 4, Framer Motion, Lucide React)
+- Devvit v0.13 changelog
+
+**When to use:**
+- Looking for a pattern from a specific app (e.g., "How did bot-bouncer handle rate limiting?")
+- Choosing between architecture approaches
+- Finding production-grade library recommendations
+- Understanding new Devvit features before official docs are complete
