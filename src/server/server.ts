@@ -442,6 +442,7 @@ async function onAllApprovedEvents(): Promise<ApiResponse> {
   const authError = await requireMod();
   if (authError) return authError;
   const events = await getAllApprovedEvents();
+  console.log(`[ALL-APPROVED] Total approved events in Redis: ${events.length}`);
   // Filter out hardcoded default event
   const realEvents = events.filter(e => e.id !== "default-bangalore-tech-chai");
   const eventsWithCounts = await Promise.all(
@@ -450,6 +451,7 @@ async function onAllApprovedEvents(): Promise<ApiResponse> {
       return { ...event, rsvpCount: count };
     })
   );
+  console.log(`[ALL-APPROVED] Returning ${eventsWithCounts.length} events to mod dashboard`);
   return { type: "all-approved-events", events: eventsWithCounts };
 }
 
