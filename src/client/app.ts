@@ -22,6 +22,10 @@ var modDescTotal: Record<string, number> = {};
 var modDescFullText: Record<string, string> = {};
 var myPitchIdx = 0, myEventIdx = 0;
 var myPitches: any[] = [], myEvents: any[] = [];
+// My Stuff description pagination
+var myStuffDescPageIdx: Record<string, number> = {};
+var myStuffDescPageTotal: Record<string, number> = {};
+var myStuffDescFullText: Record<string, string> = {};
 
 // Cache TTL constants
 var CACHE_TTL_HOME = 30000;      // 30 seconds
@@ -38,6 +42,28 @@ var RENDER_DELAY = 200;
 var DESC_PREVIEW_LENGTH = 120;
 var ATTENDEES_PER_PAGE = 5;
 var DESC_SHORT_LENGTH = 100;
+
+// Category map for badges
+var CAT_MAP: Record<string, { label: string; emoji: string; color: string }> = {
+  social: { label: "Social", emoji: "🎉", color: "#ff69b4" },
+  tech: { label: "Tech", emoji: "💻", color: "#6366f1" },
+  sports: { label: "Sports", emoji: "🏃", color: "#22c55e" },
+  food: { label: "Food", emoji: "🍕", color: "#f97316" },
+  arts: { label: "Arts", emoji: "🎨", color: "#a855f7" },
+  outdoors: { label: "Outdoors", emoji: "🌿", color: "#10b981" },
+  gaming: { label: "Gaming", emoji: "🎮", color: "#3b82f6" },
+  music: { label: "Music", emoji: "🎵", color: "#ec4899" },
+  wellness: { label: "Wellness", emoji: "🧘", color: "#14b8a6" },
+  education: { label: "Education", emoji: "📚", color: "#f59e0b" },
+  networking: { label: "Networking", emoji: "🤝", color: "#8b5cf6" },
+  other: { label: "Other", emoji: "⭐", color: "#6b7280" },
+};
+function catBadge(cat: string | undefined): string {
+  var id = cat || "other";
+  var c = CAT_MAP[id];
+  if (!c) c = CAT_MAP["other"];
+  return '<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;padding:2px 8px;border:3px solid #1c1c0f;background:' + c.color + ';color:#fff;">' + c.emoji + ' ' + escapeHtml(c.label) + '</span>';
+}
 var AUTO_PAGINATE_DELAY = 100;
 
 // Fetch debounce / caches
@@ -132,7 +158,7 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
     var dateStr = event._date ? new Date(event._date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) : "";
 
     c.innerHTML =
-      '<div class="event-card" style="display:flex;flex-direction:column;">' +
+      '<div class="event-card fade-in" style="display:flex;flex-direction:column;">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-shrink:0;">' +
       '<div style="display:flex;align-items:center;gap:6px;">' +
       (event.emoji ? '<div style="width:36px;height:36px;background:var(--primary);border:var(--border);display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:var(--shadow-sm);flex-shrink:0;">' + event.emoji + '</div>' : '<div style="width:36px;height:36px;background:var(--surface);border:var(--border);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;box-shadow:var(--shadow-sm);flex-shrink:0;">📅</div>') +
@@ -145,6 +171,7 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
       '<div class="event-meta" style="margin-bottom:6px;">' +
       '<span class="event-tag" style="font-size:11px;padding:2px 6px;">⏰ ' + escapeHtml(event.time) + '</span>' +
       '<span class="event-tag" style="font-size:11px;padding:2px 6px;background:var(--primary);">👥 ' + (event.rsvpCount || 0) + '</span>' +
+      (event.category ? catBadge(event.category) : '') +
       '</div>' +
       '<div style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:8px;">' + escapeHtml((event.description || "").substring(0, DESC_PREVIEW_LENGTH)) + ((event.description || "").length > DESC_PREVIEW_LENGTH ? "..." : "") + '</div>' +
       '<div style="flex-shrink:0;padding-top:8px;border-top:2px solid var(--outline-v);margin-top:auto;">' +
@@ -230,72 +257,191 @@ function fallbackCopy(text: string) {
   document.body.removeChild(textarea);
 }
 
-// ======= MY STUFF (horizontal cards) =======
+// ======= MY STUFF (tabbed layout) =======
 var myStuffLoading = false;
-function openMyStuff() { log("openMyStuff"); loadMySubmissions(); openOverlay("my-stuff-overlay"); }
+var myStuffTab = "rsvps";
+var myRsvps: any[] = [], myRsvpIdx = 0;
+function openMyStuff() { log("openMyStuff"); myStuffTab = "rsvps"; switchMyStuffTab("rsvps", true); loadMySubmissions(); openOverlay("my-stuff-overlay"); }
+var myStuffTransitioning = false;
+function switchMyStuffTab(tab: string, skipLoad = false) {
+  if ((tab === myStuffTab && !skipLoad) || myStuffTransitioning) return;
+  myStuffTransitioning = true;
+  myStuffTab = tab;
+  document.querySelectorAll("#my-stuff-tabs .my-stuff-tab").forEach(function (t) { t.classList.toggle("active", (t as HTMLElement).dataset.mtab === tab); });
+  if (skipLoad) { myStuffTransitioning = false; return; }
+  var container = document.getElementById("my-stuff-container");
+  if (!container) { myStuffTransitioning = false; return; }
+  container.classList.add("tab-fade", "out");
+  setTimeout(function () {
+    renderMyStuffTab(tab);
+    container!.classList.remove("out");
+    container!.classList.add("in");
+    setTimeout(function () { container!.classList.remove("tab-fade", "in"); myStuffTransitioning = false; }, 200);
+  }, 180);
+}
+function renderMyStuffTab(tab: string) {
+  if (tab === "rsvps") renderMyRsvpCard();
+  else if (tab === "events") renderMyEventCard();
+  else if (tab === "pitches") renderMyPitchCard();
+}
 async function loadMySubmissions() {
   log("loadMySubmissions");
-  document.getElementById("my-pitches-section")!.innerHTML = '<div class="empty-state"><span class="emoji">⏳</span><h2>Loading...</h2></div>';
-  document.getElementById("my-events-section")!.innerHTML = '';
+  var container = document.getElementById("my-stuff-container")!;
+  container.innerHTML = '<div class="empty-state"><span class="emoji">⏳</span><h2>Loading...</h2></div>';
   try {
     var res = await fetch(API_BASE + "/api/my-submissions");
     var data = await res.json();
     if (data.type === "my-submissions") {
+      myRsvps = data.rsvps || [];
       myPitches = data.pitches || [];
       myEvents = data.events || [];
-      myPitchIdx = 0; myEventIdx = 0;
-      renderMyPitchCard();
-      renderMyEventCard();
+      myRsvpIdx = 0; myPitchIdx = 0; myEventIdx = 0;
+      renderMyStuffTab(myStuffTab);
     }
   } catch (e) {
-    document.getElementById("my-pitches-section")!.innerHTML = '<div class="empty-state"><span class="emoji">❌</span><h2>Could not load</h2></div>';
-    document.getElementById("my-events-section")!.innerHTML = '';
+    container.innerHTML = '<div class="empty-state"><span class="emoji">❌</span><h2>Could not load</h2></div>';
   }
   myStuffLoading = false;
 }
+function renderMyRsvpCard() {
+  var el = document.getElementById("my-stuff-container")!;
+  if (myRsvps.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;"><span class="emoji" style="font-size:36px;">🎟️</span><h2 style="font-size:14px;">No RSVPs yet</h2><p style="font-size:12px;">Go to the Home tab to find events!</p></div>'; return; }
+  if (myRsvpIdx >= myRsvps.length) myRsvpIdx = 0;
+  var e = myRsvps[myRsvpIdx];
+  var total = myRsvps.length;
+  var key = "rsvp-" + e.id;
+  var desc = e.description || "";
+  myStuffDescFullText[key] = desc;
+  if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
+  myStuffDescPageIdx[key] = 0;
+  el.innerHTML = '<div class="event-card fade-in" style="padding:10px;box-sizing:border-box;">' +
+    '<h3 style="font-size:16px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
+    '<div style="font-size:12px;color:var(--muted);font-weight:600;">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div>' +
+    '<div style="font-size:12px;color:var(--muted);">📍 ' + escapeHtml(e.location || "") + '</div>' +
+    (e.category ? '<div style="margin:4px 0;">' + catBadge(e.category) + '</div>' : '') +
+    '<div id="my-stuff-desc-box-' + key + '" style="height:90px;overflow:hidden;background:#fff;border:var(--border);margin:6px 0;position:relative;">' +
+      '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
+        '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:13px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
+      '</div></div>' +
+    '<div id="my-stuff-desc-nav-' + key + '" style="display:flex;justify-content:center;align-items:center;gap:6px;"></div>' +
+    '<div style="display:flex;justify-content:center;align-items:center;gap:6px;padding-top:4px;">' +
+      '<button class="btn btn-white btn-sm btn-update-rsvp" data-id="' + e.id + '" data-action="update-rsvp" style="padding:6px 14px;font-size:12px;">✏️ Update Contact</button>' +
+      '<button class="btn btn-white btn-sm btn-leave-rsvp" data-id="' + e.id + '" data-action="leave-event" style="padding:6px 14px;font-size:12px;">❌ Leave</button>' +
+      (total > 1 ? '<button class="btn btn-white btn-sm btn-my-rsvp-prev" data-action="my-rsvp-prev" style="padding:4px 10px;font-size:11px;">←</button><span style="font-size:11px;font-weight:700;">' + (myRsvpIdx + 1) + '/' + total + '</span><button class="btn btn-white btn-sm btn-my-rsvp-next" data-action="my-rsvp-next" style="padding:4px 10px;font-size:11px;">→</button>' : '') +
+    '</div></div>';
+  if (desc.length > DESC_SHORT_LENGTH) {
+    setTimeout(function () {
+      var box = document.getElementById("my-stuff-desc-box-" + key);
+      if (!box) return;
+      var pages = splitTextToPages(myStuffDescFullText[key] || "", box.clientWidth, box.clientHeight);
+      myStuffDescPageTotal[key] = pages.length;
+      myStuffDescPageIdx[key] = 0;
+      document.getElementById("my-stuff-desc-track-" + key)!.outerHTML = buildMyStuffDescPagesHTML(key, pages);
+      document.getElementById("my-stuff-desc-nav-" + key)!.innerHTML = buildMyStuffDescNavHTML(key);
+    }, AUTO_PAGINATE_DELAY);
+  }
+}
 function renderMyPitchCard() {
-  var el = document.getElementById("my-pitches-section")!;
-  if (myPitches.length === 0) { el.innerHTML = '<div style="text-align:center;padding:8px;color:var(--muted);font-size:13px;">💡 No pitches</div>'; return; }
+  var el = document.getElementById("my-stuff-container")!;
+  if (myPitches.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;"><span class="emoji" style="font-size:36px;">💡</span><h2 style="font-size:14px;">No pitches yet</h2><p style="font-size:12px;">Pitch an idea from the Create menu!</p></div>'; return; }
   if (myPitchIdx >= myPitches.length) myPitchIdx = 0;
   var p = myPitches[myPitchIdx];
   var total = myPitches.length;
-  el.innerHTML = '<div class="idea-card" style="height:100%;display:flex;flex-direction:column;padding:10px;overflow:hidden;box-sizing:border-box;">' +
-    '<div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--muted);flex-shrink:0;">💡 Pitches</div>' +
-    '<h3 style="font-size:16px;font-weight:700;margin:4px 0;flex-shrink:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(p.title) + '</h3>' +
-    '<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;color:var(--muted);line-height:1.4;">' + escapeHtml(p.description) + '</div>' +
-    '<div style="flex-shrink:0;display:flex;gap:6px;justify-content:center;align-items:center;padding-top:6px;">' +
+  var key = "pitch-" + p.id;
+  var desc = p.description || "";
+  myStuffDescFullText[key] = desc;
+  if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
+  myStuffDescPageIdx[key] = 0;
+  el.innerHTML = '<div class="idea-card fade-in" style="padding:10px;box-sizing:border-box;">' +
+    '<h3 style="font-size:16px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(p.title) + '</h3>' +
+    '<div id="my-stuff-desc-box-' + key + '" style="height:110px;overflow:hidden;background:#fff;border:var(--border);margin:6px 0;position:relative;">' +
+      '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
+        '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:13px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
+      '</div></div>' +
+    '<div id="my-stuff-desc-nav-' + key + '" style="display:flex;justify-content:center;align-items:center;gap:6px;"></div>' +
+    '<div style="display:flex;gap:6px;justify-content:center;align-items:center;padding-top:4px;">' +
       '<button class="btn btn-white btn-sm btn-delete-pitch" data-id="' + p.id + '" data-action="delete-pitch" style="padding:6px 14px;font-size:12px;">🗑️ Delete</button>' +
       (total > 1 ? '<button class="btn btn-white btn-sm btn-my-pitch-prev" data-action="my-pitch-prev" style="padding:4px 10px;font-size:11px;">←</button><span style="font-size:11px;font-weight:700;">' + (myPitchIdx + 1) + '/' + total + '</span><button class="btn btn-white btn-sm btn-my-pitch-next" data-action="my-pitch-next" style="padding:4px 10px;font-size:11px;">→</button>' : '') +
     '</div></div>';
-  
+  if (desc.length > DESC_SHORT_LENGTH) {
+    setTimeout(function () {
+      var box = document.getElementById("my-stuff-desc-box-" + key);
+      if (!box) return;
+      var pages = splitTextToPages(myStuffDescFullText[key] || "", box.clientWidth, box.clientHeight);
+      myStuffDescPageTotal[key] = pages.length;
+      myStuffDescPageIdx[key] = 0;
+      document.getElementById("my-stuff-desc-track-" + key)!.outerHTML = buildMyStuffDescPagesHTML(key, pages);
+      document.getElementById("my-stuff-desc-nav-" + key)!.innerHTML = buildMyStuffDescNavHTML(key);
+    }, AUTO_PAGINATE_DELAY);
+  }
 }
 function renderMyEventCard() {
-  var el = document.getElementById("my-events-section")!;
-  if (myEvents.length === 0) { el.innerHTML = '<div style="text-align:center;padding:8px;color:var(--muted);font-size:13px;">📋 No events</div>'; return; }
+  var el = document.getElementById("my-stuff-container")!;
+  if (myEvents.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;"><span class="emoji" style="font-size:36px;">📋</span><h2 style="font-size:14px;">No events yet</h2><p style="font-size:12px;">Submit an event from the Create menu!</p></div>'; return; }
   if (myEventIdx >= myEvents.length) myEventIdx = 0;
   var e = myEvents[myEventIdx];
   var total = myEvents.length;
   var status = e.status === "published" ? "✅ Published" : "⏳ Pending";
   var bg = e.status === "published" ? "#00ff88" : "var(--secondary)";
-  el.innerHTML = '<div class="pending-card" style="height:100%;display:flex;flex-direction:column;padding:10px;overflow:hidden;box-sizing:border-box;background:' + bg + ';">' +
-    '<div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--muted);flex-shrink:0;">📋 My Events</div>' +
-    '<h3 style="font-size:16px;font-weight:700;margin:4px 0;flex-shrink:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
-    '<div style="flex-shrink:0;font-size:12px;color:var(--muted);font-weight:600;">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div>' +
-    '<div style="flex-shrink:0;font-size:12px;font-weight:600;">' + status + '</div>' +
-    '<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;font-size:13px;color:var(--muted);line-height:1.4;">' + escapeHtml(e.description || "") + '</div>' +
-    '<div style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;padding-top:6px;">' +
+  var key = "event-" + e.id;
+  var desc = e.description || "";
+  myStuffDescFullText[key] = desc;
+  if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
+  myStuffDescPageIdx[key] = 0;
+  el.innerHTML = '<div class="pending-card fade-in" style="padding:10px;box-sizing:border-box;background:' + bg + ';">' +
+    '<h3 style="font-size:16px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
+    '<div style="font-size:12px;color:var(--muted);font-weight:600;">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div>' +
+    '<div style="font-size:12px;font-weight:600;">' + status + '</div>' +
+    (e.category ? '<div style="margin:4px 0;">' + catBadge(e.category) + '</div>' : '') +
+    '<div id="my-stuff-desc-box-' + key + '" style="height:90px;overflow:hidden;background:#fff;border:var(--border);margin:6px 0;position:relative;">' +
+      '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
+        '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:13px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
+      '</div></div>' +
+    '<div id="my-stuff-desc-nav-' + key + '" style="display:flex;justify-content:center;align-items:center;gap:6px;"></div>' +
+    '<div style="display:flex;justify-content:center;align-items:center;gap:6px;padding-top:4px;">' +
       (e.status === "pending" ?
         '<button class="btn btn-white btn-sm btn-cancel-event" data-id="' + e.id + '" data-action="cancel-my-event" style="padding:6px 14px;font-size:12px;">❌ Cancel</button>' :
         '<button class="btn btn-white btn-sm btn-delete-my-event" data-id="' + e.id + '" data-action="delete-my-event" style="padding:6px 14px;font-size:12px;">🗑️ Delete</button>'
       ) +
       (total > 1 ? '<button class="btn btn-white btn-sm btn-my-event-prev" data-action="my-event-prev" style="padding:4px 10px;font-size:11px;">←</button><span style="font-size:11px;font-weight:700;">' + (myEventIdx + 1) + '/' + total + '</span><button class="btn btn-white btn-sm btn-my-event-next" data-action="my-event-next" style="padding:4px 10px;font-size:11px;">→</button>' : '') +
     '</div></div>';
-  
+  if (desc.length > DESC_SHORT_LENGTH) {
+    setTimeout(function () {
+      var box = document.getElementById("my-stuff-desc-box-" + key);
+      if (!box) return;
+      var pages = splitTextToPages(myStuffDescFullText[key] || "", box.clientWidth, box.clientHeight);
+      myStuffDescPageTotal[key] = pages.length;
+      myStuffDescPageIdx[key] = 0;
+      document.getElementById("my-stuff-desc-track-" + key)!.outerHTML = buildMyStuffDescPagesHTML(key, pages);
+      document.getElementById("my-stuff-desc-nav-" + key)!.innerHTML = buildMyStuffDescNavHTML(key);
+    }, AUTO_PAGINATE_DELAY);
+  }
 }
+function myRsvpNext() { myRsvpIdx++; if (myRsvpIdx >= myRsvps.length) myRsvpIdx = 0; renderMyRsvpCard(); }
+function myRsvpPrev() { myRsvpIdx--; if (myRsvpIdx < 0) myRsvpIdx = myRsvps.length - 1; renderMyRsvpCard(); }
 function myPitchNext() { myPitchIdx++; if (myPitchIdx >= myPitches.length) myPitchIdx = 0; renderMyPitchCard(); }
 function myPitchPrev() { myPitchIdx--; if (myPitchIdx < 0) myPitchIdx = myPitches.length - 1; renderMyPitchCard(); }
 function myEventNext() { myEventIdx++; if (myEventIdx >= myEvents.length) myEventIdx = 0; renderMyEventCard(); }
 function myEventPrev() { myEventIdx--; if (myEventIdx < 0) myEventIdx = myEvents.length - 1; renderMyEventCard(); }
+
+// ======= MY STUFF DESC PAGINATION HELPERS =======
+function buildMyStuffDescPagesHTML(key: string, pages: string[]): string {
+  var pct = 100 / pages.length;
+  var html = '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:' + (pages.length * 100) + '%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">';
+  for (var i = 0; i < pages.length; i++) {
+    html += '<div style="min-width:' + pct + '%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:13px;line-height:1.45;word-break:break-word;">' + escapeHtml(pages[i]) + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+function buildMyStuffDescNavHTML(key: string): string {
+  var total = myStuffDescPageTotal[key] || 1;
+  if (total <= 1) return '';
+  var cur = myStuffDescPageIdx[key] || 0;
+  return (cur > 0 ? '<button class="btn btn-white btn-sm" data-key="' + key + '" data-action="my-stuff-desc-prev" style="padding:2px 10px;font-size:11px;">← Previous</button>' : '') +
+    '<span style="font-size:11px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
+    (cur < total - 1 ? '<button class="btn btn-white btn-sm" data-key="' + key + '" data-action="my-stuff-desc-next" style="padding:2px 10px;font-size:11px;">Next →</button>' : '');
+}
 
 // ======= CREATE MENU =======
 function toggleCreateMenu() { document.getElementById("create-menu")!.classList.toggle("active"); document.getElementById("create-backdrop")!.classList.toggle("active"); }
@@ -454,6 +600,7 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
     '<div style="text-align:center;"><div style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">📅 Date</div><div style="font-size:18px;font-weight:700;">' + date + '</div></div>' +
     '<div style="text-align:center;"><div style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">⏰ Time</div><div style="font-size:18px;font-weight:700;">' + escapeHtml(e.time) + '</div></div>' +
     '<div style="text-align:center;"><div style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">📍 Location</div><div style="font-size:16px;font-weight:700;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;max-height:42px;">' + escapeHtml(e.location) + '</div></div>' +
+    (e.category ? '<div style="text-align:center;margin-top:4px;">' + catBadge(e.category) + '</div>' : '') +
     '<div style="background:var(--surface);border:var(--border);padding:10px;text-align:center;font-weight:700;font-size:14px;margin-top:2px;">👥 ' + d.rsvpCount + ' people going</div>' +
     '</div>';
 
@@ -555,7 +702,7 @@ function detailPrev() {
 }
 
 function modNext(tab: string) { log("modNext tab=" + tab); var idx = (modCardIdx[tab] || 0) + 1; modCardIdx[tab] = idx; renderModCard(tab); }
-function modPrev(tab: string) { log("modPrev tab=" + tab); var idx = (modCardIdx[tab] || 0) - 1; if (idx < 0) idx = 0; modCardIdx[tab] = idx; renderModCard(tab); }
+function modPrev(tab: string) { log("modPrev tab=" + tab); var items = modItems[tab] || []; var idx = (modCardIdx[tab] || 0) - 1; if (idx < 0) idx = items.length - 1; modCardIdx[tab] = idx; renderModCard(tab); }
 var modTab = "pending";
 function showModDashboard() { openOverlay("mod-screen"); delete modTabCache["published"]; delete modTabCache["pitches"]; loadModTab("pending"); }
 function switchModTab(tab: string) { if (tab === modTab) return; modTab = tab; document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) { t.classList.toggle("active", (t as HTMLElement).dataset.mtab === tab); }); delete modTabCache[tab]; loadModTab(tab); }
@@ -590,13 +737,14 @@ function renderModCard(tab: string) {
   if (!modDescTotal[dcKey]) modDescTotal[dcKey] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   modDescPageIdx[dcKey] = 0;
 
-  var html = '<div class="' + cardClass + '" style="height:100%;display:flex;flex-direction:column;padding:10px;overflow:hidden;box-sizing:border-box;">';
+  var html = '<div class="' + cardClass + ' fade-in" style="height:100%;display:flex;flex-direction:column;padding:10px;overflow:hidden;box-sizing:border-box;">';
   if (item.emoji) { html += '<div style="font-size:28px;margin-bottom:4px;">' + item.emoji + '</div>'; }
   html += '<div style="flex-shrink:0;"><h3 style="font-size:17px;font-weight:700;margin:0 0 4px 0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(item.title) + '</h3></div>';
   html += '<div style="flex-shrink:0;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px;">';
   if (tab === "pitches") { html += '👤 u/' + escapeHtml(item.submittedBy) + ' · ' + escapeHtml(new Date(item.submittedAt).toLocaleString()); }
   else { html += '📅 ' + escapeHtml(item.date) + ' at ' + escapeHtml(item.time) + ' · 📍 ' + escapeHtml(item.location || ""); }
   html += '</div>';
+  if (tab !== "pitches" && item.category) { html += '<div style="flex-shrink:0;margin-bottom:6px;">' + catBadge(item.category) + '</div>'; }
   // Past event badge for mods
   if (tab !== "pitches") {
     var today2 = new Date().toISOString().split("T")[0];
@@ -618,9 +766,12 @@ function renderModCard(tab: string) {
     html += '<button class="btn btn-white btn-decline-event" data-id="' + item.id + '" data-action="decline-event" style="flex:1;padding:10px 12px;font-size:13px;">🗑️ Decline</button>';
     html += '</div>';
   } else if (tab === "published") {
-    html += '<div style="display:flex;gap:8px;">';
+    html += '<div style="display:flex;gap:8px;margin-bottom:6px;">';
     html += '<button class="btn btn-white btn-view-rsvps" data-id="' + item.id + '" data-action="view-rsvps" style="flex:1;padding:10px 12px;font-size:13px;">👥 Attendees (' + (item.rsvpCount || 0) + ')</button>';
-    html += '<button class="btn btn-white btn-delete-published" data-id="' + item.id + '" data-action="delete-published" style="flex:1;padding:10px 12px;font-size:13px;">🗑️ Delete</button>';
+    html += '<button class="btn btn-white btn-export-csv" data-id="' + item.id + '" data-action="export-csv" style="flex:1;padding:10px 12px;font-size:13px;">📋 Copy CSV</button>';
+    html += '</div>';
+    html += '<div style="display:flex;gap:8px;margin-bottom:6px;">';
+    html += '<button class="btn btn-white btn-delete-published" data-id="' + item.id + '" data-action="delete-published" style="width:100%;padding:10px 12px;font-size:13px;">🗑️ Delete</button>';
     html += '</div><div class="rsvp-attendees hidden" id="rsvps-' + item.id + '" style="flex-shrink:0;background:#fff;border:var(--border);padding:8px;margin-top:-2px;"></div>';
   } else {
     html += '<button class="btn btn-white btn-dismiss-idea" data-id="' + item.id + '" data-action="dismiss-idea" style="width:100%;padding:10px 12px;font-size:13px;">🗑️ Dismiss</button>';
@@ -738,10 +889,64 @@ var actionLocks: Record<string, boolean> = {};
 function isLocked(key: string): boolean { return !!actionLocks[key]; }
 function lock(key: string) { actionLocks[key] = true; }
 function unlock(key: string) { actionLocks[key] = false; }
-async function approveEvent(id: string) { log("approveEvent id=" + id); var k = "approve-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Approve "' + title + '"? This will publish it for everyone.')) { unlock(k); return; } var btn = document.querySelector('[data-id="' + id + '"].btn-approve-event') as HTMLElement; if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; btn.textContent = "⏳ Approving..."; } try { await fetch(API_BASE + "/api/approve-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); showToast("Event approved!", "success"); delete modTabCache["pending"]; setTimeout(function () { loadModTab("pending"); }, 300); } catch (e) { showToast("Error", "error"); if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; btn.textContent = "✅ Approve & Publish"; } } finally { unlock(k); } }
-async function deleteEvent(id: string, type: string) { log("deleteEvent id=" + id + " type=" + type); var k = type + "-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) { unlock(k); return; } var sel = type === "pending" ? ".btn-decline-event" : ".btn-delete-published"; var btn = document.querySelector('[data-id="' + id + '"]' + sel) as HTMLElement; if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; } var parent = btn ? btn.closest(".pending-card,.event-card") as HTMLElement : null; if (parent) parent.style.opacity = "0.3"; var endpoint = type === "pending" ? "/api/delete-pending" : "/api/delete-published"; try { await fetch(API_BASE + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); showToast("Deleted", "success"); delete modTabCache[type]; setTimeout(function () { loadModTab(type === "pending" ? "pending" : "published"); }, 300); } catch (e) { showToast("Error", "error"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } finally { unlock(k); } }
-async function dismissIdea(id: string) { log("dismissIdea id=" + id); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Dismiss "' + title + '"? This cannot be undone.')) return; setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', true, "⏳ Dismissing..."); try { await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) }); showToast("Idea dismissed", "success"); loadModTab("pitches"); } catch (e) { showToast("Error", "error"); setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', false); } }
-async function deletePitch(id: string) { log("deletePitch id=" + id); var title = getItemTitle(id, { myPitches: myPitches }); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) return; var k = "pitch-" + id; if (isLocked(k)) return; lock(k); setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', true, "⏳ Deleting..."); try { await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) }); showToast("Deleted", "success"); loadMySubmissions(); } catch (e) { showToast("Error", "error"); } finally { setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', false); unlock(k); } }
+
+// U4: Show actual server error messages instead of generic "Error"
+async function tryShowServerError(res: Response | undefined, fallback: string) {
+  var msg = fallback;
+  if (res) {
+    try {
+      var data = await res.json();
+      if (data && data.error) msg = data.error;
+    } catch (_) {}
+  }
+  showToast(msg, "error");
+}
+async function exportAttendeesCSV(id: string) {
+  log("exportAttendeesCSV id=" + id);
+  var k = "export-" + id;
+  if (isLocked(k)) return;
+  lock(k);
+  setBtnLoading('[data-action="export-csv"][data-id="' + id + '"]', true, "⏳ Copying...");
+  try {
+    var res = await fetch(API_BASE + "/api/export-attendees", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
+    var data = await res.json();
+    if (data.type === "export-attendees" && data.csv) {
+      var csvText = data.csv;
+      var copied = false;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          await navigator.clipboard.writeText(csvText);
+          copied = true;
+        } catch (e) { log("clipboard write failed: " + e); }
+      }
+      if (!copied) {
+        var ta = document.createElement("textarea");
+        ta.value = csvText;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand("copy");
+          copied = true;
+        } catch (e) { log("execCommand copy failed: " + e); }
+        document.body.removeChild(ta);
+      }
+      if (copied) {
+        showToast("CSV copied! Paste into a spreadsheet 📋", "success");
+      } else {
+        showToast("Could not copy — try again", "error");
+      }
+    } else {
+      await tryShowServerError(res, "Export failed");
+    }
+  } catch (e) { showToast("Network error", "error"); }
+  finally { setBtnLoading('[data-action="export-csv"][data-id="' + id + '"]', false); unlock(k); }
+}
+async function approveEvent(id: string) { log("approveEvent id=" + id); var k = "approve-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Approve "' + title + '"? This will publish it for everyone.')) { unlock(k); return; } var btn = document.querySelector('[data-id="' + id + '"].btn-approve-event') as HTMLElement; if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; btn.textContent = "⏳ Approving..."; } var res; try { res = await fetch(API_BASE + "/api/approve-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); if (res.ok) { showToast("Event approved!", "success"); delete modTabCache["pending"]; setTimeout(function () { loadModTab("pending"); }, 300); } else { await tryShowServerError(res, "Approve failed"); } } catch (e) { showToast("Network error", "error"); } finally { if (btn && (res && !res.ok || !res)) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; btn.textContent = "✅ Approve & Publish"; } unlock(k); } }
+async function deleteEvent(id: string, type: string) { log("deleteEvent id=" + id + " type=" + type); var k = type + "-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) { unlock(k); return; } var sel = type === "pending" ? ".btn-decline-event" : ".btn-delete-published"; var btn = document.querySelector('[data-id="' + id + '"]' + sel) as HTMLElement; if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; } var parent = btn ? btn.closest(".pending-card,.event-card") as HTMLElement : null; if (parent) parent.style.opacity = "0.3"; var endpoint = type === "pending" ? "/api/delete-pending" : "/api/delete-published"; var res; try { res = await fetch(API_BASE + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); if (res.ok) { showToast("Deleted", "success"); delete modTabCache[type]; setTimeout(function () { loadModTab(type === "pending" ? "pending" : "published"); }, 300); } else { await tryShowServerError(res, "Delete failed"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } } catch (e) { showToast("Network error", "error"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } finally { unlock(k); } }
+async function dismissIdea(id: string) { log("dismissIdea id=" + id); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Dismiss "' + title + '"? This cannot be undone.')) return; setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', true, "⏳ Dismissing..."); var res; try { res = await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) }); if (res.ok) { showToast("Idea dismissed", "success"); loadModTab("pitches"); } else { await tryShowServerError(res, "Dismiss failed"); } } catch (e) { showToast("Network error", "error"); } finally { setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', false); } }
+async function deletePitch(id: string) { log("deletePitch id=" + id); var title = getItemTitle(id, { myPitches: myPitches }); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) return; var k = "pitch-" + id; if (isLocked(k)) return; lock(k); setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', true, "⏳ Deleting..."); var res; try { res = await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) }); if (res.ok) { showToast("Deleted", "success"); loadMySubmissions(); } else { await tryShowServerError(res, "Delete failed"); } } catch (e) { showToast("Network error", "error"); } finally { setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', false); unlock(k); } }
 async function cancelMyEvent(id: string) {
   log("cancelMyEvent id=" + id);
   var k = "my-cancel-" + id;
@@ -750,11 +955,11 @@ async function cancelMyEvent(id: string) {
   var title = getItemTitle(id, { myEvents: myEvents });
   if (!await confirmDestructive('Cancel "' + title + '"? It will be removed from the review queue.')) { unlock(k); return; }
   setBtnLoading('[data-action="cancel-my-event"][data-id="' + id + '"]', true, "⏳ Cancelling...");
-  try {
-    await fetch(API_BASE + "/api/delete-pending", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
-    showToast("Cancelled", "success");
-    loadMySubmissions();
-  } catch (e) { showToast("Error", "error"); }
+  var res; try {
+    res = await fetch(API_BASE + "/api/delete-pending", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
+    if (res.ok) { showToast("Cancelled", "success"); loadMySubmissions(); }
+    else { await tryShowServerError(res, "Cancel failed"); }
+  } catch (e) { showToast("Network error", "error"); }
   finally { setBtnLoading('[data-action="cancel-my-event"][data-id="' + id + '"]', false); unlock(k); }
 }
 async function deleteMyEvent(id: string) {
@@ -765,11 +970,11 @@ async function deleteMyEvent(id: string) {
   var title = getItemTitle(id, { myEvents: myEvents });
   if (!await confirmDestructive('Delete "' + title + '"? All RSVPs will be lost. This cannot be undone.')) { unlock(k); return; }
   setBtnLoading('[data-action="delete-my-event"][data-id="' + id + '"]', true, "⏳ Deleting...");
-  try {
-    await fetch(API_BASE + "/api/delete-published", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
-    showToast("Deleted", "success");
-    loadMySubmissions();
-  } catch (e) { showToast("Error", "error"); }
+  var res; try {
+    res = await fetch(API_BASE + "/api/delete-published", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
+    if (res.ok) { showToast("Deleted", "success"); loadMySubmissions(); }
+    else { await tryShowServerError(res, "Delete failed"); }
+  } catch (e) { showToast("Network error", "error"); }
   finally { setBtnLoading('[data-action="delete-my-event"][data-id="' + id + '"]', false); unlock(k); }
 }
 async function viewRsvps(eventId: string) { log("viewRsvps id=" + eventId);
@@ -825,13 +1030,13 @@ function showRsvpOverlay(id: string, email?: string, phone?: string) { log("show
 async function showUpdateRsvpOverlay(id: string) { log("showUpdateRsvpOverlay id=" + id); setBtnLoading('[data-action="update-rsvp"][data-id="' + id + '"]', true, "⏳..."); try { var res = await fetch(API_BASE + "/api/my-rsvp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); var data = await res.json(); if (data.type === "my-rsvp") { showRsvpOverlay(id, data.email || "", data.phone || ""); } else { showToast("Could not load contact info", "error"); } } catch (e) { showToast("Error loading contact info", "error"); } finally { setBtnLoading('[data-action="update-rsvp"][data-id="' + id + '"]', false); } }
 async function leaveEvent(id: string) { log("leaveEvent id=" + id); var title = document.getElementById("details-overlay-title")!.textContent || "this event"; if (!await confirmDestructive('Leave "' + title + '"? You can RSVP again later.')) return; setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', true, "⏳ Leaving..."); try { var res = await fetch(API_BASE + "/api/leave-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); var data = await res.json(); if (data.type === "leave-event" && data.success) { showToast("You've left", "success"); delete detailCache[id]; delete attendeeCache[id]; closeOverlay("details-overlay"); showHomePage(); } else { showToast("Failed", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } } catch (e) { showToast("Error", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } }
 async function submitPitch() { log("submitPitch"); if (isLocked("submit-pitch")) return; lock("submit-pitch"); var title = (document.getElementById("pitch-title") as HTMLInputElement).value.trim(); var desc = (document.getElementById("pitch-description") as HTMLTextAreaElement).value.trim(); if (!title || !desc) { showToast("Fill all fields", "error"); unlock("submit-pitch"); return; } setBtnLoading("#pitch-submit-btn", true, "⏳ Submitting..."); try { await fetch(API_BASE + "/api/pitch-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, description: desc }) }); showToast("Idea sent! ✅", "success"); closeOverlay("pitch-overlay"); } catch (e) { showToast("Error", "error"); setBtnLoading("#pitch-submit-btn", false); } finally { unlock("submit-pitch"); } }
-function resetEventForm() { eventStep = 1; ["event-step-1", "event-step-2", "event-step-3", "event-step-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("hidden", i !== 0); }); document.getElementById("event-next-btn")!.classList.remove("hidden"); document.getElementById("event-submit-btn")!.classList.add("hidden"); document.getElementById("event-prev-btn")!.classList.add("hidden"); ["event-dot-1", "event-dot-2", "event-dot-3", "event-dot-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); }); ["event-title", "event-organizer", "event-date", "event-time", "event-location", "event-map-url", "event-desc", "event-emoji"].forEach(function (id) { var el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null; if (el) el.value = ""; }); document.querySelectorAll(".emoji-option.selected").forEach(function(el) { el.classList.remove("selected"); }); }
+function resetEventForm() { eventStep = 1; ["event-step-1", "event-step-2", "event-step-3", "event-step-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("hidden", i !== 0); }); document.getElementById("event-next-btn")!.classList.remove("hidden"); document.getElementById("event-submit-btn")!.classList.add("hidden"); document.getElementById("event-prev-btn")!.classList.add("hidden"); ["event-dot-1", "event-dot-2", "event-dot-3", "event-dot-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });   ["event-title", "event-organizer", "event-date", "event-time", "event-location", "event-map-url", "event-desc", "event-category"].forEach(function (id) { var el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null; if (el) el.value = ""; }); }
 function eventPrev() { if (eventStep === 2) { document.getElementById("event-dot-2")!.classList.remove("done"); document.getElementById("event-step-2")!.classList.add("hidden"); document.getElementById("event-step-1")!.classList.remove("hidden"); document.getElementById("event-prev-btn")!.classList.add("hidden"); eventStep = 1; } else if (eventStep === 3) { document.getElementById("event-dot-3")!.classList.remove("done"); document.getElementById("event-step-3")!.classList.add("hidden"); document.getElementById("event-step-2")!.classList.remove("hidden"); eventStep = 2; } else if (eventStep === 4) { document.getElementById("event-dot-4")!.classList.remove("done"); document.getElementById("event-step-4")!.classList.add("hidden"); document.getElementById("event-step-3")!.classList.remove("hidden"); document.getElementById("event-next-btn")!.classList.remove("hidden"); document.getElementById("event-submit-btn")!.classList.add("hidden"); eventStep = 3; } }
-function eventNext() { log("eventNext step=" + eventStep); if (eventStep === 1) { var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var org = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); if (!title || !org) { showToast("Fill all fields", "error"); return; } document.getElementById("event-dot-2")!.classList.add("done"); document.getElementById("event-step-1")!.classList.add("hidden"); document.getElementById("event-step-2")!.classList.remove("hidden"); document.getElementById("event-prev-btn")!.classList.remove("hidden"); eventStep = 2; } else if (eventStep === 2) { var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); if (!date || !time) { showToast("Fill all fields", "error"); return; } document.getElementById("event-dot-3")!.classList.add("done"); document.getElementById("event-step-2")!.classList.add("hidden"); document.getElementById("event-step-3")!.classList.remove("hidden"); eventStep = 3; } else if (eventStep === 3) { var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); if (!loc) { showToast("Location required", "error"); return; } document.getElementById("event-dot-4")!.classList.add("done"); document.getElementById("event-step-3")!.classList.add("hidden"); document.getElementById("event-step-4")!.classList.remove("hidden"); document.getElementById("event-next-btn")!.classList.add("hidden"); document.getElementById("event-submit-btn")!.classList.remove("hidden"); document.getElementById("event-review-title-preview")!.textContent = (document.getElementById("event-title") as HTMLInputElement).value; document.getElementById("event-review-meta-preview")!.textContent = (document.getElementById("event-date") as HTMLInputElement).value + " at " + (document.getElementById("event-time") as HTMLInputElement).value + " · " + loc; eventStep = 4; } }
-async function submitEvent() { log("submitEvent"); if (isLocked("submit-event")) return; lock("submit-event"); var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var organizer = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); var mapUrl = (document.getElementById("event-map-url") as HTMLInputElement).value.trim(); var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim(); var emoji = (document.getElementById("event-emoji") as HTMLInputElement).value;   if (!title || !organizer || !date || !time || !loc || !desc) { showToast("Fill all fields", "error"); unlock("submit-event"); return; }
+function eventNext() { log("eventNext step=" + eventStep); if (eventStep === 1) { var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var org = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var cat = (document.getElementById("event-category") as HTMLSelectElement).value; if (!title || !org) { showToast("Fill all fields", "error"); return; } if (!cat) { showToast("Select a category", "error"); return; } document.getElementById("event-dot-2")!.classList.add("done"); document.getElementById("event-step-1")!.classList.add("hidden"); document.getElementById("event-step-2")!.classList.remove("hidden"); document.getElementById("event-prev-btn")!.classList.remove("hidden"); eventStep = 2; } else if (eventStep === 2) { var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); if (!date || !time) { showToast("Fill all fields", "error"); return; } document.getElementById("event-dot-3")!.classList.add("done"); document.getElementById("event-step-2")!.classList.add("hidden"); document.getElementById("event-step-3")!.classList.remove("hidden"); eventStep = 3; } else if (eventStep === 3) { var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); if (!loc) { showToast("Location required", "error"); return; } document.getElementById("event-dot-4")!.classList.add("done"); document.getElementById("event-step-3")!.classList.add("hidden"); document.getElementById("event-step-4")!.classList.remove("hidden"); document.getElementById("event-next-btn")!.classList.add("hidden"); document.getElementById("event-submit-btn")!.classList.remove("hidden"); document.getElementById("event-review-title-preview")!.textContent = (document.getElementById("event-title") as HTMLInputElement).value; document.getElementById("event-review-meta-preview")!.textContent = (document.getElementById("event-date") as HTMLInputElement).value + " at " + (document.getElementById("event-time") as HTMLInputElement).value + " · " + loc; eventStep = 4; } }
+async function submitEvent() { log("submitEvent"); if (isLocked("submit-event")) return; lock("submit-event"); var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var organizer = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); var mapUrl = (document.getElementById("event-map-url") as HTMLInputElement).value.trim(); var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim(); var category = (document.getElementById("event-category") as HTMLSelectElement).value; log("submitEvent values: title=" + title + " category=" + category);   if (!title || !organizer || !date || !time || !loc || !desc) { showToast("Fill all fields", "error"); unlock("submit-event"); return; }
   var today = new Date().toISOString().split("T")[0];
   if (date < today) { showToast("Event date must be today or in the future", "error"); unlock("submit-event"); return; }
-  setBtnLoading("#event-submit-btn", true, "⏳ Submitting..."); try { await fetch(API_BASE + "/api/submit-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, organizer: organizer, date: date, time: time, location: loc, mapUrl: mapUrl, desc: desc, emoji: emoji }) }); showToast("Event submitted! ✅", "success"); closeOverlay("event-overlay"); } catch (e) { showToast("Error", "error"); setBtnLoading("#event-submit-btn", false); } finally { unlock("submit-event"); } }
+  setBtnLoading("#event-submit-btn", true, "⏳ Submitting..."); try { await fetch(API_BASE + "/api/submit-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, organizer: organizer, date: date, time: time, location: loc, mapUrl: mapUrl, desc: desc, category: category }) }); showToast("Event submitted! ✅", "success"); closeOverlay("event-overlay"); } catch (e) { showToast("Error", "error"); setBtnLoading("#event-submit-btn", false); } finally { unlock("submit-event"); } }
 var usernameCached: string | null = null, prefillLoading = false;
 async function prefillOrganizer() { if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; } if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; } if (prefillLoading) return; prefillLoading = true; try { var res = await fetch(API_BASE + "/api/init"); var data = await res.json(); if (data.type === "init" && data.username) { currentUsername = data.username; usernameCached = data.username; (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username; } } catch (e) { console.error(e); } prefillLoading = false; }
 
@@ -886,6 +1091,8 @@ function handleAction(action: string, id: string | null) {
     case "my-pitch-prev": myPitchPrev(); break;
     case "my-event-next": myEventNext(); break;
     case "my-event-prev": myEventPrev(); break;
+    case "my-rsvp-next": myRsvpNext(); break;
+    case "my-rsvp-prev": myRsvpPrev(); break;
     case "cancel-my-event": if (id) cancelMyEvent(id); break;
     case "delete-my-event": if (id) deleteMyEvent(id); break;
     case "approve-event": if (id) approveEvent(id); break;
@@ -924,7 +1131,36 @@ function handleAction(action: string, id: string | null) {
       document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDescNavHTML(id);
       setTimeout(function() { unlock(lockKey); }, 300);
     } break;
-    case "copy-link": if (id) { if (navigator.clipboard) navigator.clipboard.writeText(id); else { var ta = document.createElement("textarea"); ta.value = id; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); } showCopyToast(); } break;
+    case "my-stuff-desc-next": {
+      if (!id) break;
+      var msKey = id;
+      var msLock = "ms-desc-" + msKey;
+      if (isLocked(msLock)) return;
+      lock(msLock);
+      var msCur = (myStuffDescPageIdx[msKey] || 0) + 1;
+      if (msCur >= (myStuffDescPageTotal[msKey] || 1)) { unlock(msLock); return; }
+      myStuffDescPageIdx[msKey] = msCur;
+      slideTrack("my-stuff-desc-track-" + msKey, msCur, myStuffDescPageTotal[msKey] || 1);
+      var msNav = document.getElementById("my-stuff-desc-nav-" + msKey);
+      if (msNav) msNav.innerHTML = buildMyStuffDescNavHTML(msKey);
+      setTimeout(function() { unlock(msLock); }, 300);
+    } break;
+    case "my-stuff-desc-prev": {
+      if (!id) break;
+      var msKey2 = id;
+      var msLock2 = "ms-desc-" + msKey2;
+      if (isLocked(msLock2)) return;
+      lock(msLock2);
+      var msCur2 = (myStuffDescPageIdx[msKey2] || 0) - 1;
+      if (msCur2 < 0) { unlock(msLock2); return; }
+      myStuffDescPageIdx[msKey2] = msCur2;
+      slideTrack("my-stuff-desc-track-" + msKey2, msCur2, myStuffDescPageTotal[msKey2] || 1);
+      var msNav2 = document.getElementById("my-stuff-desc-nav-" + msKey2);
+      if (msNav2) msNav2.innerHTML = buildMyStuffDescNavHTML(msKey2);
+      setTimeout(function() { unlock(msLock2); }, 300);
+    } break;
+    case "copy-link": if (id) { if (navigator.clipboard) navigator.clipboard.writeText(id); else { var ta = document.createElement("textarea"); ta.value = id; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); } showToast("Link copied! 📋", "success"); } break;
+    case "export-csv": if (id) exportAttendeesCSV(id); break;
     case "toggle-create": toggleCreateMenu(); break;
     case "close-create-menu": closeCreateMenu(); break;
     case "create-pitch": closeCreateMenu(); openOverlay("pitch-overlay"); break;
@@ -932,6 +1168,7 @@ function handleAction(action: string, id: string | null) {
     case "open-my-stuff": openMyStuff(); break;
     case "show-mod": showModDashboard(); break;
     case "switch-mod-tab": if (id) switchModTab(id); break;
+    case "switch-my-stuff-tab": if (id) switchMyStuffTab(id); break;
     case "detail-next": detailNext(); break;
     case "detail-prev": detailPrev(); break;
     case "pitch-submit": submitPitch(); break;
@@ -977,20 +1214,6 @@ document.addEventListener("DOMContentLoaded", function () {
     var id = btn.getAttribute("data-id") || btn.getAttribute("data-key") || btn.getAttribute("data-tab") || btn.getAttribute("data-mtab");
     if (action) handleAction(action, id);
   });
-
-  // Emoji picker click handler
-  var emojiPicker = document.getElementById("emoji-picker");
-  if (emojiPicker) {
-    emojiPicker.addEventListener("click", function(e) {
-      var target = e.target as HTMLElement;
-      var option = target.closest(".emoji-option") as HTMLElement | null;
-      if (!option) return;
-      document.querySelectorAll(".emoji-option.selected").forEach(function(el) { el.classList.remove("selected"); });
-      option.classList.add("selected");
-      var emojiInput = document.getElementById("event-emoji") as HTMLInputElement;
-      if (emojiInput) emojiInput.value = option.getAttribute("data-emoji") || "";
-    });
-  }
 
   // Search input listener (disabled — feature kept for future use)
   // var searchInput = document.getElementById("home-search") as HTMLInputElement | null;

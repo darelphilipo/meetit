@@ -9,6 +9,7 @@ export type MeetitEvent = {
   mapUrl?: string;
   submittedAt?: string;
   emoji?: string;
+  category?: string;
 };
 
 export type HomeState = {
@@ -51,7 +52,7 @@ export type SubmitEventFormData = {
   location: string;
   desc: string;
   mapUrl?: string;
-  emoji?: string;
+  category?: string;
 };
 
 export type RsvpAttendee = {
@@ -79,6 +80,22 @@ export const ApiEndpoint = {
   DeletePublished: "/api/delete-published",
   MySubmissions: "/api/my-submissions",
   MyRsvp: "/api/my-rsvp",
+  ExportAttendees: "/api/export-attendees",
 } as const;
 
 export type ApiEndpoint = (typeof ApiEndpoint)[keyof typeof ApiEndpoint];
+
+export const EventCategories = [
+  { id: "social", label: "Social", emoji: "🎉", color: "#ff69b4" },
+  { id: "tech", label: "Tech", emoji: "💻", color: "#6366f1" },
+  { id: "sports", label: "Sports", emoji: "🏃", color: "#22c55e" },
+  { id: "food", label: "Food", emoji: "🍕", color: "#f97316" },
+  { id: "arts", label: "Arts", emoji: "🎨", color: "#a855f7" },
+  { id: "outdoors", label: "Outdoors", emoji: "🌿", color: "#10b981" },
+  { id: "gaming", label: "Gaming", emoji: "🎮", color: "#3b82f6" },
+  { id: "music", label: "Music", emoji: "🎵", color: "#ec4899" },
+  { id: "wellness", label: "Wellness", emoji: "🧘", color: "#14b8a6" },
+  { id: "education", label: "Education", emoji: "📚", color: "#f59e0b" },
+  { id: "networking", label: "Networking", emoji: "🤝", color: "#8b5cf6" },
+  { id: "other", label: "Other", emoji: "⭐", color: "#6b7280" },
+] as const;

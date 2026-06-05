@@ -5,6 +5,21 @@ export type RsvpEntry = {
   score: number;
 };
 
+const CATEGORY_EMOJI: Record<string, string> = {
+  social: "🎉",
+  tech: "💻",
+  sports: "🏃",
+  food: "🍕",
+  arts: "🎨",
+  outdoors: "🌿",
+  gaming: "🎮",
+  music: "🎵",
+  wellness: "🧘",
+  education: "📚",
+  networking: "🤝",
+  other: "⭐",
+};
+
 export function isConfiguredModerator(username: string | undefined, modList: unknown): boolean {
   if (!username || typeof modList !== "string" || !modList.trim()) return false;
   const mods = modList
@@ -55,7 +70,8 @@ export function createPendingEvent(
     description: formData.desc,
     organizer: formData.organizer,
     mapUrl: formData.mapUrl,
-    emoji: formData.emoji,
+    category: formData.category || "other",
+    emoji: CATEGORY_EMOJI[formData.category || ""] || CATEGORY_EMOJI["other"],
     submittedAt,
   };
 }

@@ -98,6 +98,9 @@ async function onRequest(
     case ApiEndpoint.MyRsvp:
       body = await onMyRsvp(req);
       break;
+    case ApiEndpoint.ExportAttendees:
+      body = await onExportAttendees(req);
+      break;
     case InternalEndpoint.OnPostCreate:
       body = await onMenuCreatePost();
       break;
@@ -142,7 +145,8 @@ type ApiResponse =
   | { type: "pitched-ideas"; ideas: any[] }
   | { type: "all-approved-events"; events: any[] }
   | { type: "dismiss-idea"; success: boolean }
-  | { type: "my-submissions"; pitches: any[]; events: MeetitEvent[] }
+  | { type: "my-submissions"; pitches: any[]; events: MeetitEvent[]; rsvps: any[] }
+  | { type: "export-attendees"; csv: string; filename: string }
   | ErrorResponse;
 
 type ErrorResponse = {
@@ -399,7 +403,7 @@ async function onSubmitEvent(req: IncomingMessage): Promise<ApiResponse> {
 
   await redis.hSet("meetit:pending_events", { [eventId]: JSON.stringify(event) });
   const saved = !!(await redis.hGet("meetit:pending_events", eventId));
-  console.log(`[SUBMIT] "${event.title}" by ${context.username} | saved=${saved} | id=${eventId}`);
+  console.log(`[SUBMIT] "${event.title}" by ${context.username} | saved=${saved} | id=${eventId} | category=${event.category || "(none)"} | emoji=${event.emoji || "(none)"}`);
   return { type: "submit-event", success: saved };
 }
 
@@ -558,21 +562,23 @@ async function onMyRsvp(req: IncomingMessage): Promise<ApiResponse> {
 }
 
 async function onMySubmissions(): Promise<ApiResponse> {
-  const pitchesJson = await redis.hGetAll("meetit:pitched_ideas");
   const normUser = (context.username || "").toLowerCase();
   const matchOrg = (org: string) => org?.toLowerCase().replace(/^u\//, "") === normUser;
+
+  // Pitches
+  const pitchesJson = await redis.hGetAll("meetit:pitched_ideas");
   const pitches = Object.values(pitchesJson)
     .map((val) => JSON.parse(val))
     .filter((idea: any) => (idea.submittedBy || "").toLowerCase() === normUser);
 
-  // Check pending
+  // Pending events (organized by user)
   const pendingJson = await redis.hGetAll("meetit:pending_events");
   const pendingEvents = Object.values(pendingJson)
     .map((val) => JSON.parse(val))
     .filter((event: MeetitEvent) => matchOrg(event.organizer || ""))
     .map(e => ({ ...e, status: "pending" }));
 
-  // Check active
+  // Active events (organized by user)
   const activeJson = await redis.hGetAll("meetit:active_events");
   const activeEvents = Object.values(activeJson)
     .map((val) => JSON.parse(val))
@@ -580,7 +586,49 @@ async function onMySubmissions(): Promise<ApiResponse> {
     .map(e => ({ ...e, status: "published" }));
 
   const myEvents = [...pendingEvents, ...activeEvents];
-  return { type: "my-submissions", pitches, events: myEvents };
+
+  // RSVP'd events (events the user is attending, not organizing)
+  const rsvpEvents: any[] = [];
+  for (const [eventId, eventJson] of Object.entries(activeJson)) {
+    const event = JSON.parse(eventJson);
+    const rsvpScore = await redis.zScore(`meetit:rsvps:${eventId}`, normUser);
+    if (rsvpScore != null) {
+      rsvpEvents.push({ ...event, status: "rsvpd", rsvpScore });
+    }
+  }
+  console.log(`[MY-SUBMISSIONS] pitches=${pitches.length} myEvents=${myEvents.length} rsvps=${rsvpEvents.length}`);
+
+  return { type: "my-submissions", pitches, events: myEvents, rsvps: rsvpEvents };
+}
+
+async function onExportAttendees(req: IncomingMessage): Promise<ApiResponse> {
+  const { eventId } = await readJSON<{ eventId: string }>(req);
+  if (!eventId) return { error: "Missing eventId", status: 400 };
+
+  // Verify user is mod or event organizer
+  const appSettings = await getSettings();
+  const isMod = isConfiguredModerator(context.username, appSettings.moderator_list);
+  const eventJson = await redis.hGet("meetit:active_events", eventId);
+  if (!eventJson) return { error: "Event not found", status: 404 };
+  const event = JSON.parse(eventJson) as MeetitEvent;
+  const isOwner = isSubmissionOwner(context.username, event.organizer);
+  if (!isMod && !isOwner) return { error: "Unauthorized", status: 403 };
+
+  // Fetch RSVPs with contact details
+  const results = await redis.zRange(`meetit:rsvps:${eventId}`, 0, -1, { by: "rank", reverse: false });
+  const rsvpMembers = results.map((entry) => entry.member);
+  const detailsHash = rsvpMembers.length > 0 ? await redis.hGetAll(`meetit:rsvp_details:${eventId}`) : {};
+  const attendees = buildAttendees(results as any, detailsHash, true);
+
+  // Build CSV
+  const lines = ["Username,Email,Phone"];
+  for (const a of attendees) {
+    lines.push(`${a.username},${(a.email || "").replace(/,/g, "")},${(a.phone || "").replace(/,/g, "")}`);
+  }
+  const csv = lines.join("\n");
+  const filename = `attendees_${eventId}_${new Date().toISOString().split("T")[0]}.csv`;
+  console.log(`[EXPORT] ${eventId} | ${attendees.length} attendees | by ${context.username}`);
+  return { type: "export-attendees", csv, filename };
 }
 
 export async function onSendReminders(req: IncomingMessage): Promise<TaskResponse> {
