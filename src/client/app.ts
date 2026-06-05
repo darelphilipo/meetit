@@ -939,6 +939,18 @@ function handleAction(action: string, id: string | null) {
 
 document.addEventListener("DOMContentLoaded", function () {
   log("APP INIT - DOM ready");
+
+  // Animated loading screen: cycle wholesome emojis
+  var wholesomeEmojis = ["✨", "🥰", "🌸", "🌟", "💫", "🦋", "🌈", "☀️", "🌻", "🍀", "🎈", "🌺", "💖", "🙌", "🎉"];
+  var emojiIdx = 0;
+  var emojiEl = document.getElementById("loading-emoji");
+  if (emojiEl) {
+    setInterval(function() {
+      emojiIdx = (emojiIdx + 1) % wholesomeEmojis.length;
+      emojiEl.textContent = wholesomeEmojis[emojiIdx];
+    }, 600);
+  }
+
   document.getElementById("debug-toggle")!.addEventListener("click", function () {
     var panel = document.getElementById("debug-panel")!;
     var show = panel.style.display !== "block";

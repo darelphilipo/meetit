@@ -108,6 +108,58 @@
     .detail-desc-scroll { max-height: min(42vh, 260px); overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .detail-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
     #events-container { min-height: calc(100vh - 170px); }
+
+    /* Animated Loading Screen */
+    .loading-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: calc(100vh - 170px);
+      text-align: center;
+      padding: 20px;
+    }
+    .loading-emoji {
+      font-size: 64px;
+      margin-bottom: 16px;
+      animation: emojiBounce 0.6s ease-in-out infinite;
+      display: inline-block;
+    }
+    @keyframes emojiBounce {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50% { transform: translateY(-12px) scale(1.1); }
+    }
+    .loading-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .loading-subtitle {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 24px;
+    }
+    .loading-progress-container {
+      width: 200px;
+      height: 8px;
+      background: var(--surface);
+      border: 3px solid #1c1c0f;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    .loading-progress-fill {
+      height: 100%;
+      background: var(--primary);
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+    .loading-msg {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 600;
+      min-height: 18px;
+    }
+
     /* Debug log panel */
     #debug-panel { display: none; position: fixed; bottom: 10px; left: 10px; right: 10px; max-height: 200px; overflow-y: auto; background: #1c1c0f; color: #00ff88; font-family: monospace; font-size: 11px; padding: 8px; border: 2px solid #00ff88; z-index: 9999; border-radius: 4px; -webkit-overflow-scrolling: touch; }
     #debug-panel .log-entry { padding: 2px 0; border-bottom: 1px solid #333; word-break: break-all; }
@@ -126,21 +178,14 @@
     </div>
 
     <div id="events-container">
-      <div class="loading-state">
-        <div style="position:relative;">
-          <div class="loading-emoji-bg">💖</div>
-          <div style="font-size:48px;margin-bottom:12px;position:relative;z-index:1;">⚡</div>
+      <div class="loading-screen" id="loading-screen">
+        <div class="loading-emoji" id="loading-emoji">✨</div>
+        <div class="loading-title">Meetit</div>
+        <div class="loading-subtitle">Community Meetup Hub</div>
+        <div class="loading-progress-container">
+          <div class="loading-progress-fill" id="loading-bar"></div>
         </div>
-        <h2 style="font-size:20px;font-weight:700;position:relative;z-index:1;">Meetit</h2>
-        <p style="font-size:13px;color:var(--muted);margin-top:4px;">Building Better Connections</p>
-        <div class="loading-bar-container" style="position:relative;z-index:1;">
-          <div class="loading-bar-fill" id="loading-bar"></div>
-        </div>
-        <p class="loading-message" id="loading-msg">Curating wholesome vibes...</p>
-        <div class="loading-status" style="position:relative;z-index:1;">
-          <div class="loading-stat">🟢 Online</div>
-          <div class="loading-stat">⚡ Ready</div>
-        </div>
+        <div class="loading-msg" id="loading-msg">Curating wholesome vibes...</div>
       </div>
     </div>
 
