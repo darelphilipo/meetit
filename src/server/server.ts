@@ -312,6 +312,9 @@ async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
   const phone = (rawPhone || "").trim();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "Invalid email format", status: 400 };
   if (phone && !/^[\d\s\-\+\(\)]{7,20}$/.test(phone)) return { error: "Invalid phone format", status: 400 };
+  // C6: Verify event exists before allowing RSVP
+  const event = await getActiveEvent(eventId);
+  if (!event) return { error: "Event not found", status: 404 };
   const username = context.username || "";
   console.log(`[RSVP] ${username} → ${eventId} (email=${email ? "yes" : "no"}, phone=${phone ? "yes" : "no"})`);
   await addRsvp(eventId, username, email, phone);
@@ -401,24 +404,28 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
   const eventJson = await redis.hGet("meetit:pending_events", eventId);
 
-  if (eventJson) {
-    // Distributed lock: prevent double-approve race conditions
-    const lockKey = `meetit:approve_lock:${eventId}`;
-    const lockAcquired = await redis.hSetNX(lockKey, "status", "approving");
-    if (!lockAcquired) {
-      console.log(`[APPROVE] ${eventId} already being approved - skipping`);
-      return { type: "approve-event", success: true };
-    }
-    await redis.expire(lockKey, 10); // 10s TTL prevents deadlock
-
-    await redis.hSet("meetit:active_events", { [eventId]: eventJson });
-    await redis.hDel("meetit:pending_events", [eventId]);
-    // Verify the move
-    const inActive = !!(await redis.hGet("meetit:active_events", eventId));
-    const inPending = !!(await redis.hGet("meetit:pending_events", eventId));
-    const event = JSON.parse(eventJson) as MeetitEvent;
-    console.log(`[APPROVE] ${event.title} | active=${inActive} pending=${inPending}${inPending ? " ⚠️ STILL IN PENDING!" : " ✅"}`);
+  // C7: Return 404 if event doesn't exist in pending
+  if (!eventJson) {
+    console.log(`[APPROVE] ${eventId} not found in pending events`);
+    return { error: "Event not found in pending queue", status: 404 };
   }
+
+  // Distributed lock: prevent double-approve race conditions
+  const lockKey = `meetit:approve_lock:${eventId}`;
+  const lockAcquired = await redis.hSetNX(lockKey, "status", "approving");
+  if (!lockAcquired) {
+    console.log(`[APPROVE] ${eventId} already being approved - skipping`);
+    return { type: "approve-event", success: true };
+  }
+  await redis.expire(lockKey, 10); // 10s TTL prevents deadlock
+
+  await redis.hSet("meetit:active_events", { [eventId]: eventJson });
+  await redis.hDel("meetit:pending_events", [eventId]);
+  // Verify the move
+  const inActive = !!(await redis.hGet("meetit:active_events", eventId));
+  const inPending = !!(await redis.hGet("meetit:pending_events", eventId));
+  const event = JSON.parse(eventJson) as MeetitEvent;
+  console.log(`[APPROVE] ${event.title} | active=${inActive} pending=${inPending}${inPending ? " ⚠️ STILL IN PENDING!" : " ✅"}`);
 
   return { type: "approve-event", success: true };
 }
@@ -498,8 +505,15 @@ async function onDeletePublished(req: IncomingMessage): Promise<ApiResponse> {
     }
   }
   await redis.hDel("meetit:active_events", [eventId]);
+  // Clean up all RSVP data for this event (C1: PII leak fix)
+  const rsvpKey = `meetit:rsvps:${eventId}`;
+  const detailsKey = `meetit:rsvp_details:${eventId}`;
+  const members = await redis.zRange(rsvpKey, "-inf", "+inf", { by: "score" });
+  if (members.length > 0) await redis.zRem(rsvpKey, members.map(m => m.member));
+  const detailFields = await redis.hKeys(detailsKey);
+  if (detailFields.length > 0) await redis.hDel(detailsKey, detailFields);
   const ok = !(await redis.hGet("meetit:active_events", eventId));
-  console.log(`[DEL-PUB] ${eventId} | removed=${ok}${!ok ? " ⚠️ FAILED!" : ""}`);
+  console.log(`[DEL-PUB] ${eventId} | removed=${ok} | rsvp_members=${members.length}${!ok ? " ⚠️ FAILED!" : ""}`);
   return { type: "dismiss-idea", success: ok };
 }
 
@@ -511,6 +525,9 @@ async function onLeaveEvent(req: IncomingMessage): Promise<ApiResponse> {
 
   // zRem with array is what works (write-behind, eventually consistent)
   await redis.zRem(key, [username]);
+
+  // C1: PII leak fix — also remove contact details when user leaves
+  await redis.hDel(`meetit:rsvp_details:${eventId}`, [username]);
 
   // Don't verify immediately - Redis in Devvit is eventually consistent
   // The next event-details fetch will show the correct state
