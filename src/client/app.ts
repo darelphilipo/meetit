@@ -67,9 +67,6 @@ function escapeHtml(s: string | undefined | null) { var d = document.createEleme
 
 // ======= HOME - Single card navigation =======
 async function loadHome() {
-  // Clear search on refresh
-  var searchInput = document.getElementById("home-search") as HTMLInputElement | null;
-  if (searchInput && searchInput.value) { searchInput.value = ""; searchFilteredEvents = null; }
   // Show loading bar immediately
   var bar = document.getElementById("loading-bar"), msg = document.getElementById("loading-msg");
   if (bar) bar.style.width = "30%"; if (msg) msg.textContent = "Fetching events...";
@@ -967,13 +964,13 @@ document.addEventListener("DOMContentLoaded", function () {
     if (action) handleAction(action, id);
   });
 
-  // Search input listener
-  var searchInput = document.getElementById("home-search") as HTMLInputElement | null;
-  if (searchInput) {
-    searchInput.addEventListener("input", function() {
-      filterHomeEvents(searchInput.value);
-    });
-  }
+  // Search input listener (disabled — feature kept for future use)
+  // var searchInput = document.getElementById("home-search") as HTMLInputElement | null;
+  // if (searchInput) {
+  //   searchInput.addEventListener("input", function() {
+  //     filterHomeEvents(searchInput.value);
+  //   });
+  // }
 
   loadHome();
 });
