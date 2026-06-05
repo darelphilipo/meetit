@@ -278,6 +278,7 @@ async function onHome(): Promise<ApiResponse> {
 
   const postId = context.postId || "";
   const shareUrl = postId ? `https://www.reddit.com/comments/${postId.replace(/^t3_/, '')}/` : "";
+  console.log(`[HOME] shareUrl=${shareUrl || "(no postId)"} postId=${postId || "none"}`);
 
   return {
     type: "home",

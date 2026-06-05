@@ -175,6 +175,7 @@ var searchFilteredEvents: any[] | null = null;
 function filterHomeEvents(query: string) {
   log("filterHomeEvents query=" + query);
   if (!query || !query.trim()) {
+    log("filterHomeEvents cleared");
     searchFilteredEvents = null;
     homeCardIdx = 0;
     renderHomeCard({ eventsByDate: groupByDate(cachedHomeEvents), isMod: cachedHomeIsMod, settings: {} });
@@ -199,18 +200,22 @@ function filterHomeEvents(query: string) {
 
 function shareEvent() {
   log("shareEvent url=" + homeShareUrl);
-  if (!homeShareUrl) { showToast("Share link unavailable", "error"); return; }
+  if (!homeShareUrl) { log("shareEvent abort: no url"); showToast("Share link unavailable", "error"); return; }
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(homeShareUrl).then(function() {
+      log("shareEvent clipboard success");
       showToast("Link copied! 📋", "success");
-    }).catch(function() {
+    }).catch(function(e) {
+      log("shareEvent clipboard failed: " + e);
       fallbackCopy(homeShareUrl);
     });
   } else {
+    log("shareEvent clipboard unavailable, using fallback");
     fallbackCopy(homeShareUrl);
   }
 }
 function fallbackCopy(text: string) {
+  log("fallbackCopy text=" + text.substring(0, 60));
   var textarea = document.createElement("textarea");
   textarea.value = text;
   textarea.style.position = "fixed";
@@ -219,8 +224,10 @@ function fallbackCopy(text: string) {
   textarea.select();
   try {
     document.execCommand("copy");
+    log("fallbackCopy success");
     showToast("Link copied! 📋", "success");
   } catch (e) {
+    log("fallbackCopy failed: " + e);
     showToast("Could not copy link", "error");
   }
   document.body.removeChild(textarea);
