@@ -75,6 +75,22 @@
         "type": "number",
         "label": "Reminder: Hours Before Event (e.g. 24 = 1 day before)",
         "defaultValue": 24
+      },
+      "timezone": {
+        "type": "select",
+        "label": "Community Timezone (for event reminders)",
+        "helpText": "Events and reminders use this timezone. Default is IST.",
+        "options": [
+          { "label": "India (IST, +5:30)", "value": "+05:30" },
+          { "label": "US East (EST, -5:00)", "value": "-05:00" },
+          { "label": "US West (PST, -8:00)", "value": "-08:00" },
+          { "label": "UK (GMT, +0:00)", "value": "+00:00" },
+          { "label": "Central Europe (CET, +1:00)", "value": "+01:00" },
+          { "label": "Japan (JST, +9:00)", "value": "+09:00" },
+          { "label": "Australia (AEDT, +11:00)", "value": "+11:00" },
+          { "label": "UTC", "value": "+00:00" }
+        ],
+        "defaultValue": "+05:30"
       }
     }
   },

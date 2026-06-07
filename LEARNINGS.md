@@ -1472,14 +1472,19 @@ if (res.ok) { showToast("Success!", "success"); }
 else { const err = await res.json(); showToast(err.error || "Failed", "error"); }
 ```
 
-### P2: Reminder Timing Assumes UTC (Incorrect for Local Times)
+### ~~P2: Reminder Timing Assumes UTC (Incorrect for Local Times)~~ ✅ FIXED
 
-**Observation:** The scheduler builds `new Date(event.date + "T" + event.time + ":00Z")` in `src/server/server.ts:722`. Meetup times are typically local to the subreddit/community. Reminders can fire hours early or late unless the app records timezone or treats dates consistently.
+**Observation:** The scheduler built `new Date(event.date + "T" + event.time + ":00Z")` in `src/server/server.ts`. Meetup times are typically local to the subreddit/community. Reminders could fire hours early or late.
 
-**Potential approaches:**
-- Add a `timezone` field to the event form (e.g., "America/New_York")
-- Or treat all dates as community-local and document the assumption
-- Or shift reminders to a wider window (e.g., 12h before instead of 24h)
+**Fix (2026-06-07):**
+- Added `timezone` as a `select` setting in `devvit.json` (type `"select"`, not `"string"`) with 8 common timezone options
+- Default: `"+05:30"` (IST, India)
+- Other options: US East (-5), US West (-8), UK (+0), Central Europe (+1), Japan (+9), Australia (+11), UTC
+- `AppSettings` now includes `timezone: string`
+- `getSettings()` reads the timezone from `settings.get("timezone")` with `"+05:30"` fallback
+- CRON `onCheckEvents()` reads the timezone once per run, parses the offset string into `tzSign` + `tzValue`, then constructs `new Date(date + "T" + time + ":00" + tzOffset)` instead of hardcoded `"Z"`
+- This ensures `Date.now()` (server UTC) is compared against the correct local event time
+- The `select` setting type is fully supported in `devvit.json` schema — confirmed via `config-file.v1.json` `$defs.SelectSetting`
 
 ### P2: Public Post Fallback for Mod Alerts
 
@@ -1489,3 +1494,152 @@ else { const err = await res.json(); showToast(err.error || "Failed", "error"); 
 - Remove the `submitCustomPost` fallback entirely (let mods check manually)
 - Or gate it behind an opt-in setting
 - Or send to a mod-only wiki page instead of a public post
+
+---
+
+## 27. UI Debug Panel: Copy All Logs
+
+**Added:** 2026-06-07
+
+**Problem:** During manual testing, the debug panel only showed the last 50 entries and had no way to export them. Users had to screenshot or manually transcribe logs.
+
+**Solution:**
+- Added a sticky header bar inside `#debug-panel` with a "📋 Copy All" button
+- `copyAllLogs()` function extracts all `.log-entry` elements, reverses them (oldest first), and copies to clipboard
+- Uses same clipboard pattern as Share/Copy Link: `navigator.clipboard.writeText()` with textarea fallback
+- Prefixes copied text with `--- Meetit UI Log {ISO timestamp} ---`
+- `fallbackCopyLogs()` handles iOS Safari where `navigator.clipboard` is unavailable
+- Button uses `stopPropagation()` so clicking it doesn't bubble to panel toggle
+
+**Files changed:**
+- `public/app.html`: Added sticky header with copy button inside `#debug-panel`
+- `src/client/app.ts`: Added `copyAllLogs()`, `fallbackCopyLogs()`, and event listener
+
+---
+
+## 28. Server Logging Audit & Gap Fixes
+
+**Audit Date:** 2026-06-07
+
+**Method:** Checked every server handler in `src/server/server.ts` for `console.log()` coverage.
+
+**Gaps found and fixed:**
+
+| Handler | Had Logs? | Fix |
+|---------|-----------|-----|
+| `onHome` | ✅ Yes | `[HOME] Loading events...` + `[HOME] Found N events` |
+| `onEventDetails` | ✅ Yes | `[EVENT-DETAILS] eventId=...` |
+| `onRsvp` | ✅ Yes | `[RSVP] username → eventId` |
+| `onLeaveEvent` | ✅ Yes | `[LEAVE] Removing username from key` |
+| `onPitchIdea` | ✅ Yes | `[PITCH] "title" by u/username` |
+| `onSubmitEvent` | ✅ Yes | `[SUBMIT] "title" by username` |
+| `onApproveEvent` | ✅ Yes | `[APPROVE] eventId` + lock status |
+| `onDeletePending` | ✅ Yes | `[DEL-PEND] eventId` |
+| `onDeletePublished` | ✅ Yes | `[DEL-PUB] eventId` + RSVP cleanup count |
+| `onDismissIdea` | ✅ Yes | `[DISMISS] ideaId removed` |
+| `onExportAttendees` | ✅ Yes | `[EXPORT] eventId | N attendees` |
+| `onAllApprovedEvents` | ✅ Yes | `[ALL-APPROVED] Total approved...` |
+| `onMySubmissions` | ✅ Yes | `[MY-SUBMISSIONS] pitches=N myEvents=N rsvps=N` |
+| `onPendingEvents` | ❌ **NO** | Added: `[PENDING] N pending events` |
+| `onPitchedIdeas` | ❌ **NO** | Added: `[PITCHES] N pitched ideas` |
+| `onRsvpList` | ❌ **NO** | Added: `[RSVP-LIST] eventId | N attendees` |
+| `onMyRsvp` | ❌ **NO** | Added: `[MY-RSVP] eventId | user=... | hasEmail | hasPhone` |
+
+**Result:** Every API endpoint now has at least 1 server-side log line for traceability.
+
+---
+
+## 29. Manual Test Suite Created
+
+**File:** `TEST_CASES.md`
+
+**Contents:**
+- 30+ manual test cases organized by module (A-J)
+- Each test case includes: Preconditions, Steps, Expected Result, What to Capture
+- Modules: Home, Event Details/RSVP, Create Event, Submit Pitch, My Stuff, Mod Dashboard, Share/Copy, Pagination, Edge Cases, CRON
+- Quick Start checklist: 10 essential cases for minimal viable audit
+- Log Tag Reference table mapping tags like `[RSVP]`, `[LEAVE]`, `[SUBMIT]` to server handlers
+
+**How to use:**
+1. Run test case in app
+2. Tap 🐛 → 📋 Copy All to get UI logs
+3. Capture Devvit CLI logs: `devvit-cli logs r/meetup_hub2_dev`
+4. Paste both to me for analysis
+
+---
+
+## 30. Devvit `select` Settings Return `string[]`, Not `string`
+
+**Discovery Date:** 2026-06-07 (found during Test 1 audit)
+
+**Bug:** Devvit `type: "select"` settings return a `string[]` (array with one element: `["+05:30"]`), not a `string` (`"+05:30"`). Calling `.startsWith()` on the array throws:
+
+```
+[CRON] Error: TypeError: timezone.startsWith is not a function
+```
+
+**Root Cause:** Devvit's `SelectField` type has `BaseField<string[]>` — the selected value is stored as an array even for single-select fields. This is documented in `@devvit/shared-types/shared/form.d.ts`:
+
+```typescript
+export type SelectField = Prettify<BaseField<string[]> & ... {
+    type: 'select';
+    options: FieldConfig_Selection_Item[];
+}>;
+```
+
+**Fix:** Added `normalizeTimezone()` helper that unwraps arrays:
+
+```typescript
+function normalizeTimezone(raw: unknown): string {
+  if (Array.isArray(raw)) return (raw[0] as string) || "+05:30";
+  return (raw as string) || "+05:30";
+}
+```
+
+Applied in:
+- `getSettings()` — reads `settings.get("timezone")` safely
+- `onCheckEvents()` — reads timezone for CRON reminder timing
+
+**Impact:** CRON was crashing every 5 minutes, preventing event reminders and mod alerts from firing.
+
+---
+
+## 31. Read-After-Write Checks Removed (2026-06-07)
+
+**Audit finding:** Several endpoints still verified Redis writes with immediate reads and used the result for success/failure. Devvit Redis is eventually consistent, so these checks could return false negatives even when the write succeeded.
+
+**Affected functions in `src/server/server.ts`:**
+- `onSubmitEvent` — removed `const saved = !!(await redis.hGet(...))`
+- `onDismissIdea` — removed `const ok = !(await redis.hGet(...))`
+- `onDeletePending` — removed `const ok = !(await redis.hGet(...))`
+- `onDeletePublished` — removed `const ok = !(await redis.hGet(...))`
+- `onApproveEvent` — removed the `inActive`/`inPending` verification block
+
+**Result:** All write handlers now return `success: true` based on the write call completing without exception. Logs still capture the operation for traceability.
+
+---
+
+## 32. Dead Code Using Broken Platform APIs (2026-06-07)
+
+**Audit finding:** `notifyMods` and `onSendEventAnnouncement` both called `reddit.submitComment()` which is documented as broken in Devvit Web. They weren't wired in `devvit.json` but were still exported and reachable.
+
+**Fix:**
+- `notifyMods` → converted to safe no-op (logs a warning, returns early)
+- `onSendEventAnnouncement` → removed entirely (not imported anywhere)
+- `onSendReminders` → converted to safe no-op (it called `sendPrivateMessage({to: username})` which fails for individual users; the active CRON in `onCheckEvents` handles reminders via public posts)
+
+**Lesson:** Dead code that calls broken APIs is a trap. Either remove it or make it a no-op with a clear log message. Never leave it looking functional.
+
+---
+
+## 33. Username Auth Gating on RSVP/Leave (2026-06-07)
+
+**Audit finding:** `onRsvp` and `onLeaveEvent` used `context.username || ""` as fallback. If Devvit returned an empty username, multiple unauthenticated requests could collapse into the same RSVP member key (`""`), corrupting data.
+
+**Fix:** Both endpoints now reject with `401 Authentication required` if `context.username` is empty:
+```ts
+const username = context.username;
+if (!username) return { error: "Authentication required", status: 401 };
+```
+
+**Lesson:** Never use an empty string as a Redis member key. Either reject unauthenticated actions explicitly or generate a unique fallback (e.g., random ID). Empty keys are a data corruption risk.

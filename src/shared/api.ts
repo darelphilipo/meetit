@@ -32,6 +32,7 @@ export type AppSettings = {
   primary_color: string;
   secondary_color: string;
   use_brutalist_borders: boolean;
+  timezone: string;
 };
 
 export type RsvpFormData = {

@@ -155,21 +155,28 @@ type ErrorResponse = {
   status: number;
 };
 
+function normalizeTimezone(raw: unknown): string {
+  if (Array.isArray(raw)) return (raw[0] as string) || "+05:30";
+  return (raw as string) || "+05:30";
+}
+
 async function getSettings(): Promise<AppSettings> {
   try {
-    const [primary, secondary, borders] = await Promise.all([
+    const [primary, secondary, borders, tz] = await Promise.all([
       settings.get("primary_color"),
       settings.get("secondary_color"),
       settings.get("use_brutalist_borders"),
+      settings.get("timezone"),
     ]);
     return {
       primary_color: (primary as string) || "#ffff00",
       secondary_color: (secondary as string) || "#ff69b4",
       use_brutalist_borders: (borders as boolean) !== false,
+      timezone: normalizeTimezone(tz),
     };
   } catch (e) {
     console.error(`getSettings error: ${e}`);
-    return { primary_color: "#ffff00", secondary_color: "#ff69b4", use_brutalist_borders: true };
+    return { primary_color: "#ffff00", secondary_color: "#ff69b4", use_brutalist_borders: true, timezone: "+05:30" };
   }
 }
 
@@ -195,13 +202,13 @@ async function getActiveEvents(): Promise<MeetitEvent[]> {
   today.setHours(0, 0, 0, 0);
   return eventList
     .filter((e) => new Date(e.date + "T00:00:00").getTime() >= today.getTime())
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
 }
 
 async function getAllApprovedEvents(): Promise<MeetitEvent[]> {
   const events = await redis.hGetAll("meetit:active_events");
   const eventList = Object.values(events).map((val) => JSON.parse(val));
-  return eventList.sort((a, b) => a.date.localeCompare(b.date));
+  return eventList.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
 }
 
 async function getActiveEvent(eventId: string): Promise<MeetitEvent | undefined> {
@@ -337,7 +344,8 @@ async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
   // C6: Verify event exists before allowing RSVP
   const event = await getActiveEvent(eventId);
   if (!event) return { error: "Event not found", status: 404 };
-  const username = context.username || "";
+  const username = context.username;
+  if (!username) return { error: "Authentication required", status: 401 };
   console.log(`[RSVP] ${username} → ${eventId} (email=${email ? "yes" : "no"}, phone=${phone ? "yes" : "no"})`);
   await addRsvp(eventId, username, email, phone);
 
@@ -370,39 +378,10 @@ async function onPitchIdea(req: IncomingMessage): Promise<ApiResponse> {
   return { type: "pitch-idea", success: true };
 }
 
-// Helper: post notification comment on the app post
+// Helper: disabled — reddit.submitComment() is broken in Devvit Web
+// Kept as a no-op so future callers don't crash. Use save-to-Redis pattern instead.
 export async function notifyMods(message: string): Promise<void> {
-  const postId = context.postId;
-  console.log(`[NOTIFY] postId=${postId}, msgLen=${message?.length}`);
-  if (!postId) { console.log("[NOTIFY] No postId"); return; }
-  try {
-    await reddit.submitComment({ id: postId.startsWith("t3_") ? `t3_${postId.slice(3)}` : `t3_${postId}`, text: message, runAs: "APP" });
-    console.log("[NOTIFY] Comment posted");
-  } catch (e) {
-    console.error(`[NOTIFY] Failed: ${e}`);
-  }
-}
-
-export async function onSendEventAnnouncement(req: IncomingMessage): Promise<TaskResponse> {
-  console.log(`[SCHEDULER] send_event_announcement FIRED at ${new Date().toISOString()}`);
-  try {
-    const raw = await readRaw(req);
-    console.log(`[SCHEDULER] Announce raw body: ${raw.substring(0, 200)}`);
-    const body = await readJSON<TaskRequest<{ eventTitle: string; eventDate: string; eventTime: string; eventLocation: string; eventDescription: string }>>(req);
-    const d = body.data;
-    if (!d) return { status: "ok" };
-    const postId = context.postId;
-    if (!postId) { console.log("No postId for announcement comment"); return { status: "ok" }; }
-    await reddit.submitComment({
-      id: postId.startsWith("t3_") ? `t3_${postId.slice(3)}` : `t3_${postId}`,
-      text: `📢 **Event Reminder: ${d.eventTitle}**\n\n📅 ${d.eventDate}\n⏰ ${d.eventTime}\n📍 ${d.eventLocation}\n\n${d.eventDescription}\n\nRSVP on the app! 🎉`,
-    });
-    console.log(`Announcement comment posted for ${d.eventTitle}`);
-    return { status: "ok" };
-  } catch (e) {
-    console.error(`Announcement error: ${e}`);
-    return { status: "error", message: e instanceof Error ? e.message : "Unknown error" };
-  }
+  console.log(`[NOTIFY] disabled (submitComment broken) | msgLen=${message?.length} | use Mod Dashboard instead`);
 }
 
 async function onSubmitEvent(req: IncomingMessage): Promise<ApiResponse> {
@@ -416,9 +395,8 @@ async function onSubmitEvent(req: IncomingMessage): Promise<ApiResponse> {
   const event = createPendingEvent(eventId, formData, new Date().toISOString());
 
   await redis.hSet("meetit:pending_events", { [eventId]: JSON.stringify(event) });
-  const saved = !!(await redis.hGet("meetit:pending_events", eventId));
-  console.log(`[SUBMIT] "${event.title}" by ${context.username} | saved=${saved} | id=${eventId} | category=${event.category || "(none)"} | emoji=${event.emoji || "(none)"}`);
-  return { type: "submit-event", success: saved };
+  console.log(`[SUBMIT] "${event.title}" by ${context.username} | id=${eventId} | category=${event.category || "(none)"} | emoji=${event.emoji || "(none)"}`);
+  return { type: "submit-event", success: true };
 }
 
 async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
@@ -444,12 +422,8 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
 
   await redis.hSet("meetit:active_events", { [eventId]: eventJson });
   await redis.hDel("meetit:pending_events", [eventId]);
-  // Verify the move
-  const inActive = !!(await redis.hGet("meetit:active_events", eventId));
-  const inPending = !!(await redis.hGet("meetit:pending_events", eventId));
   const event = JSON.parse(eventJson) as MeetitEvent;
-  console.log(`[APPROVE] ${event.title} | active=${inActive} pending=${inPending}${inPending ? " ⚠️ STILL IN PENDING!" : " ✅"}`);
-
+  console.log(`[APPROVE] ${event.title} approved`);
   return { type: "approve-event", success: true };
 }
 
@@ -457,6 +431,7 @@ async function onPendingEvents(): Promise<ApiResponse> {
   const authError = await requireMod();
   if (authError) return authError;
   const events = await getPendingEventsList();
+  console.log(`[PENDING] ${events.length} pending events`);
   return { type: "pending-events", events };
 }
 
@@ -465,6 +440,7 @@ async function onPitchedIdeas(): Promise<ApiResponse> {
   if (authError) return authError;
   const ideas = await redis.hGetAll("meetit:pitched_ideas");
   const ideasList = Object.values(ideas).map((val) => JSON.parse(val));
+  console.log(`[PITCHES] ${ideasList.length} pitched ideas`);
   return { type: "pitched-ideas", ideas: ideasList };
 }
 
@@ -496,9 +472,8 @@ async function onDismissIdea(req: IncomingMessage): Promise<ApiResponse> {
     }
   }
   await redis.hDel("meetit:pitched_ideas", [ideaId]);
-  const ok = !(await redis.hGet("meetit:pitched_ideas", ideaId));
-  console.log(`[DISMISS] Idea ${ideaId} removed: ${ok}`);
-  return { type: "dismiss-idea", success: ok };
+  console.log(`[DISMISS] Idea ${ideaId} removed`);
+  return { type: "dismiss-idea", success: true };
 }
 
 async function onDeletePending(req: IncomingMessage): Promise<ApiResponse> {
@@ -512,9 +487,8 @@ async function onDeletePending(req: IncomingMessage): Promise<ApiResponse> {
     }
   }
   await redis.hDel("meetit:pending_events", [eventId]);
-  const ok = !(await redis.hGet("meetit:pending_events", eventId));
-  console.log(`[DEL-PEND] ${eventId} | removed=${ok}${!ok ? " ⚠️ FAILED!" : ""}`);
-  return { type: "dismiss-idea", success: ok };
+  console.log(`[DEL-PEND] ${eventId} removed`);
+  return { type: "dismiss-idea", success: true };
 }
 
 async function onDeletePublished(req: IncomingMessage): Promise<ApiResponse> {
@@ -535,14 +509,14 @@ async function onDeletePublished(req: IncomingMessage): Promise<ApiResponse> {
   if (members.length > 0) await redis.zRem(rsvpKey, members.map(m => m.member));
   const detailFields = await redis.hKeys(detailsKey);
   if (detailFields.length > 0) await redis.hDel(detailsKey, detailFields);
-  const ok = !(await redis.hGet("meetit:active_events", eventId));
-  console.log(`[DEL-PUB] ${eventId} | removed=${ok} | rsvp_members=${members.length}${!ok ? " ⚠️ FAILED!" : ""}`);
-  return { type: "dismiss-idea", success: ok };
+  console.log(`[DEL-PUB] ${eventId} removed | rsvp_members=${members.length}`);
+  return { type: "dismiss-idea", success: true };
 }
 
 async function onLeaveEvent(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
-  const username = context.username || "";
+  const username = context.username;
+  if (!username) return { error: "Authentication required", status: 401 };
   const userKey = normalizeUsername(username);
   const key = `meetit:rsvps:${eventId}`;
   console.log(`[LEAVE] Removing ${username} from ${key}`);
@@ -568,6 +542,7 @@ async function onLeaveEvent(req: IncomingMessage): Promise<ApiResponse> {
 async function onRsvpList(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId, includeContactDetails } = await readJSON<{ eventId: string; includeContactDetails?: boolean }>(req);
   const results = await redis.zRange(`meetit:rsvps:${eventId}`, "-inf", "+inf", { by: "score" });
+  console.log(`[RSVP-LIST] ${eventId} | ${results.length} attendees | contact=${!!includeContactDetails}`);
   // Fetch contact details from companion hash
   const detailsHash = await redis.hGetAll(`meetit:rsvp_details:${eventId}`);
   const canViewContactDetails = Boolean(includeContactDetails) && (await isMod());
@@ -586,6 +561,7 @@ async function onMyRsvp(req: IncomingMessage): Promise<ApiResponse> {
     if (legacyField) detailsRaw = await redis.hGet(detailsKey, legacyField);
   }
   const details = detailsRaw ? JSON.parse(detailsRaw) : { email: "", phone: "" };
+  console.log(`[MY-RSVP] ${eventId} | user=${username} | hasEmail=${!!details.email} | hasPhone=${!!details.phone}`);
   return { type: "my-rsvp", email: details.email || "", phone: details.phone || "" };
 }
 
@@ -658,36 +634,12 @@ async function onExportAttendees(req: IncomingMessage): Promise<ApiResponse> {
   return { type: "export-attendees", csv, filename };
 }
 
+// Disabled: sendPrivateMessage(to: username) fails with ERR_INVALID_ARG_TYPE in Devvit Web.
+// Reminders are now handled by the active CRON in onCheckEvents() which posts a public reminder instead.
 export async function onSendReminders(req: IncomingMessage): Promise<TaskResponse> {
-  console.log(`[SCHEDULER] send_24hr_reminders FIRED at ${new Date().toISOString()}`);
-  try {
-    const raw = await readRaw(req);
-    console.log(`[SCHEDULER] Reminder raw body: ${raw.substring(0, 200)}`);
-    const body = await readJSON<TaskRequest<{ eventId: string }>>(req);
-    const eventId = body.data?.eventId;
-    if (!eventId) {
-      console.log("No eventId provided to reminder job");
-      return { status: "error", message: "No eventId provided" };
-    }
-
-    const attendees = await getRsvpList(eventId);
-    for (const username of attendees) {
-      try {
-        await reddit.sendPrivateMessage({
-          subject: "Meetit: Your meetup is tomorrow!",
-          text: `Hey u/${username}! Just a reminder that the meetup you RSVP'd for is happening in 24 hours. See you there!`,
-          to: username,
-        });
-      } catch (e) {
-        console.log(`Failed to send reminder to ${username}: ${e}`);
-      }
-    }
-
-    return { status: "ok" };
-  } catch (error) {
-    console.error("Error in send_24hr_reminders:", error);
-    return { status: "error", message: error instanceof Error ? error.message : "Unknown error" };
-  }
+  void req;
+  console.log(`[SCHEDULER] send_24hr_reminders disabled — use onCheckEvents CRON for reminders`);
+  return { status: "ok" };
 }
 
 async function onMenuCreatePost(): Promise<UiResponse> {
@@ -743,10 +695,14 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
     const allEvents = await redis.hGetAll("meetit:active_events");
 
     // === 1. Reminder posts for upcoming events ===
+    const timezone = normalizeTimezone(await settings.get("timezone"));
+    const tzSign = timezone.startsWith("-") ? "-" : "+";
+    const tzValue = timezone.replace(/^[+-]/, ""); // e.g. "05:30"
+    const tzOffset = tzSign + tzValue; // e.g. "+05:30" or "-05:00"
     for (const [eventId, eventJson] of Object.entries(allEvents)) {
       const event = JSON.parse(eventJson);
-      // Parse date+time together for accurate reminder timing
-      const eventDateTime = new Date(event.date + "T" + (event.time || "00:00") + ":00Z");
+      // Parse date+time together for accurate reminder timing using configured timezone
+      const eventDateTime = new Date(event.date + "T" + (event.time || "00:00") + ":00" + tzOffset);
       const eventTs = eventDateTime.getTime();
       const nowTs = Date.now();
       const reminderHours = Number(await settings.get("reminder_hours")) || 24;

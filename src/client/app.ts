@@ -74,13 +74,34 @@ var modTabCache: Record<string, { data: any; timestamp: number }> = {};
 
 function log(msg: string) {
   console.log("[MEETIT] " + msg);
-  var panel = document.getElementById("debug-panel");
-  if (!panel) return;
+  var logsContainer = document.querySelector("#debug-panel .debug-logs");
+  if (!logsContainer) return;
   var entry = document.createElement("div");
   entry.className = "log-entry";
   entry.textContent = new Date().toISOString().substring(11, 23) + " " + msg;
-  panel.prepend(entry);
-  if (panel.children.length > MAX_DEBUG_ENTRIES) panel.removeChild(panel.lastChild!);
+  logsContainer.prepend(entry);
+  if (logsContainer.children.length > MAX_DEBUG_ENTRIES) logsContainer.removeChild(logsContainer.lastChild!);
+}
+
+function copyAllLogs() {
+  var logsContainer = document.querySelector("#debug-panel .debug-logs");
+  if (!logsContainer) return;
+  var entries = Array.from(logsContainer.querySelectorAll(".log-entry"));
+  var text = entries.map(function (el) { return el.textContent || ""; }).reverse().join("\n");
+  text = "--- Meetit UI Log " + new Date().toISOString() + " ---\n" + text;
+  try {
+    if ((navigator as any).clipboard && (navigator as any).clipboard.writeText) {
+      (navigator as any).clipboard.writeText(text).then(function () { showToast("Logs copied! 📋", "success"); }).catch(function () { fallbackCopyLogs(text); });
+    } else { fallbackCopyLogs(text); }
+  } catch (e) { fallbackCopyLogs(text); }
+}
+
+function fallbackCopyLogs(text: string) {
+  var ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.left = "-9999px"; document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); showToast("Logs copied! 📋", "success"); }
+  catch (e) { showToast("Copy failed", "error"); }
+  document.body.removeChild(ta);
 }
 
 function showToast(msg: string, type: "success" | "error") {
@@ -854,14 +875,20 @@ function setBtnLoading(selector: string, loading: boolean, text?: string) {
   var btn = document.querySelector(selector) as HTMLElement | null;
   if (!btn) return;
   if (loading) {
-    btn.dataset.originalText = btn.textContent || "";
+    // Only store original text if not already stored (prevents overwriting on rapid calls)
+    if (!btn.dataset.originalText) {
+      btn.dataset.originalText = btn.textContent || "";
+    }
     btn.textContent = text || "⏳ Processing...";
     (btn as any).disabled = true;
     btn.style.opacity = "0.5";
     btn.style.pointerEvents = "none";
   } else {
-    btn.textContent = btn.dataset.originalText || "";
-    delete btn.dataset.originalText;
+    // Only restore if we have a stored original (prevents blank text on double-reset)
+    if (btn.dataset.originalText) {
+      btn.textContent = btn.dataset.originalText;
+      delete btn.dataset.originalText;
+    }
     (btn as any).disabled = false;
     btn.style.opacity = "1";
     btn.style.pointerEvents = "auto";
@@ -944,8 +971,8 @@ async function exportAttendeesCSV(id: string) {
   } catch (e) { showToast("Network error", "error"); }
   finally { setBtnLoading('[data-action="export-csv"][data-id="' + id + '"]', false); unlock(k); }
 }
-async function approveEvent(id: string) { log("approveEvent id=" + id); var k = "approve-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Approve "' + title + '"? This will publish it for everyone.')) { unlock(k); return; } var btn = document.querySelector('[data-id="' + id + '"].btn-approve-event') as HTMLElement; if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; btn.textContent = "⏳ Approving..."; } var res; try { res = await fetch(API_BASE + "/api/approve-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); if (res.ok) { showToast("Event approved!", "success"); delete modTabCache["pending"]; setTimeout(function () { loadModTab("pending"); }, 300); } else { await tryShowServerError(res, "Approve failed"); } } catch (e) { showToast("Network error", "error"); } finally { if (btn && (res && !res.ok || !res)) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; btn.textContent = "✅ Approve & Publish"; } unlock(k); } }
-async function deleteEvent(id: string, type: string) { log("deleteEvent id=" + id + " type=" + type); var k = type + "-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) { unlock(k); return; } var sel = type === "pending" ? ".btn-decline-event" : ".btn-delete-published"; var btn = document.querySelector('[data-id="' + id + '"]' + sel) as HTMLElement; if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; } var parent = btn ? btn.closest(".pending-card,.event-card") as HTMLElement : null; if (parent) parent.style.opacity = "0.3"; var endpoint = type === "pending" ? "/api/delete-pending" : "/api/delete-published"; var res; try { res = await fetch(API_BASE + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); if (res.ok) { showToast("Deleted", "success"); delete modTabCache[type]; setTimeout(function () { loadModTab(type === "pending" ? "pending" : "published"); }, 300); } else { await tryShowServerError(res, "Delete failed"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } } catch (e) { showToast("Network error", "error"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } finally { unlock(k); } }
+async function approveEvent(id: string) { log("approveEvent id=" + id); var k = "approve-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Approve "' + title + '"? This will publish it for everyone.')) { unlock(k); return; } var btn = document.querySelector('[data-id="' + id + '"].btn-approve-event') as HTMLElement; if (btn) { btn.dataset.originalText = btn.textContent || ""; btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; btn.textContent = "⏳ Approving..."; } var res; try { res = await fetch(API_BASE + "/api/approve-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); if (res.ok) { showToast("Event approved!", "success"); if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; btn.textContent = btn.dataset.originalText || "✅ Approve & Publish"; delete btn.dataset.originalText; } delete modTabCache["pending"]; setTimeout(function () { loadModTab("pending"); }, 300); } else { await tryShowServerError(res, "Approve failed"); } } catch (e) { showToast("Network error", "error"); } finally { if (btn && (res && !res.ok || !res)) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; btn.textContent = btn.dataset.originalText || "✅ Approve & Publish"; delete btn.dataset.originalText; } unlock(k); } }
+async function deleteEvent(id: string, type: string) { log("deleteEvent id=" + id + " type=" + type); var k = type + "-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) { unlock(k); return; } var sel = type === "pending" ? ".btn-decline-event" : ".btn-delete-published"; var btn = document.querySelector('[data-id="' + id + '"]' + sel) as HTMLElement; if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; } var parent = btn ? btn.closest(".pending-card,.event-card") as HTMLElement : null; if (parent) parent.style.opacity = "0.3"; var endpoint = type === "pending" ? "/api/delete-pending" : "/api/delete-published"; var res; try { res = await fetch(API_BASE + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); if (res.ok) { showToast("Deleted", "success"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } delete modTabCache[type]; setTimeout(function () { loadModTab(type === "pending" ? "pending" : "published"); }, 300); } else { await tryShowServerError(res, "Delete failed"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } } catch (e) { showToast("Network error", "error"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } finally { unlock(k); } }
 async function dismissIdea(id: string) { log("dismissIdea id=" + id); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Dismiss "' + title + '"? This cannot be undone.')) return; setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', true, "⏳ Dismissing..."); var res; try { res = await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) }); if (res.ok) { showToast("Idea dismissed", "success"); loadModTab("pitches"); } else { await tryShowServerError(res, "Dismiss failed"); } } catch (e) { showToast("Network error", "error"); } finally { setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', false); } }
 async function deletePitch(id: string) { log("deletePitch id=" + id); var title = getItemTitle(id, { myPitches: myPitches }); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) return; var k = "pitch-" + id; if (isLocked(k)) return; lock(k); setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', true, "⏳ Deleting..."); var res; try { res = await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) }); if (res.ok) { showToast("Deleted", "success"); loadMySubmissions(); } else { await tryShowServerError(res, "Delete failed"); } } catch (e) { showToast("Network error", "error"); } finally { setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', false); unlock(k); } }
 async function cancelMyEvent(id: string) {
@@ -1012,14 +1039,20 @@ async function submitRsvp() {
   var isUpdate = document.querySelector("#rsvp-overlay .overlay-header h2")?.textContent?.includes("Update");
   setBtnLoading(".btn-submit-rsvp", true, isUpdate ? "⏳ Updating..." : "⏳ RSVPing...");
   try {
-    await fetch(API_BASE + "/api/rsvp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: currentEventId, email: email, phone: phone }) });
-    showToast(isUpdate ? "Contact updated! ✅" : "RSVP confirmed! 🎉", "success");
-    setBtnLoading(".btn-submit-rsvp", false);
-    delete detailCache[currentEventId];
-    delete attendeeCache[currentEventId];
-    closeOverlay("rsvp-overlay");
-    closeOverlay("details-overlay");
-    showHomePage();
+    var res = await fetch(API_BASE + "/api/rsvp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: currentEventId, email: email, phone: phone }) });
+    var data = await res.json();
+    if (data.type === "rsvp" && data.success) {
+      showToast(isUpdate ? "Contact updated! ✅" : "RSVP confirmed! 🎉", "success");
+      setBtnLoading(".btn-submit-rsvp", false);
+      delete detailCache[currentEventId];
+      delete attendeeCache[currentEventId];
+      closeOverlay("rsvp-overlay");
+      closeOverlay("details-overlay");
+      showHomePage();
+    } else {
+      showToast(data.error || (isUpdate ? "Update failed - retry" : "RSVP failed - retry"), "error");
+      setBtnLoading(".btn-submit-rsvp", false);
+    }
   } catch (e) {
     showToast(isUpdate ? "Update failed - retry" : "RSVP failed - retry", "error");
     setBtnLoading(".btn-submit-rsvp", false);
@@ -1029,15 +1062,15 @@ async function submitRsvp() {
 }
 function showRsvpOverlay(id: string, email?: string, phone?: string) { log("showRsvpOverlay id=" + id); currentEventId = id; (document.getElementById("rsvp-email") as HTMLInputElement).value = email || ""; (document.getElementById("rsvp-phone") as HTMLInputElement).value = phone || ""; var titleEl = document.querySelector("#rsvp-overlay .overlay-header h2"); if (titleEl) titleEl.textContent = email !== undefined ? "✏️ Update Contact" : "🎟️ RSVP"; var btnEl = document.querySelector(".btn-submit-rsvp") as HTMLElement | null; if (btnEl) { btnEl.textContent = email !== undefined ? "Update →" : "Confirm RSVP →"; btnEl.style.opacity = "1"; btnEl.style.pointerEvents = "auto"; (btnEl as any).disabled = false; delete btnEl.dataset.originalText; } openOverlay("rsvp-overlay"); }
 async function showUpdateRsvpOverlay(id: string) { log("showUpdateRsvpOverlay id=" + id); setBtnLoading('[data-action="update-rsvp"][data-id="' + id + '"]', true, "⏳..."); try { var res = await fetch(API_BASE + "/api/my-rsvp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); var data = await res.json(); if (data.type === "my-rsvp") { showRsvpOverlay(id, data.email || "", data.phone || ""); } else { showToast("Could not load contact info", "error"); } } catch (e) { showToast("Error loading contact info", "error"); } finally { setBtnLoading('[data-action="update-rsvp"][data-id="' + id + '"]', false); } }
-async function leaveEvent(id: string) { log("leaveEvent id=" + id); var title = document.getElementById("details-overlay-title")!.textContent || "this event"; if (!await confirmDestructive('Leave "' + title + '"? You can RSVP again later.')) return; setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', true, "⏳ Leaving..."); try { var res = await fetch(API_BASE + "/api/leave-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); var data = await res.json(); if (data.type === "leave-event" && data.success) { showToast("You've left", "success"); delete detailCache[id]; delete attendeeCache[id]; closeOverlay("details-overlay"); showHomePage(); } else { showToast("Failed", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } } catch (e) { showToast("Error", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } }
-async function submitPitch() { log("submitPitch"); if (isLocked("submit-pitch")) return; lock("submit-pitch"); var title = (document.getElementById("pitch-title") as HTMLInputElement).value.trim(); var desc = (document.getElementById("pitch-description") as HTMLTextAreaElement).value.trim(); if (!title || !desc) { showToast("Fill all fields", "error"); unlock("submit-pitch"); return; } setBtnLoading("#pitch-submit-btn", true, "⏳ Submitting..."); try { await fetch(API_BASE + "/api/pitch-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, description: desc }) }); showToast("Idea sent! ✅", "success"); closeOverlay("pitch-overlay"); } catch (e) { showToast("Error", "error"); setBtnLoading("#pitch-submit-btn", false); } finally { unlock("submit-pitch"); } }
-function resetEventForm() { eventStep = 1; ["event-step-1", "event-step-2", "event-step-3", "event-step-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("hidden", i !== 0); }); document.getElementById("event-next-btn")!.classList.remove("hidden"); document.getElementById("event-submit-btn")!.classList.add("hidden"); document.getElementById("event-prev-btn")!.classList.add("hidden"); ["event-dot-1", "event-dot-2", "event-dot-3", "event-dot-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });   ["event-title", "event-organizer", "event-date", "event-time", "event-location", "event-map-url", "event-desc", "event-category"].forEach(function (id) { var el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null; if (el) el.value = ""; }); }
+async function leaveEvent(id: string) { log("leaveEvent id=" + id); var title = document.getElementById("details-overlay-title")!.textContent || "this event"; if (!await confirmDestructive('Leave "' + title + '"? You can RSVP again later.')) return; setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', true, "⏳ Leaving..."); try { var res = await fetch(API_BASE + "/api/leave-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); var data = await res.json(); if (data.type === "leave-event" && data.success) { showToast("You've left", "success"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); delete detailCache[id]; delete attendeeCache[id]; closeOverlay("details-overlay"); showHomePage(); } else { showToast("Failed", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } } catch (e) { showToast("Error", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } }
+async function submitPitch() { log("submitPitch"); if (isLocked("submit-pitch")) return; lock("submit-pitch"); var title = (document.getElementById("pitch-title") as HTMLInputElement).value.trim(); var desc = (document.getElementById("pitch-description") as HTMLTextAreaElement).value.trim(); if (!title || !desc) { showToast("Fill all fields", "error"); unlock("submit-pitch"); return; } setBtnLoading("#pitch-submit-btn", true, "⏳ Submitting...");   try { var res = await fetch(API_BASE + "/api/pitch-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, description: desc }) }); var data = await res.json();     if (data.type === "pitch-idea" && data.success) { showToast("Idea sent! ✅", "success"); setBtnLoading("#pitch-submit-btn", false); closeOverlay("pitch-overlay"); } else { showToast(data.error || "Submit failed - retry", "error"); setBtnLoading("#pitch-submit-btn", false); } } catch (e) { showToast("Error", "error"); setBtnLoading("#pitch-submit-btn", false); } finally { unlock("submit-pitch"); } }
+function resetEventForm() { eventStep = 1; ["event-step-1", "event-step-2", "event-step-3", "event-step-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("hidden", i !== 0); }); document.getElementById("event-next-btn")!.classList.remove("hidden"); document.getElementById("event-submit-btn")!.classList.add("hidden"); document.getElementById("event-prev-btn")!.classList.add("hidden"); ["event-dot-1", "event-dot-2", "event-dot-3", "event-dot-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });   ["event-title", "event-organizer", "event-date", "event-time", "event-location", "event-map-url", "event-desc", "event-category"].forEach(function (id) { var el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null; if (el) el.value = ""; }); setBtnLoading("#event-submit-btn", false); }
 function eventPrev() { if (eventStep === 2) { document.getElementById("event-dot-2")!.classList.remove("done"); document.getElementById("event-step-2")!.classList.add("hidden"); document.getElementById("event-step-1")!.classList.remove("hidden"); document.getElementById("event-prev-btn")!.classList.add("hidden"); eventStep = 1; } else if (eventStep === 3) { document.getElementById("event-dot-3")!.classList.remove("done"); document.getElementById("event-step-3")!.classList.add("hidden"); document.getElementById("event-step-2")!.classList.remove("hidden"); eventStep = 2; } else if (eventStep === 4) { document.getElementById("event-dot-4")!.classList.remove("done"); document.getElementById("event-step-4")!.classList.add("hidden"); document.getElementById("event-step-3")!.classList.remove("hidden"); document.getElementById("event-next-btn")!.classList.remove("hidden"); document.getElementById("event-submit-btn")!.classList.add("hidden"); eventStep = 3; } }
 function eventNext() { log("eventNext step=" + eventStep); if (eventStep === 1) { var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var org = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var cat = (document.getElementById("event-category") as HTMLSelectElement).value; if (!title || !org) { showToast("Fill all fields", "error"); return; } if (!cat) { showToast("Select a category", "error"); return; } document.getElementById("event-dot-2")!.classList.add("done"); document.getElementById("event-step-1")!.classList.add("hidden"); document.getElementById("event-step-2")!.classList.remove("hidden"); document.getElementById("event-prev-btn")!.classList.remove("hidden"); eventStep = 2; } else if (eventStep === 2) { var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); if (!date || !time) { showToast("Fill all fields", "error"); return; } document.getElementById("event-dot-3")!.classList.add("done"); document.getElementById("event-step-2")!.classList.add("hidden"); document.getElementById("event-step-3")!.classList.remove("hidden"); eventStep = 3; } else if (eventStep === 3) { var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); if (!loc) { showToast("Location required", "error"); return; } document.getElementById("event-dot-4")!.classList.add("done"); document.getElementById("event-step-3")!.classList.add("hidden"); document.getElementById("event-step-4")!.classList.remove("hidden"); document.getElementById("event-next-btn")!.classList.add("hidden"); document.getElementById("event-submit-btn")!.classList.remove("hidden"); document.getElementById("event-review-title-preview")!.textContent = (document.getElementById("event-title") as HTMLInputElement).value; document.getElementById("event-review-meta-preview")!.textContent = (document.getElementById("event-date") as HTMLInputElement).value + " at " + (document.getElementById("event-time") as HTMLInputElement).value + " · " + loc; eventStep = 4; } }
 async function submitEvent() { log("submitEvent"); if (isLocked("submit-event")) return; lock("submit-event"); var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var organizer = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); var mapUrl = (document.getElementById("event-map-url") as HTMLInputElement).value.trim(); var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim(); var category = (document.getElementById("event-category") as HTMLSelectElement).value; log("submitEvent values: title=" + title + " category=" + category);   if (!title || !organizer || !date || !time || !loc || !desc) { showToast("Fill all fields", "error"); unlock("submit-event"); return; }
   var today = new Date().toISOString().split("T")[0] || "";
   if (date < today) { showToast("Event date must be today or in the future", "error"); unlock("submit-event"); return; }
-  setBtnLoading("#event-submit-btn", true, "⏳ Submitting..."); try { await fetch(API_BASE + "/api/submit-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, organizer: organizer, date: date, time: time, location: loc, mapUrl: mapUrl, desc: desc, category: category }) }); showToast("Event submitted! ✅", "success"); closeOverlay("event-overlay"); } catch (e) { showToast("Error", "error"); setBtnLoading("#event-submit-btn", false); } finally { unlock("submit-event"); } }
+  setBtnLoading("#event-submit-btn", true, "⏳ Submitting..."); try { var res = await fetch(API_BASE + "/api/submit-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, organizer: organizer, date: date, time: time, location: loc, mapUrl: mapUrl, desc: desc, category: category }) }); var data = await res.json();     if (data.type === "submit-event" && data.success) { showToast("Event submitted! ✅", "success"); setBtnLoading("#event-submit-btn", false); closeOverlay("event-overlay"); } else { showToast(data.error || "Submit failed - retry", "error"); setBtnLoading("#event-submit-btn", false); } } catch (e) { showToast("Error", "error"); setBtnLoading("#event-submit-btn", false); } finally { unlock("submit-event"); } }
 var usernameCached: string | null = null, prefillLoading = false;
 async function prefillOrganizer() { if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; } if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; } if (prefillLoading) return; prefillLoading = true; try { var res = await fetch(API_BASE + "/api/init"); var data = await res.json(); if (data.type === "init" && data.username) { currentUsername = data.username; usernameCached = data.username; (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username; } } catch (e) { console.error(e); } prefillLoading = false; }
 
@@ -1201,6 +1234,10 @@ document.addEventListener("DOMContentLoaded", function () {
     var show = panel.style.display !== "block";
     panel.style.display = show ? "block" : "none";
     log("debug panel " + (show ? "visible" : "hidden"));
+  });
+  document.getElementById("debug-copy-all")?.addEventListener("click", function (e) {
+    e.stopPropagation();
+    copyAllLogs();
   });
   document.querySelector(".btn-submit-rsvp")?.addEventListener("click", submitRsvp);
   // Custom confirm overlay buttons
