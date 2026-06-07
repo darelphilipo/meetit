@@ -24,6 +24,7 @@
 | API1 | **Dead code using broken `reddit.submitComment()`** | `notifyMods` and `onSendEventAnnouncement` both called `reddit.submitComment()` which crashes with `ERR_INVALID_ARG_TYPE` in Devvit Web | `notifyMods` made into safe no-op with log; `onSendEventAnnouncement` removed entirely | 2026-06-07 |
 | API2 | **Dead code using broken individual DMs** | `onSendReminders` called `sendPrivateMessage({to: username})` which fails for individual users | Function made into safe no-op pointing to active `onCheckEvents` CRON | 2026-06-07 |
 | AUTH1 | **Empty username RSVP collision risk** | `onRsvp` and `onLeaveEvent` used `context.username \|\| ""` — multiple unauthenticated users could collapse into same RSVP key | Both endpoints now reject with 401 `Authentication required` if `context.username` is empty | 2026-06-07 |
+| DC1 | **Dismiss pitch stale cache + no lock** | `dismissIdea` called `loadModTab("pitches")` without invalidating `modTabCache` first + no `isLocked/lock/unlock` guard | Cache deleted before reload; per-action lock added | 2026-06-07 |
 
 ---
 

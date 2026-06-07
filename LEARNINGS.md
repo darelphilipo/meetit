@@ -1687,4 +1687,49 @@ Ran on `r/meetup_hub2_dev` as `u/darelphilip` with 7 active events.
 - C1: Delete event logs `rsvp_members=N` confirming RSVP data cleanup
 - Mod tab caching works (`loadModTab using cache`)
 
-### Test 3: Validation & Edge Cases — ⬜ PENDING
+### Test 3: Validation & Edge Cases — 🔶 BUG FOUND + FIXED
+
+**Bug discovered:** Dismiss pitch showed success but pitch still appeared — caused by stale `modTabCache` not being invalidated + missing lock guard. Fixed in section 35.
+
+**Validated:**
+- CRON healthy (no timezone crash)
+- Empty state renders when all events/pitches deleted
+- Fresh pitch submission appears in mod dashboard
+
+**Skipped:** Client-side validation tests (invalid email, past date, category required, double-submit, optional RSVP fields, lock verification)
+
+---
+
+## 35. DismissIdea Stale Cache + Missing Lock (2026-06-07)
+
+**Bug discovered during Test 3:** Dismissing a pitch showed success toast but the pitch still appeared in the mod dashboard. User dismissed the same idea 13 times before it finally disappeared.
+
+**Root cause (two-fold):**
+
+1. **Stale cache never invalidated:** `dismissIdea` called `loadModTab("pitches")` on success, but `loadModTab` has a 60-second cache (`modTabCache`). The cache was never deleted before reload, so it kept returning stale data showing the dismissed pitch.
+
+2. **No double-tap lock:** `dismissIdea` had no `isLocked/lock/unlock` guard. Every other destructive action did. User could rapid-fire dismiss the same pitch repeatedly.
+
+**Fix:**
+```ts
+async function dismissIdea(id: string) {
+  var k = "dismiss-" + id;
+  if (isLocked(k)) return;       // ← added
+  lock(k);                        // ← added
+  // ... confirm, fetch ...
+  if (res.ok) {
+    showToast("Idea dismissed", "success");
+    delete modTabCache["pitches"];             // ← added (cache invalidation)
+    setTimeout(function () { loadModTab("pitches"); }, 300);
+  }
+  // ...
+  finally { unlock(k); }          // ← added
+}
+```
+
+**Pattern audit:** Checked all 5 functions that call `loadModTab()`. `approveEvent`, `deleteEvent`, `showModDashboard`, and `switchModTab` already had proper cache invalidation + locks. Only `dismissIdea` was missing both.
+
+**Lesson:** Any function that writes mod data to the server and then reloads a mod tab MUST:
+1. Delete the corresponding `modTabCache[key]` before calling `loadModTab(key)`
+2. Have an `isLocked/lock/unlock` guard to prevent rapid double-taps
+3. Both are required — caching without invalidation causes stale UI; no lock allows duplicate requests
