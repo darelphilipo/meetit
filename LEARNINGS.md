@@ -1643,3 +1643,48 @@ if (!username) return { error: "Authentication required", status: 401 };
 ```
 
 **Lesson:** Never use an empty string as a Redis member key. Either reject unauthenticated actions explicitly or generate a unique fallback (e.g., random ID). Empty keys are a data corruption risk.
+
+---
+
+## 34. Audit Results (2026-06-07)
+
+### Test 1: Complete User Journey (Non-Mod) — ✅ PASS
+
+Ran on `r/meetup_hub2_dev` as `u/darelphilip` with 7 active events.
+
+| Step | Flow | Result | Key Log |
+|------|------|--------|---------|
+| 1.1-1.2 | Home + card nav (0→6 of 7) | ✅ | `[HOME] Found 7 events` |
+| 1.3 | View details (4-step overlay) | ✅ | `[EVENT-DETAILS] eventId=...` |
+| 1.5 | RSVP with email+phone | ✅ | `[RSVP] darelphilip → ... email=yes phone=yes` |
+| 1.6 | Leave event | ✅ | `[LEAVE] Removing darelphilip...`, final `hasRsvped=false` |
+| 1.7 | Submit event (4-step form) | ✅ | `[SUBMIT] "Testing new" ... \| id=... \| emoji=💻` |
+| 1.8 | Submit pitch | ✅ | `[PITCH] "Ok I am going..."` |
+| 1.9 | My Stuff (3 tabs) | ✅ | `[MY-SUBMISSIONS] pitches=5 myEvents=13 rsvps=4` |
+| 1.10 | Cancel pending event | ✅ | `[DEL-PEND] removed`, `myEvents` 13→12 |
+
+**Verified fixes from this test:**
+- RAW1: `[SUBMIT]` and `[DEL-PEND]` no longer show read-after-write boolean fields
+- CRON: No `timezone.startsWith is not a function` error
+- CRON: Mod alerts sent via modmail + reminder posts created
+- AUTH1: RSVP/Leave with valid `context.username` works normally
+- BTN1-5: No stuck/blank button states reported
+
+### Test 2: Mod Full Cycle — ✅ PASS
+
+| Step | Flow | Result | Key Log |
+|------|------|--------|---------|
+| 2.1 | Open mod dashboard | ✅ | `[PENDING] 2`, `[ALL-APPROVED] 10` |
+| 2.2 | Card nav (10 rapid taps) | ✅ | No double-increment, no skipped pages |
+| 2.4 | Approve pending event | ✅ | `[APPROVE] Nnznsm approved`, pending 2→1, approved 10→11 |
+| 2.5 | Dismiss pitch | ✅ | `[DISMISS] removed`, pitches 5→4 |
+| 2.6 | Export CSV | ✅ | `[EXPORT] ... \| 1 attendees \| by darelphilip` |
+| 2.7 | Delete published event | ✅ | `[DEL-PUB] removed \| rsvp_members=1`, approved 11→10 |
+
+**Verified fixes from this test:**
+- RAW1: `[APPROVE]`, `[DISMISS]`, `[DEL-PUB]` log formats simplified (no boolean verification fields)
+- C11: Rapid-pagination on mod cards no longer double-increments
+- C1: Delete event logs `rsvp_members=N` confirming RSVP data cleanup
+- Mod tab caching works (`loadModTab using cache`)
+
+### Test 3: Validation & Edge Cases — ⬜ PENDING
