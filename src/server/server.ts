@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { context, reddit, redis, settings } from "@devvit/web/server";
 import type { PartialJsonValue, UiResponse } from "@devvit/web/shared";
-import type { TaskRequest, TaskResponse } from "@devvit/scheduler";
+import type { TaskResponse } from "@devvit/scheduler";
 import {
   ApiEndpoint,
   type MeetitEvent,
@@ -272,16 +272,6 @@ async function getUserRsvpScore(eventId: string, username: string): Promise<numb
   if (score != null) return score;
   const results = await redis.zRange(key, "-inf", "+inf", { by: "score" });
   return results.find((entry) => normalizeUsername(entry.member) === userKey)?.score;
-}
-
-async function getRsvpList(eventId: string): Promise<string[]> {
-  const results = await redis.zRange(
-    `meetit:rsvps:${eventId}`,
-    "-inf",
-    "+inf",
-    { by: "score" },
-  );
-  return results.map((r) => r.member);
 }
 
 async function onInit(): Promise<ApiResponse> {

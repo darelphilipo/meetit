@@ -484,7 +484,6 @@ function renderMyEventCard() {
   if (myEventIdx >= myEvents.length) myEventIdx = 0;
   var e = myEvents[myEventIdx];
   var status = e.status === "published" ? "✅ Published" : "⏳ Pending";
-  var bg = e.status === "published" ? "#00ff88" : "var(--secondary)";
   var key = "event-" + e.id;
   var desc = e.description || "";
   myStuffDescFullText[key] = desc;
@@ -1159,6 +1158,7 @@ async function deleteMyEvent(id: string) {
 // Mod detail overlay state — mirrors home page detail overlay exactly
 var modDetailStep = 1;
 var modDetailStep1 = "", modDetailStep2 = "", modDetailStep3 = "", modDetailStep4 = "";
+var currentModEventId: string | null = null;
 
 async function showModEventDetails(id: string) {
   log("showModEventDetails id=" + id);
@@ -1168,7 +1168,6 @@ async function showModEventDetails(id: string) {
   document.getElementById("mod-detail-title")!.textContent = item.title;
   var date = new Date(item.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   var rc = item.rsvpCount || 0;
-  var badgeColor = rc === 0 ? "#ff4444" : (rc < 5 ? "#ffaa00" : "#00ff88");
   var badgeText = rc === 0 ? "🔴 No RSVPs" : (rc < 5 ? "🟡 " + rc + " going" : "🟢 " + rc + " going");
 
   // Card 1: Quick Info
@@ -1397,6 +1396,7 @@ async function showModAttendees(id: string) {
         var html = '<div style="position:relative;width:100%;height:100%;overflow:hidden;">';
         for (var p = 0; p < groups.length; p++) {
           var pageAtt = groups[p];
+          if (!pageAtt) continue;
           var pageContent = '<div style="font-weight:700;font-size:12px;margin-bottom:10px;text-align:center;">' + att.length + ' Attendee' + (att.length > 1 ? 's' : '') + ' — ' + (p + 1) + '/' + groups.length + '</div>';
           for (var j = 0; j < pageAtt.length; j++) {
             var a = pageAtt[j];
