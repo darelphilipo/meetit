@@ -1076,8 +1076,10 @@ function getItemTitle(id: string, store: Record<string, any[]>): string {
 }
 // Per-element resolver avoids race when two confirms fire in quick succession
 function confirmDestructive(msg: string): Promise<boolean> {
-  log("confirmDestructive: " + msg);
-  document.getElementById("confirm-message")!.textContent = msg;
+  // Truncate long/PII-containing titles — cap at 80 chars
+  var truncated = msg.length > 80 ? msg.substring(0, 77) + "..." : msg;
+  log("confirmDestructive: " + truncated);
+  document.getElementById("confirm-message")!.textContent = truncated;
   openOverlay("confirm-overlay");
   return new Promise(function (resolve) {
     var el = document.getElementById("confirm-overlay")!;
