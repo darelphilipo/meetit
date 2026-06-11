@@ -1121,10 +1121,50 @@ async function exportAttendeesCSV(id: string) {
   } catch (e) { showToast("Network error", "error"); }
   finally { setBtnLoading('[data-action="export-csv"][data-id="' + id + '"]', false); unlock(k); }
 }
-async function approveEvent(id: string) { log("approveEvent id=" + id); var k = "approve-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Approve "' + title + '"? This will publish it for everyone.')) { unlock(k); return; } var btn = document.querySelector('[data-id="' + id + '"].btn-approve-event') as HTMLElement; if (btn) { btn.dataset.originalText = btn.textContent || ""; btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; btn.textContent = "⏳ Approving..."; } var res; try { res = await fetch(API_BASE + "/api/approve-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); if (res.ok) { showToast("Event approved!", "success"); if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; btn.textContent = btn.dataset.originalText || "✅ Approve & Publish"; delete btn.dataset.originalText; } delete modTabCache["pending"]; setTimeout(function () { loadModTab("pending"); }, 300); } else { await tryShowServerError(res, "Approve failed"); } } catch (e) { showToast("Network error", "error"); } finally { if (btn && (res && !res.ok || !res)) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; btn.textContent = btn.dataset.originalText || "✅ Approve & Publish"; delete btn.dataset.originalText; } unlock(k); } }
-async function deleteEvent(id: string, type: string) { log("deleteEvent id=" + id + " type=" + type); var k = type + "-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) { unlock(k); return; } var sel = type === "pending" ? ".btn-decline-event" : ".btn-delete-published"; var btn = document.querySelector('[data-id="' + id + '"]' + sel) as HTMLElement; if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; } var parent = btn ? btn.closest(".pending-card,.event-card") as HTMLElement : null; if (parent) parent.style.opacity = "0.3"; var endpoint = type === "pending" ? "/api/delete-pending" : "/api/delete-published"; var res; try { res = await fetch(API_BASE + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); if (res.ok) { showToast("Deleted", "success"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } delete modTabCache[type]; setTimeout(function () { loadModTab(type === "pending" ? "pending" : "published"); }, 300); } else { await tryShowServerError(res, "Delete failed"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } } catch (e) { showToast("Network error", "error"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } finally { unlock(k); } }
-async function dismissIdea(id: string) { log("dismissIdea id=" + id); var k = "dismiss-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Dismiss "' + title + '"? This cannot be undone.')) { unlock(k); return; } setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', true, "⏳ Dismissing..."); var res; try { res = await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) }); if (res.ok) { showToast("Idea dismissed", "success"); delete modTabCache["pitches"]; setTimeout(function () { loadModTab("pitches"); }, 300); } else { await tryShowServerError(res, "Dismiss failed"); } } catch (e) { showToast("Network error", "error"); } finally { setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', false); unlock(k); } }
-async function deletePitch(id: string) { log("deletePitch id=" + id); var title = getItemTitle(id, { myPitches: myPitches }); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) return; var k = "pitch-" + id; if (isLocked(k)) return; lock(k); setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', true, "⏳ Deleting..."); var res; try { res = await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) }); if (res.ok) { showToast("Deleted", "success"); loadMySubmissions(); } else { await tryShowServerError(res, "Delete failed"); } } catch (e) { showToast("Network error", "error"); } finally { setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', false); unlock(k); } }
+async function approveEvent(id: string) { log("approveEvent id=" + id); var k = "approve-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Approve "' + title + '"? This will publish it for everyone.')) { unlock(k); return; } var btn = document.querySelector('[data-id="' + id + '"].btn-approve-event') as HTMLElement; if (btn) { btn.dataset.originalText = btn.textContent || ""; btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; btn.textContent = "⏳ Approving..."; } var res; try { res = await fetch(API_BASE + "/api/approve-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });     if (res.ok) { showToast("Event approved!", "success"); if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; btn.textContent = btn.dataset.originalText || "✅ Approve & Publish"; delete btn.dataset.originalText; }       // Optimistically move from pending to published
+      var pendingItems = modItems["pending"] || [];
+      var pendingIdx = pendingItems.findIndex(function(e: any) { return e.id === id; });
+      if (pendingIdx >= 0) {
+        var approvedEvt = pendingItems.splice(pendingIdx, 1)[0];
+        if (approvedEvt) { approvedEvt.status = "published"; (modItems["published"] || []).push(approvedEvt); log("optimistic approve: moved " + id + " to published"); }
+      }
+      // Re-render mod dashboard if user is viewing it
+      var modScreen = document.getElementById("mod-screen");
+      if (modScreen && modScreen.classList.contains("active")) {
+        if (modTab === "pending") { renderModPending(modItems["pending"] || []); }
+        else if (modTab === "published") { renderModPublished(modItems["published"] || []); }
+      }
+      delete modTabCache["pending"]; delete modTabCache["published"];
+    } else { await tryShowServerError(res, "Approve failed"); } } catch (e) { showToast("Network error", "error"); } finally { if (btn && (res && !res.ok || !res)) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; btn.textContent = btn.dataset.originalText || "✅ Approve & Publish"; delete btn.dataset.originalText; } unlock(k); } }
+async function deleteEvent(id: string, type: string) { log("deleteEvent id=" + id + " type=" + type); var k = type + "-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) { unlock(k); return; } var sel = type === "pending" ? ".btn-decline-event" : ".btn-delete-published"; var btn = document.querySelector('[data-id="' + id + '"]' + sel) as HTMLElement; if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; } var parent = btn ? btn.closest(".pending-card,.event-card") as HTMLElement : null; if (parent) parent.style.opacity = "0.3"; var endpoint = type === "pending" ? "/api/delete-pending" : "/api/delete-published"; var res; try { res = await fetch(API_BASE + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });     if (res.ok) { showToast("Deleted", "success"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; }       // Optimistically remove from modItems
+      var tabName = type === "pending" ? "pending" : "published";
+      var tabItems = modItems[tabName] || [];
+      var delIdx2 = tabItems.findIndex(function(e: any) { return e.id === id; });
+      if (delIdx2 >= 0) { tabItems.splice(delIdx2, 1); log("optimistic delete: removed " + id + " from " + tabName); }
+      // Re-render mod dashboard if user is viewing it
+      var modScreen2 = document.getElementById("mod-screen");
+      if (modScreen2 && modScreen2.classList.contains("active") && modTab === tabName) {
+        if (tabName === "pending") { renderModPending(modItems["pending"] || []); }
+        else { renderModPublished(modItems["published"] || []); }
+      }
+      delete modTabCache[type];
+    } else { await tryShowServerError(res, "Delete failed"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } } catch (e) { showToast("Network error", "error"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } finally { unlock(k); } }
+async function dismissIdea(id: string) { log("dismissIdea id=" + id); var k = "dismiss-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Dismiss "' + title + '"? This cannot be undone.')) { unlock(k); return; } setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', true, "⏳ Dismissing..."); var res; try { res = await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) });     if (res.ok) { showToast("Idea dismissed", "success");       // Optimistically remove from modItems
+      var pitchItems = modItems["pitches"] || [];
+      var dismissIdx = pitchItems.findIndex(function(i: any) { return i.id === id; });
+      if (dismissIdx >= 0) { pitchItems.splice(dismissIdx, 1); log("optimistic dismiss: removed " + id + " from pitches"); }
+      // Re-render mod dashboard if user is viewing it
+      var modScreen3 = document.getElementById("mod-screen");
+      if (modScreen3 && modScreen3.classList.contains("active") && modTab === "pitches") { renderModPitches(modItems["pitches"] || []); }
+      delete modTabCache["pitches"];
+    } else { await tryShowServerError(res, "Dismiss failed"); } } catch (e) { showToast("Network error", "error"); } finally { setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', false); unlock(k); } }
+async function deletePitch(id: string) { log("deletePitch id=" + id); var title = getItemTitle(id, { myPitches: myPitches }); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) return; var k = "pitch-" + id; if (isLocked(k)) return; lock(k); setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', true, "⏳ Deleting..."); var res; try { res = await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) });     if (res.ok) { showToast("Deleted", "success");       // Optimistically remove from myPitches
+      var pitchIdx = myPitches.findIndex(function(p: any) { return p.id === id; });
+      if (pitchIdx >= 0) { myPitches.splice(pitchIdx, 1); log("optimistic pitch removed: " + id + " | myPitches count=" + myPitches.length); }
+      // If user is in My Stuff on pitches tab, re-render instantly
+      var myStuffOverlay3 = document.getElementById("my-stuff-overlay");
+      if (myStuffOverlay3 && myStuffOverlay3.classList.contains("active") && myStuffTab === "pitches") { renderMyPitchCard(); }
+    } else { await tryShowServerError(res, "Delete failed"); } } catch (e) { showToast("Network error", "error"); } finally { setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', false); unlock(k); } }
 async function cancelMyEvent(id: string) {
   log("cancelMyEvent id=" + id);
   var k = "my-cancel-" + id;
@@ -1135,7 +1175,13 @@ async function cancelMyEvent(id: string) {
   setBtnLoading('[data-action="cancel-my-event"][data-id="' + id + '"]', true, "⏳ Cancelling...");
   var res; try {
     res = await fetch(API_BASE + "/api/delete-pending", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
-    if (res.ok) { showToast("Cancelled", "success"); loadMySubmissions(); }
+    if (res.ok) { showToast("Cancelled", "success");       // Optimistically remove from myEvents
+      var cancelIdx = myEvents.findIndex(function(e: any) { return e.id === id; });
+      if (cancelIdx >= 0) { myEvents.splice(cancelIdx, 1); log("optimistic event cancelled: " + id + " | myEvents count=" + myEvents.length); }
+      // If user is in My Stuff on events tab, re-render instantly
+      var myStuffOverlay4 = document.getElementById("my-stuff-overlay");
+      if (myStuffOverlay4 && myStuffOverlay4.classList.contains("active") && myStuffTab === "events") { renderMyEventCard(); }
+    }
     else { await tryShowServerError(res, "Cancel failed"); }
   } catch (e) { showToast("Network error", "error"); }
   finally { setBtnLoading('[data-action="cancel-my-event"][data-id="' + id + '"]', false); unlock(k); }
@@ -1150,7 +1196,13 @@ async function deleteMyEvent(id: string) {
   setBtnLoading('[data-action="delete-my-event"][data-id="' + id + '"]', true, "⏳ Deleting...");
   var res; try {
     res = await fetch(API_BASE + "/api/delete-published", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
-    if (res.ok) { showToast("Deleted", "success"); loadMySubmissions(); }
+    if (res.ok) { showToast("Deleted", "success");       // Optimistically remove from myEvents
+      var delIdx = myEvents.findIndex(function(e: any) { return e.id === id; });
+      if (delIdx >= 0) { myEvents.splice(delIdx, 1); log("optimistic event deleted: " + id + " | myEvents count=" + myEvents.length); }
+      // If user is in My Stuff on events tab, re-render instantly
+      var myStuffOverlay5 = document.getElementById("my-stuff-overlay");
+      if (myStuffOverlay5 && myStuffOverlay5.classList.contains("active") && myStuffTab === "events") { renderMyEventCard(); }
+    }
     else { await tryShowServerError(res, "Delete failed"); }
   } catch (e) { showToast("Network error", "error"); }
   finally { setBtnLoading('[data-action="delete-my-event"][data-id="' + id + '"]', false); unlock(k); }
@@ -1567,7 +1619,14 @@ function eventNext() { log("eventNext step=" + eventStep); if (eventStep === 1) 
 async function submitEvent() { log("submitEvent"); if (isLocked("submit-event")) return; lock("submit-event"); var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var organizer = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); var mapUrl = (document.getElementById("event-map-url") as HTMLInputElement).value.trim(); var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim(); var category = (document.getElementById("event-category") as HTMLSelectElement).value; log("submitEvent values: title=" + title + " category=" + category);   if (!title || !organizer || !date || !time || !loc || !desc) { showToast("Fill all fields", "error"); unlock("submit-event"); return; }
   var today = new Date().toISOString().split("T")[0] || "";
   if (date < today) { showToast("Event date must be today or in the future", "error"); unlock("submit-event"); return; }
-  setBtnLoading("#event-submit-btn", true, "⏳ Submitting..."); try { var res = await fetch(API_BASE + "/api/submit-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, organizer: organizer, date: date, time: time, location: loc, mapUrl: mapUrl, desc: desc, category: category }) }); var data = await res.json();     if (data.type === "submit-event" && data.success) { showToast("Event submitted! ✅", "success"); setBtnLoading("#event-submit-btn", false); closeOverlay("event-overlay"); loadHome(); } else { showToast(data.error || "Submit failed - retry", "error"); setBtnLoading("#event-submit-btn", false); } } catch (e) { showToast("Error", "error"); setBtnLoading("#event-submit-btn", false); } finally { unlock("submit-event"); } }
+  setBtnLoading("#event-submit-btn", true, "⏳ Submitting..."); try { var res = await fetch(API_BASE + "/api/submit-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, organizer: organizer, date: date, time: time, location: loc, mapUrl: mapUrl, desc: desc, category: category }) }); var data = await res.json();     if (data.type === "submit-event" && data.success) { showToast("Event submitted! ✅", "success"); setBtnLoading("#event-submit-btn", false); closeOverlay("event-overlay"); loadHome();       // Optimistically add to myEvents so it appears in My Stuff immediately
+      var newEvent = { id: "event_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7), title: title, organizer: organizer, date: date, time: time, location: loc, mapUrl: mapUrl, description: desc, category: category || "other", status: "pending", submittedAt: new Date().toISOString() };
+      myEvents.push(newEvent);
+      log("optimistic event added: " + newEvent.id + " | myEvents count=" + myEvents.length);
+      // If user is in My Stuff on events tab, re-render instantly
+      var myStuffOverlay2 = document.getElementById("my-stuff-overlay");
+      if (myStuffOverlay2 && myStuffOverlay2.classList.contains("active") && myStuffTab === "events") { renderMyEventCard(); }
+    } else { showToast(data.error || "Submit failed - retry", "error"); setBtnLoading("#event-submit-btn", false); } } catch (e) { showToast("Error", "error"); setBtnLoading("#event-submit-btn", false); } finally { unlock("submit-event"); } }
 var usernameCached: string | null = null, prefillLoading = false;
 async function prefillOrganizer() { if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; } if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; } if (prefillLoading) return; prefillLoading = true; try { var res = await fetch(API_BASE + "/api/init"); var data = await res.json(); if (data.type === "init" && data.username) { currentUsername = data.username; usernameCached = data.username; (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username; } if (data.type === "init" && data.timezone) { setAppTimezone(data.timezone); } } catch (e) { console.error(e); } prefillLoading = false; }
 
