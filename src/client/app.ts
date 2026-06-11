@@ -1633,7 +1633,20 @@ async function leaveEvent(id: string) { log("leaveEvent id=" + id); var title = 
       // Also update My Stuff if this event is in myRsvps
       var myStuffIdx = myRsvps.findIndex(function(e: any) { return e.id === id; });
       if (myStuffIdx >= 0) { myRsvps.splice(myStuffIdx, 1); log("removed from myRsvps: " + id); }
-      closeOverlay("details-overlay"); showHomePage(); } else { showToast("Failed", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } } catch (e) { showToast("Error", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } }
+      closeOverlay("details-overlay");
+      // Stay on My Stuff if user was viewing it, otherwise go home
+      var msOverlay = document.getElementById("my-stuff-overlay");
+      if (msOverlay && msOverlay.classList.contains("active")) {
+        // If RSVPs tab is now empty, switch to another tab
+        if (myStuffTab === "rsvps" && myRsvps.length === 0) {
+          switchMyStuffTab("events", false);
+        } else if (myStuffTab === "rsvps") {
+          renderMyRsvpCard();
+        }
+      } else {
+        showHomePage();
+      }
+    } else { showToast("Failed", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } } catch (e) { showToast("Error", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } }
 async function submitPitch() { log("submitPitch"); if (isLocked("submit-pitch")) return; lock("submit-pitch"); var title = (document.getElementById("pitch-title") as HTMLInputElement).value.trim(); var desc = (document.getElementById("pitch-description") as HTMLTextAreaElement).value.trim(); if (!title || !desc) { showToast("Fill all fields", "error"); unlock("submit-pitch"); return; } setBtnLoading("#pitch-submit-btn", true, "⏳ Submitting...");   try { var res = await fetch(API_BASE + "/api/pitch-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, description: desc }) }); var data = await res.json();     if (data.type === "pitch-idea" && data.success) { showToast("Idea sent! ✅", "success"); setBtnLoading("#pitch-submit-btn", false); closeOverlay("pitch-overlay"); loadHome();       // Optimistically add to myPitches so it appears in My Stuff immediately
       var newPitch = { id: "pitch_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7), title: title, description: desc, submittedBy: currentUsername || usernameCached || "user", submittedAt: new Date().toISOString() };
       myPitches.push(newPitch);
