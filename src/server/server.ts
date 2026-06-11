@@ -17,6 +17,16 @@ import { buildAttendees, createPendingEvent, isConfiguredModerator, isSubmission
 import { once } from "node:events";
 
 const GOOGLE_SHEETS_WEBHOOK_URL = ""; // Set to your Zapier/Google Sheets webhook URL
+const MAX_SERVER_LOGS = 100;
+
+// Capture all server logs into Redis for UI retrieval
+function serverLog(level: "info" | "error", message: string) {
+  const entry = JSON.stringify({ ts: Date.now(), level, msg: message });
+  // Fire-and-forget: don't await, don't block the request
+  redis.zAdd("meetit:server_logs", { score: Date.now(), member: entry }).catch(() => {});
+  // Also trim old entries asynchronously
+  redis.zRemRangeByRank("meetit:server_logs", 0, -MAX_SERVER_LOGS - 1).catch(() => {});
+}
 
 export async function serverOnRequest(
   req: IncomingMessage,
@@ -27,6 +37,7 @@ export async function serverOnRequest(
   } catch (err) {
     const msg = `server error; ${err instanceof Error ? err.stack : err}`;
     console.error(msg);
+    serverLog("error", msg.substring(0, 500));
     writeJSON<ErrorResponse>(500, { error: msg, status: 500 }, rsp);
   }
 }
@@ -43,7 +54,9 @@ async function onRequest(
   }
 
   const endpoint = url as ApiEndpoint | InternalEndpoint;
-  console.log(`[API] ${req.method || "POST"} ${endpoint}`);
+  const apiMsg = `[API] ${req.method || "POST"} ${endpoint}`;
+  console.log(apiMsg);
+  serverLog("info", apiMsg);
 
   let body: ApiResponse | UiResponse | ErrorResponse | TaskResponse;
   switch (endpoint) {
@@ -101,6 +114,9 @@ async function onRequest(
     case ApiEndpoint.ExportAttendees:
       body = await onExportAttendees(req);
       break;
+    case ApiEndpoint.ServerLogs:
+      body = await onServerLogs();
+      break;
     case InternalEndpoint.OnPostCreate:
       body = await onMenuCreatePost();
       break;
@@ -132,7 +148,7 @@ const InternalEndpoint = {
 type InternalEndpoint = (typeof InternalEndpoint)[keyof typeof InternalEndpoint];
 
 type ApiResponse =
-  | { type: "init"; postId: string; username: string; settings: AppSettings }
+  | { type: "init"; postId: string; username: string; settings: AppSettings; timezone: string }
   | { type: "home"; data: HomeState }
   | { type: "event-details"; data: EventDetails }
   | { type: "rsvp"; success: boolean }
@@ -148,6 +164,7 @@ type ApiResponse =
   | { type: "my-submissions"; pitches: any[]; events: MeetitEvent[]; rsvps: any[] }
   | { type: "my-rsvp"; email: string; phone: string }
   | { type: "export-attendees"; csv: string; filename: string }
+  | { type: "server-logs"; logs: { ts: number; level: string; msg: string }[] }
   | ErrorResponse;
 
 type ErrorResponse = {
@@ -274,14 +291,17 @@ async function onInit(): Promise<ApiResponse> {
     postId: context.postId || "",
     username: context.username || "user",
     settings: appSettings,
+    timezone: appSettings.timezone,
   };
 }
 
 async function onHome(): Promise<ApiResponse> {
-  console.log(`[HOME] Loading events for user ${context.username}`);
+  const homeMsg1 = `[HOME] Loading events for user ${context.username}`;
+  console.log(homeMsg1); serverLog("info", homeMsg1);
   const events = await getActiveEvents();
   const modStatus = await isMod();
-  console.log(`[HOME] Found ${events.length} events, isMod=${modStatus}`);
+  const homeMsg2 = `[HOME] Found ${events.length} events, isMod=${modStatus}`;
+  console.log(homeMsg2); serverLog("info", homeMsg2);
   const appSettings = await getSettings();
 
   const username = context.username || "";
@@ -346,7 +366,8 @@ async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
   if (!event) return { error: "Event not found", status: 404 };
   const username = context.username;
   if (!username) return { error: "Authentication required", status: 401 };
-  console.log(`[RSVP] ${username} → ${eventId} (email=${email ? "yes" : "no"}, phone=${phone ? "yes" : "no"})`);
+  const rsvpMsg = `[RSVP] ${username} → ${eventId} (email=${email ? "yes" : "no"}, phone=${phone ? "yes" : "no"})`;
+  console.log(rsvpMsg); serverLog("info", rsvpMsg);
   await addRsvp(eventId, username, email, phone);
 
   if (GOOGLE_SHEETS_WEBHOOK_URL) {
@@ -605,6 +626,19 @@ async function onMySubmissions(): Promise<ApiResponse> {
   return { type: "my-submissions", pitches, events: myEvents, rsvps: rsvpEvents };
 }
 
+async function onServerLogs(): Promise<ApiResponse> {
+  try {
+    const results = await redis.zRange("meetit:server_logs", "-inf", "+inf", { by: "score" });
+    const logs = results.map((r) => JSON.parse(r.member) as { ts: number; level: string; msg: string });
+    console.log(`[SERVER-LOGS] Returning ${logs.length} entries`);
+    serverLog("info", `[SERVER-LOGS] Returning ${logs.length} entries`);
+    return { type: "server-logs", logs };
+  } catch (e) {
+    console.log(`[SERVER-LOGS] Error: ${e}`);
+    return { type: "server-logs", logs: [] };
+  }
+}
+
 async function onExportAttendees(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
   if (!eventId) return { error: "Missing eventId", status: 400 };
@@ -690,7 +724,8 @@ async function readRaw(req: IncomingMessage): Promise<string> {
 
 async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
   void req;
-  console.log(`[CRON] check-events FIRED at ${new Date().toISOString()}`);
+  const cronMsg = `[CRON] check-events FIRED at ${new Date().toISOString()}`;
+  console.log(cronMsg); serverLog("info", cronMsg);
   try {
     const allEvents = await redis.hGetAll("meetit:active_events");
 

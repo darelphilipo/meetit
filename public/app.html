@@ -175,7 +175,7 @@
 
     /* Debug log panel */
     #debug-panel { display: none; flex-direction: column; position: fixed; bottom: 10px; left: 10px; right: 10px; max-height: 200px; background: #1c1c0f; color: #00ff88; font-family: monospace; font-size: 11px; border: 2px solid #00ff88; z-index: 9999; border-radius: 4px; -webkit-overflow-scrolling: touch; }
-    #debug-panel .debug-header { display: flex; justify-content: flex-end; padding: 4px 8px; background: #1c1c0f; border-bottom: 2px solid #00ff88; flex-shrink: 0; }
+    #debug-panel .debug-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: #1c1c0f; border-bottom: 2px solid #00ff88; flex-shrink: 0; }
     #debug-panel .debug-logs { overflow-y: auto; padding: 4px 8px; flex: 1; }
     #debug-panel .log-entry { padding: 2px 0; border-bottom: 1px solid #333; word-break: break-all; }
     #debug-toggle { position: fixed; bottom: 10px; right: 10px; z-index: 10000; background: #1c1c0f; color: #00ff88; border: 2px solid #00ff88; font-family: monospace; font-size: 11px; padding: 4px 8px; cursor: pointer; }
@@ -186,6 +186,7 @@
     <div class="header header-row">
       <div><h1>⚡ Meetit</h1><div class="sub">Community Meetup Hub</div></div>
       <div class="header-actions">
+        <div class="icon-btn btn-refresh-home" title="Refresh" data-action="refresh-home">↻</div>
         <div class="icon-btn btn-toggle-create" title="Create" data-action="toggle-create">✨</div>
         <div class="icon-btn btn-open-my-stuff" title="My Stuff" data-action="open-my-stuff">👤</div>
         <div class="icon-btn btn-show-mod hidden" id="mod-btn" title="Mod" data-action="show-mod">🛡️</div>
@@ -208,7 +209,7 @@
     <div class="backdrop" id="create-backdrop" data-action="close-create-menu"></div>
     <div class="create-menu" id="create-menu">
       <button class="btn btn-pink btn-create-pitch" data-action="create-pitch">💡 Pitch an Idea</button>
-      <button class="btn btn-create-event" data-action="create-event" style="margin-top:8px;">📋 Submit Formal Event</button>
+      <button class="btn btn-create-event" data-action="create-event" style="margin-top:8px;">📋 Submit Event</button>
     </div>
 
     <!-- My Stuff Overlay -->
@@ -219,7 +220,11 @@
         <div class="tab my-stuff-tab" data-mtab="events" data-action="switch-my-stuff-tab">📋 My Events</div>
         <div class="tab my-stuff-tab" data-mtab="pitches" data-action="switch-my-stuff-tab">💡 Pitches</div>
       </div>
-      <div class="overlay-body" id="my-stuff-container" style="padding:0 16px;"></div>
+      <div class="overlay-body" id="my-stuff-container" style="overflow:hidden;position:relative;padding:0;"></div>
+      <div class="overlay-footer">
+        <button class="footer-btn footer-btn-prev hidden" id="my-stuff-prev-btn" data-action="my-stuff-prev">← Back</button>
+        <button class="footer-btn footer-btn-next" id="my-stuff-next-btn" data-action="my-stuff-next">Next →</button>
+      </div>
     </div>
 
     <!-- EVENT DETAILS OVERLAY (3 steps) -->
@@ -247,6 +252,26 @@
         <div class="tab mod-tab" data-mtab="pitches" data-action="switch-mod-tab">💡 Pitches</div>
       </div>
       <div class="overlay-body" id="pending-events-container" style="padding:0 16px;"></div>
+    </div>
+
+    <!-- Mod Event Details Overlay -->
+    <div class="overlay" id="mod-event-details-overlay">
+      <div class="overlay-header" style="background:#1c1c0f;"><h2 style="color:var(--surface);" id="mod-detail-title">📋 Event Details</h2><div class="close-btn close-overlay" data-action="close-mod-details">✕</div></div>
+      <div class="overlay-progress">
+        <div class="step-dot done" id="mod-detail-dot-1"></div>
+        <div class="step-dot" id="mod-detail-dot-2"></div>
+        <div class="step-dot" id="mod-detail-dot-3"></div>
+        <div class="step-dot" id="mod-detail-dot-4"></div>
+      </div>
+      <div class="overlay-body" id="mod-detail-body" style="overflow:hidden;position:relative;padding:0;"></div>
+      <div class="overlay-footer">
+        <button class="footer-btn footer-btn-prev hidden" id="mod-detail-prev-btn" data-action="mod-detail-prev">← Back</button>
+        <button class="footer-btn footer-btn-next" id="mod-detail-next-btn" data-action="mod-detail-next">Next →</button>
+      </div>
+    </div>
+    <div class="overlay" id="mod-attendees-overlay">
+      <div class="overlay-header" style="background:#1c1c0f;"><h2 style="color:var(--surface);" id="mod-attendees-title">👥 Attendees</h2><div class="close-btn close-overlay" data-action="close-mod-attendees">✕</div></div>
+      <div class="overlay-body" id="mod-attendees-body" style="overflow:hidden;padding:0;"></div>
     </div>
 
     <!-- PITCH OVERLAY (single step) -->
@@ -340,6 +365,7 @@
   <button id="debug-toggle">🐛</button>
   <div id="debug-panel">
     <div class="debug-header">
+      <span style="font-size:11px;font-weight:700;color:#00ff88;font-family:'Space Grotesk',sans-serif;">🐛 Debug Log</span>
       <button id="debug-copy-all" style="background:#00ff88;color:#1c1c0f;border:2px solid #1c1c0f;padding:4px 10px;font-family:'Space Grotesk',sans-serif;font-size:11px;font-weight:700;cursor:pointer;">📋 Copy All</button>
     </div>
     <div class="debug-logs"></div>

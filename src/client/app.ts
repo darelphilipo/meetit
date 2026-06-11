@@ -37,7 +37,7 @@ var CACHE_TTL_MOD = 60000;       // 60 seconds
 var MAX_DEBUG_ENTRIES = 50;
 var TOAST_DURATION = 3000;
 var COPY_TOAST_DURATION = 1500;
-var DEBOUNCE_DELAY = 150;
+var DEBOUNCE_DELAY = 300;
 var RENDER_DELAY = 200;
 var DESC_PREVIEW_LENGTH = 120;
 var ATTENDEES_PER_PAGE = 5;
@@ -66,32 +66,108 @@ function catBadge(cat: string | undefined): string {
 }
 var AUTO_PAGINATE_DELAY = 100;
 
+// Timezone and relative date helpers
+var appTimezone = "+05:30"; // default, updated from /api/init
+function setAppTimezone(tz: string) { appTimezone = tz || "+05:30"; log("timezone set to " + appTimezone); }
+function relativeDate(dateStr: string): string {
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var d = new Date(dateStr + "T00:00:00"); d.setHours(0, 0, 0, 0);
+  var diff = Math.round((d.getTime() - today.getTime()) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Tomorrow";
+  if (diff > 1 && diff < 7) return "In " + diff + " days";
+  if (diff === -1) return "Yesterday";
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+function formatTimeWithTz(time: string, tz: string): string {
+  return escapeHtml(time) + (tz ? " <span style='font-size:10px;color:var(--muted);'>" + escapeHtml(tz) + "</span>" : "");
+}
+
 // Fetch debounce / caches
 var homeFetchTimeout: ReturnType<typeof setTimeout> | null = null;
+var homeFetchInProgress = false;
+var modFetchInProgress = false;
 var detailCache: Record<string, { data: any; timestamp: number }> = {};
 var attendeeCache: Record<string, { data: any[]; timestamp: number }> = {};
 var modTabCache: Record<string, { data: any; timestamp: number }> = {};
 
+// Unified debug log: client + server interleaved
+var unifiedLogs: { ts: number; source: "client" | "server"; level: string; msg: string }[] = [];
+
 function log(msg: string) {
   console.log("[MEETIT] " + msg);
+  var ts = Date.now();
+  unifiedLogs.push({ ts: ts, source: "client", level: "info", msg: msg });
+  if (unifiedLogs.length > MAX_DEBUG_ENTRIES) unifiedLogs.shift();
   var logsContainer = document.querySelector("#debug-panel .debug-logs");
-  if (!logsContainer) return;
-  var entry = document.createElement("div");
-  entry.className = "log-entry";
-  entry.textContent = new Date().toISOString().substring(11, 23) + " " + msg;
-  logsContainer.prepend(entry);
-  if (logsContainer.children.length > MAX_DEBUG_ENTRIES) logsContainer.removeChild(logsContainer.lastChild!);
+  renderUnifiedLogs(logsContainer);
+}
+
+function renderUnifiedLogs(container: Element | null) {
+  if (!container) return;
+  container.innerHTML = "";
+  if (unifiedLogs.length === 0) {
+    var empty = document.createElement("div");
+    empty.className = "log-entry";
+    empty.style.color = "#888";
+    empty.textContent = "No logs yet. Interact with the app to generate logs.";
+    container.appendChild(empty);
+    return;
+  }
+  // Show newest first
+  for (var i = unifiedLogs.length - 1; i >= 0; i--) {
+    var item = unifiedLogs[i];
+    if (!item) continue;
+    var entry = document.createElement("div");
+    entry.className = "log-entry";
+    var ts = new Date(item.ts || 0).toISOString().substring(11, 23);
+    var sourceColor = item.source === "server" ? "#00ccff" : "#00ff88";
+    var levelColor = item.level === "error" ? "#ff4444" : sourceColor;
+    entry.innerHTML = '<span style="color:' + levelColor + ';font-weight:700;">[' + item.source.toUpperCase() + ']</span> ' + ts + " " + escapeHtml(item.msg || "");
+    container.appendChild(entry);
+  }
+}
+
+// Fetch server logs and merge into unified view
+async function fetchServerLogs() {
+  log("fetching server logs...");
+  try {
+    var res = await fetch(API_BASE + "/api/server-logs");
+    var data = await res.json();
+    if (data.type === "server-logs") {
+      var logs = data.logs || [];
+      // Merge server logs into unifiedLogs (avoid duplicates by ts+msg)
+      var existingKeys = new Set(unifiedLogs.map(function(l) { return l.ts + "|" + l.msg; }));
+      for (var i = 0; i < logs.length; i++) {
+        var s = logs[i];
+        if (!s) continue;
+        var key = (s.ts || 0) + "|" + (s.msg || "");
+        if (!existingKeys.has(key)) {
+          unifiedLogs.push({ ts: s.ts || Date.now(), source: "server", level: s.level || "info", msg: s.msg || "" });
+        }
+      }
+      // Sort by timestamp ascending, then trim
+      unifiedLogs.sort(function(a, b) { return a.ts - b.ts; });
+      if (unifiedLogs.length > MAX_DEBUG_ENTRIES) {
+        unifiedLogs = unifiedLogs.slice(unifiedLogs.length - MAX_DEBUG_ENTRIES);
+      }
+      log("server logs merged: " + logs.length + " entries, total=" + unifiedLogs.length);
+      var logsContainer = document.querySelector("#debug-panel .debug-logs");
+      renderUnifiedLogs(logsContainer);
+    }
+  } catch (e) { log("server logs fetch failed: " + e); }
 }
 
 function copyAllLogs() {
-  var logsContainer = document.querySelector("#debug-panel .debug-logs");
-  if (!logsContainer) return;
-  var entries = Array.from(logsContainer.querySelectorAll(".log-entry"));
-  var text = entries.map(function (el) { return el.textContent || ""; }).reverse().join("\n");
-  text = "--- Meetit UI Log " + new Date().toISOString() + " ---\n" + text;
+  if (unifiedLogs.length === 0) { showToast("No logs to copy", "error"); return; }
+  var text = unifiedLogs.map(function(l) {
+    var ts = new Date(l.ts || 0).toISOString().substring(11, 23);
+    return "[" + l.source.toUpperCase() + "] " + ts + " " + (l.msg || "");
+  }).join("\n");
+  text = "--- Meetit Unified Log " + new Date().toISOString() + " ---\n" + text;
   try {
     if ((navigator as any).clipboard && (navigator as any).clipboard.writeText) {
-      (navigator as any).clipboard.writeText(text).then(function () { showToast("Logs copied! 📋", "success"); }).catch(function () { fallbackCopyLogs(text); });
+      (navigator as any).clipboard.writeText(text).then(function () { showToast("All logs copied! 📋", "success"); }).catch(function () { fallbackCopyLogs(text); });
     } else { fallbackCopyLogs(text); }
   } catch (e) { fallbackCopyLogs(text); }
 }
@@ -114,13 +190,17 @@ function escapeHtml(s: string | undefined | null) { var d = document.createEleme
 
 // ======= HOME - Single card navigation =======
 async function loadHome() {
+  // Skip if already fetching
+  if (homeFetchInProgress) { log("loadHome skipped: fetch already in progress"); return; }
   // Show loading bar immediately
   var bar = document.getElementById("loading-bar"), msg = document.getElementById("loading-msg");
   if (bar) bar.style.width = "30%"; if (msg) msg.textContent = "Fetching events...";
 
-  // Debounce: clear any pending fetch, schedule new one after 150ms
+  // Debounce: clear any pending fetch, schedule new one after 300ms
   if (homeFetchTimeout) clearTimeout(homeFetchTimeout);
   homeFetchTimeout = setTimeout(async function () {
+    if (homeFetchInProgress) { log("loadHome debounced: fetch still in progress"); return; }
+    homeFetchInProgress = true;
     var loadSeq = ++homeLoadSeq;
     try {
       var res = await fetch(API_BASE + "/api/home");
@@ -148,6 +228,7 @@ async function loadHome() {
         }, RENDER_DELAY);
       }
     } catch (e) { console.error(e); if (msg) msg.textContent = "Could not load."; }
+    finally { homeFetchInProgress = false; }
   }, DEBOUNCE_DELAY);
 }
 
@@ -166,7 +247,8 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
   var c = document.getElementById("events-container")!;
   
   if (dates.length === 0) {
-    c.innerHTML = '<div class="empty-state"><span class="emoji">🐱</span><h2>Wow, so empty!</h2><p>Tap ➕ to pitch an idea</p></div>';
+    log("renderHomeCard empty state");
+    c.innerHTML = '<div class="empty-state"><span class="emoji">🐱</span><h2>Wow, so empty!</h2><p>No events yet — be the first to create one!</p><div style="display:flex;gap:8px;justify-content:center;margin-top:12px;"><button class="btn btn-pink btn-sm" data-action="create-pitch" style="padding:8px 14px;">💡 Pitch Idea</button><button class="btn btn-sm" data-action="create-event" style="padding:8px 14px;background:#fff;">📋 Submit Event</button></div></div>';
   } else {
     // Flatten all events
     var all = flattenHomeEvents(state.eventsByDate);
@@ -176,6 +258,7 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
     var event = all[homeCardIdx];
     if (!event) return;
     var count = all.length;
+    var relDate = relativeDate(event._date || "");
     var dateStr = event._date ? new Date(event._date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) : "";
 
     c.innerHTML =
@@ -185,12 +268,12 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
       (event.emoji ? '<div style="width:36px;height:36px;background:var(--primary);border:var(--border);display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:var(--shadow-sm);flex-shrink:0;">' + event.emoji + '</div>' : '<div style="width:36px;height:36px;background:var(--surface);border:var(--border);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;box-shadow:var(--shadow-sm);flex-shrink:0;">📅</div>') +
       '<span style="font-size:11px;font-weight:700;background:var(--surface);border:var(--border);padding:2px 8px;">' + (homeCardIdx + 1) + '/' + count + '</span>' +
       '</div>' +
-      '<span style="font-size:11px;font-weight:700;color:var(--muted);">' + dateStr + '</span>' +
+      '<span style="font-size:11px;font-weight:700;color:var(--muted);">' + escapeHtml(relDate) + (relDate === "Today" || relDate === "Tomorrow" ? " · " + dateStr : "") + '</span>' +
       '</div>' +
       '<h3 style="font-size:17px;font-weight:700;margin-bottom:2px;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;max-height:47px;">' + escapeHtml(event.title) + '</h3>' +
       '<div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:6px;">by ' + escapeHtml(event.organizer || "Anonymous") + '</div>' +
       '<div class="event-meta" style="margin-bottom:6px;">' +
-      '<span class="event-tag" style="font-size:11px;padding:2px 6px;">⏰ ' + escapeHtml(event.time) + '</span>' +
+      '<span class="event-tag" style="font-size:11px;padding:2px 6px;">⏰ ' + formatTimeWithTz(event.time, appTimezone) + '</span>' +
       '<span class="event-tag" style="font-size:11px;padding:2px 6px;background:var(--primary);">👥 ' + (event.rsvpCount || 0) + '</span>' +
       (event.category ? catBadge(event.category) : '') +
       '</div>' +
@@ -326,29 +409,28 @@ async function loadMySubmissions() {
 }
 function renderMyRsvpCard() {
   var el = document.getElementById("my-stuff-container")!;
-  if (myRsvps.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;"><span class="emoji" style="font-size:36px;">🎟️</span><h2 style="font-size:14px;">No RSVPs yet</h2><p style="font-size:12px;">Go to the Home tab to find events!</p></div>'; return; }
+  updateMyStuffFooter("rsvps");
+  if (myRsvps.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;"><span class="emoji" style="font-size:36px;">🎟️</span><h2 style="font-size:14px;">No RSVPs yet</h2><p style="font-size:12px;">Go to the Home tab to find events!</p><button class="btn btn-sm" data-action="close-overlay" style="margin-top:8px;padding:6px 12px;font-size:12px;background:#fff;">← Back to Home</button></div>'; return; }
   if (myRsvpIdx >= myRsvps.length) myRsvpIdx = 0;
   var e = myRsvps[myRsvpIdx];
-  var total = myRsvps.length;
   var key = "rsvp-" + e.id;
   var desc = e.description || "";
   myStuffDescFullText[key] = desc;
   if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   myStuffDescPageIdx[key] = 0;
-  el.innerHTML = '<div class="event-card fade-in" style="padding:10px;box-sizing:border-box;">' +
-    '<h3 style="font-size:16px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
+  el.innerHTML = '<div class="detail-card fade-in" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;padding:10px;box-sizing:border-box;">' +
+    '<div style="flex-shrink:0;"><h3 style="font-size:16px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
     '<div style="font-size:12px;color:var(--muted);font-weight:600;">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div>' +
     '<div style="font-size:12px;color:var(--muted);">📍 ' + escapeHtml(e.location || "") + '</div>' +
-    (e.category ? '<div style="margin:4px 0;">' + catBadge(e.category) + '</div>' : '') +
-    '<div id="my-stuff-desc-box-' + key + '" style="height:90px;overflow:hidden;background:#fff;border:var(--border);margin:6px 0;position:relative;">' +
+    (e.category ? '<div style="margin:4px 0;">' + catBadge(e.category) + '</div>' : '') + '</div>' +
+    '<div id="my-stuff-desc-box-' + key + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);margin:6px 0;position:relative;">' +
       '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
         '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:13px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
       '</div></div>' +
-    '<div id="my-stuff-desc-nav-' + key + '" style="display:flex;justify-content:center;align-items:center;gap:6px;"></div>' +
-    '<div style="display:flex;justify-content:center;align-items:center;gap:6px;padding-top:4px;">' +
-      '<button class="btn btn-white btn-sm btn-update-rsvp" data-id="' + e.id + '" data-action="update-rsvp" style="padding:6px 14px;font-size:12px;">✏️ Update Contact</button>' +
-      '<button class="btn btn-white btn-sm btn-leave-rsvp" data-id="' + e.id + '" data-action="leave-event" style="padding:6px 14px;font-size:12px;">❌ Leave</button>' +
-      (total > 1 ? '<button class="btn btn-white btn-sm btn-my-rsvp-prev" data-action="my-rsvp-prev" style="padding:4px 10px;font-size:11px;">←</button><span style="font-size:11px;font-weight:700;">' + (myRsvpIdx + 1) + '/' + total + '</span><button class="btn btn-white btn-sm btn-my-rsvp-next" data-action="my-rsvp-next" style="padding:4px 10px;font-size:11px;">→</button>' : '') +
+    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>' +
+    '<div style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;padding-top:4px;">' +
+      '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="update-rsvp" style="padding:6px 14px;font-size:12px;">✏️ Update Contact</button>' +
+      '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="leave-event" style="padding:6px 14px;font-size:12px;">❌ Leave</button>' +
     '</div></div>';
   if (desc.length > DESC_SHORT_LENGTH) {
     setTimeout(function () {
@@ -364,25 +446,24 @@ function renderMyRsvpCard() {
 }
 function renderMyPitchCard() {
   var el = document.getElementById("my-stuff-container")!;
-  if (myPitches.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;"><span class="emoji" style="font-size:36px;">💡</span><h2 style="font-size:14px;">No pitches yet</h2><p style="font-size:12px;">Pitch an idea from the Create menu!</p></div>'; return; }
+  updateMyStuffFooter("pitches");
+  if (myPitches.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;"><span class="emoji" style="font-size:36px;">💡</span><h2 style="font-size:14px;">No pitches yet</h2><p style="font-size:12px;">Pitch an idea from the Create menu!</p><button class="btn btn-pink btn-sm" data-action="create-pitch" style="margin-top:8px;padding:6px 12px;font-size:12px;">💡 Pitch an Idea</button></div>'; return; }
   if (myPitchIdx >= myPitches.length) myPitchIdx = 0;
   var p = myPitches[myPitchIdx];
-  var total = myPitches.length;
   var key = "pitch-" + p.id;
   var desc = p.description || "";
   myStuffDescFullText[key] = desc;
   if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   myStuffDescPageIdx[key] = 0;
-  el.innerHTML = '<div class="idea-card fade-in" style="padding:10px;box-sizing:border-box;">' +
-    '<h3 style="font-size:16px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(p.title) + '</h3>' +
-    '<div id="my-stuff-desc-box-' + key + '" style="height:110px;overflow:hidden;background:#fff;border:var(--border);margin:6px 0;position:relative;">' +
+  el.innerHTML = '<div class="detail-card fade-in" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;padding:10px;box-sizing:border-box;">' +
+    '<div style="flex-shrink:0;"><h3 style="font-size:16px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(p.title) + '</h3></div>' +
+    '<div id="my-stuff-desc-box-' + key + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);margin:6px 0;position:relative;">' +
       '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
         '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:13px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
       '</div></div>' +
-    '<div id="my-stuff-desc-nav-' + key + '" style="display:flex;justify-content:center;align-items:center;gap:6px;"></div>' +
-    '<div style="display:flex;gap:6px;justify-content:center;align-items:center;padding-top:4px;">' +
-      '<button class="btn btn-white btn-sm btn-delete-pitch" data-id="' + p.id + '" data-action="delete-pitch" style="padding:6px 14px;font-size:12px;">🗑️ Delete</button>' +
-      (total > 1 ? '<button class="btn btn-white btn-sm btn-my-pitch-prev" data-action="my-pitch-prev" style="padding:4px 10px;font-size:11px;">←</button><span style="font-size:11px;font-weight:700;">' + (myPitchIdx + 1) + '/' + total + '</span><button class="btn btn-white btn-sm btn-my-pitch-next" data-action="my-pitch-next" style="padding:4px 10px;font-size:11px;">→</button>' : '') +
+    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>' +
+    '<div style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;padding-top:4px;">' +
+      '<button class="btn btn-white btn-sm" data-id="' + p.id + '" data-action="delete-pitch" style="padding:6px 14px;font-size:12px;">🗑️ Delete</button>' +
     '</div></div>';
   if (desc.length > DESC_SHORT_LENGTH) {
     setTimeout(function () {
@@ -398,10 +479,10 @@ function renderMyPitchCard() {
 }
 function renderMyEventCard() {
   var el = document.getElementById("my-stuff-container")!;
-  if (myEvents.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;"><span class="emoji" style="font-size:36px;">📋</span><h2 style="font-size:14px;">No events yet</h2><p style="font-size:12px;">Submit an event from the Create menu!</p></div>'; return; }
+  updateMyStuffFooter("events");
+  if (myEvents.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;"><span class="emoji" style="font-size:36px;">📋</span><h2 style="font-size:14px;">No events yet</h2><p style="font-size:12px;">Submit an event from the Create menu!</p><button class="btn btn-sm" data-action="create-event" style="margin-top:8px;padding:6px 12px;font-size:12px;background:#fff;">📋 Submit Event</button></div>'; return; }
   if (myEventIdx >= myEvents.length) myEventIdx = 0;
   var e = myEvents[myEventIdx];
-  var total = myEvents.length;
   var status = e.status === "published" ? "✅ Published" : "⏳ Pending";
   var bg = e.status === "published" ? "#00ff88" : "var(--secondary)";
   var key = "event-" + e.id;
@@ -409,22 +490,21 @@ function renderMyEventCard() {
   myStuffDescFullText[key] = desc;
   if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   myStuffDescPageIdx[key] = 0;
-  el.innerHTML = '<div class="pending-card fade-in" style="padding:10px;box-sizing:border-box;background:' + bg + ';">' +
-    '<h3 style="font-size:16px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
+  el.innerHTML = '<div class="detail-card fade-in" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;padding:10px;box-sizing:border-box;">' +
+    '<div style="flex-shrink:0;"><h3 style="font-size:16px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
     '<div style="font-size:12px;color:var(--muted);font-weight:600;">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div>' +
     '<div style="font-size:12px;font-weight:600;">' + status + '</div>' +
-    (e.category ? '<div style="margin:4px 0;">' + catBadge(e.category) + '</div>' : '') +
-    '<div id="my-stuff-desc-box-' + key + '" style="height:90px;overflow:hidden;background:#fff;border:var(--border);margin:6px 0;position:relative;">' +
+    (e.category ? '<div style="margin:4px 0;">' + catBadge(e.category) + '</div>' : '') + '</div>' +
+    '<div id="my-stuff-desc-box-' + key + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);margin:6px 0;position:relative;">' +
       '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
         '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:13px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
       '</div></div>' +
-    '<div id="my-stuff-desc-nav-' + key + '" style="display:flex;justify-content:center;align-items:center;gap:6px;"></div>' +
-    '<div style="display:flex;justify-content:center;align-items:center;gap:6px;padding-top:4px;">' +
+    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>' +
+    '<div style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;padding-top:4px;">' +
       (e.status === "pending" ?
-        '<button class="btn btn-white btn-sm btn-cancel-event" data-id="' + e.id + '" data-action="cancel-my-event" style="padding:6px 14px;font-size:12px;">❌ Cancel</button>' :
-        '<button class="btn btn-white btn-sm btn-delete-my-event" data-id="' + e.id + '" data-action="delete-my-event" style="padding:6px 14px;font-size:12px;">🗑️ Delete</button>'
+        '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="cancel-my-event" style="padding:6px 14px;font-size:12px;">❌ Cancel</button>' :
+        '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="delete-my-event" style="padding:6px 14px;font-size:12px;">🗑️ Delete</button>'
       ) +
-      (total > 1 ? '<button class="btn btn-white btn-sm btn-my-event-prev" data-action="my-event-prev" style="padding:4px 10px;font-size:11px;">←</button><span style="font-size:11px;font-weight:700;">' + (myEventIdx + 1) + '/' + total + '</span><button class="btn btn-white btn-sm btn-my-event-next" data-action="my-event-next" style="padding:4px 10px;font-size:11px;">→</button>' : '') +
     '</div></div>';
   if (desc.length > DESC_SHORT_LENGTH) {
     setTimeout(function () {
@@ -438,12 +518,29 @@ function renderMyEventCard() {
     }, AUTO_PAGINATE_DELAY);
   }
 }
-function myRsvpNext() { myRsvpIdx++; if (myRsvpIdx >= myRsvps.length) myRsvpIdx = 0; renderMyRsvpCard(); }
-function myRsvpPrev() { myRsvpIdx--; if (myRsvpIdx < 0) myRsvpIdx = myRsvps.length - 1; renderMyRsvpCard(); }
-function myPitchNext() { myPitchIdx++; if (myPitchIdx >= myPitches.length) myPitchIdx = 0; renderMyPitchCard(); }
-function myPitchPrev() { myPitchIdx--; if (myPitchIdx < 0) myPitchIdx = myPitches.length - 1; renderMyPitchCard(); }
-function myEventNext() { myEventIdx++; if (myEventIdx >= myEvents.length) myEventIdx = 0; renderMyEventCard(); }
-function myEventPrev() { myEventIdx--; if (myEventIdx < 0) myEventIdx = myEvents.length - 1; renderMyEventCard(); }
+function updateMyStuffFooter(tab: string) {
+  var items: any[] = [], idx = 0;
+  if (tab === "rsvps") { items = myRsvps; idx = myRsvpIdx; }
+  else if (tab === "pitches") { items = myPitches; idx = myPitchIdx; }
+  else if (tab === "events") { items = myEvents; idx = myEventIdx; }
+  log("updateMyStuffFooter tab=" + tab + " idx=" + idx + " total=" + items.length);
+  var prevBtn = document.getElementById("my-stuff-prev-btn");
+  var nextBtn = document.getElementById("my-stuff-next-btn");
+  if (!prevBtn || !nextBtn) { log("updateMyStuffFooter buttons not found"); return; }
+  if (items.length <= 1) {
+    prevBtn.classList.add("hidden");
+    nextBtn.classList.add("hidden");
+    return;
+  }
+  prevBtn.classList.toggle("hidden", idx === 0);
+  nextBtn.classList.toggle("hidden", idx >= items.length - 1);
+}
+function myRsvpNext() { log("myRsvpNext idx=" + myRsvpIdx + "→" + (myRsvpIdx + 1) + " total=" + myRsvps.length); myRsvpIdx++; if (myRsvpIdx >= myRsvps.length) myRsvpIdx = myRsvps.length - 1; renderMyRsvpCard(); }
+function myRsvpPrev() { log("myRsvpPrev idx=" + myRsvpIdx + "→" + (myRsvpIdx - 1)); myRsvpIdx--; if (myRsvpIdx < 0) myRsvpIdx = 0; renderMyRsvpCard(); }
+function myPitchNext() { log("myPitchNext idx=" + myPitchIdx + "→" + (myPitchIdx + 1) + " total=" + myPitches.length); myPitchIdx++; if (myPitchIdx >= myPitches.length) myPitchIdx = myPitches.length - 1; renderMyPitchCard(); }
+function myPitchPrev() { log("myPitchPrev idx=" + myPitchIdx + "→" + (myPitchIdx - 1)); myPitchIdx--; if (myPitchIdx < 0) myPitchIdx = 0; renderMyPitchCard(); }
+function myEventNext() { log("myEventNext idx=" + myEventIdx + "→" + (myEventIdx + 1) + " total=" + myEvents.length); myEventIdx++; if (myEventIdx >= myEvents.length) myEventIdx = myEvents.length - 1; renderMyEventCard(); }
+function myEventPrev() { log("myEventPrev idx=" + myEventIdx + "→" + (myEventIdx - 1)); myEventIdx--; if (myEventIdx < 0) myEventIdx = 0; renderMyEventCard(); }
 
 // ======= MY STUFF DESC PAGINATION HELPERS =======
 function buildMyStuffDescPagesHTML(key: string, pages: string[]): string {
@@ -542,9 +639,9 @@ function splitTextToPages(text: string, width: number, maxHeight: number): strin
   return pages.length ? pages : [text];
 }
 
-function buildDescPagesHTML(eventId: string, pages: string[]): string {
+function buildDescPagesHTML(eventId: string, pages: string[], trackPrefix = "desc-track-"): string {
   var pct = (100 / pages.length);
-  var html = '<div id="desc-track-' + eventId + '" style="display:flex;width:' + (pages.length * 100) + '%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">';
+  var html = '<div id="' + trackPrefix + eventId + '" style="display:flex;width:' + (pages.length * 100) + '%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">';
   for (var i = 0; i < pages.length; i++) {
     html += '<div style="min-width:' + pct + '%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;font-size:15px;line-height:1.5;word-break:break-word;">' + escapeHtml(pages[i]) + '</div>';
   }
@@ -559,6 +656,15 @@ function buildDescNavHTML(eventId: string): string {
   return (cur > 0 ? '<button class="btn btn-white btn-sm btn-desc-prev" data-id="' + eventId + '" data-action="desc-prev" style="padding:4px 12px;font-size:12px;">← Previous</button>' : '') +
     '<span style="font-size:12px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
     (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + eventId + '" data-action="desc-next" style="padding:4px 12px;font-size:12px;">Next →</button>' : '');
+}
+
+function buildModDetailDescNavHTML(eventId: string): string {
+  var total = descPageTotal[eventId] || 1;
+  if (total <= 1) return '';
+  var cur = descPageIdx[eventId] || 0;
+  return (cur > 0 ? '<button class="btn btn-white btn-sm" data-id="' + eventId + '" data-action="mod-detail-desc-prev" style="padding:4px 12px;font-size:12px;">← Previous</button>' : '') +
+    '<span style="font-size:12px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
+    (cur < total - 1 ? '<button class="btn btn-white btn-sm" data-id="' + eventId + '" data-action="mod-detail-desc-next" style="padding:4px 12px;font-size:12px;">Next →</button>' : '');
 }
 
 function persistStep2(eventId: string) {
@@ -739,9 +845,26 @@ async function loadModTab(tab: string) {
     else if (tab === "pitches") renderModPitches(cached.data);
     return;
   }
+  // Skip if already fetching
+  if (modFetchInProgress) { log("loadModTab skipped: fetch already in progress"); return; }
+  modFetchInProgress = true;
   setModLoading(true);
-  if (tab === "pending") { try { var pr = await fetch(API_BASE + "/api/pending-events"); var pd = await pr.json(); if (pd.type === "pending-events") { modTabCache[tab] = { data: pd.events, timestamp: Date.now() }; renderModPending(pd.events); } } catch (e) { console.error(e); } } else if (tab === "published") { try { var res = await fetch(API_BASE + "/api/all-approved-events"); var d = await res.json(); if (d.type === "all-approved-events") { modTabCache[tab] = { data: d.events, timestamp: Date.now() }; renderModPublished(d.events); } } catch (e) { console.error(e); } } else if (tab === "pitches") { try { var res = await fetch(API_BASE + "/api/pitched-ideas"); var d = await res.json(); if (d.type === "pitched-ideas") { modTabCache[tab] = { data: d.ideas, timestamp: Date.now() }; renderModPitches(d.ideas); } } catch (e) { console.error(e); } }
-  setModLoading(false);
+  try {
+    if (tab === "pending") {
+      var pr = await fetch(API_BASE + "/api/pending-events");
+      var pd = await pr.json();
+      if (pd.type === "pending-events") { modTabCache[tab] = { data: pd.events, timestamp: Date.now() }; renderModPending(pd.events); }
+    } else if (tab === "published") {
+      var res = await fetch(API_BASE + "/api/all-approved-events");
+      var d = await res.json();
+      if (d.type === "all-approved-events") { modTabCache[tab] = { data: d.events, timestamp: Date.now() }; renderModPublished(d.events); }
+    } else if (tab === "pitches") {
+      var res2 = await fetch(API_BASE + "/api/pitched-ideas");
+      var d2 = await res2.json();
+      if (d2.type === "pitched-ideas") { modTabCache[tab] = { data: d2.ideas, timestamp: Date.now() }; renderModPitches(d2.ideas); }
+    }
+  } catch (e) { console.error(e); }
+  finally { modFetchInProgress = false; setModLoading(false); }
 }
 function renderModCard(tab: string) {
   var items = modItems[tab] || [];
@@ -759,7 +882,7 @@ function renderModCard(tab: string) {
   if (!modDescTotal[dcKey]) modDescTotal[dcKey] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   modDescPageIdx[dcKey] = 0;
 
-  var html = '<div class="' + cardClass + ' fade-in" style="height:100%;display:flex;flex-direction:column;padding:10px;overflow:hidden;box-sizing:border-box;">';
+  var html = '<div class="' + cardClass + ' fade-in" style="height:100%;display:flex;flex-direction:column;padding:10px;margin:0 4px;overflow:hidden;box-sizing:border-box;">';
   if (item.emoji) { html += '<div style="font-size:28px;margin-bottom:4px;">' + item.emoji + '</div>'; }
   html += '<div style="flex-shrink:0;"><h3 style="font-size:17px;font-weight:700;margin:0 0 4px 0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(item.title) + '</h3></div>';
   html += '<div style="flex-shrink:0;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px;">';
@@ -767,6 +890,13 @@ function renderModCard(tab: string) {
   else { html += '📅 ' + escapeHtml(item.date) + ' at ' + escapeHtml(item.time) + ' · 📍 ' + escapeHtml(item.location || ""); }
   html += '</div>';
   if (tab !== "pitches" && item.category) { html += '<div style="flex-shrink:0;margin-bottom:6px;">' + catBadge(item.category) + '</div>'; }
+  // RSVP count badge for published events
+  if (tab === "published") {
+    var rc = item.rsvpCount || 0;
+    var badgeColor = rc === 0 ? "#ff4444" : (rc < 5 ? "#ffaa00" : "#00ff88");
+    var badgeText = rc === 0 ? "🔴 No RSVPs" : (rc < 5 ? "🟡 " + rc + " going" : "🟢 " + rc + " going");
+    html += '<div style="flex-shrink:0;font-size:11px;font-weight:700;color:#fff;background:' + badgeColor + ';border:var(--border);padding:2px 8px;margin-bottom:6px;display:inline-block;">' + badgeText + '</div>';
+  }
   // Past event badge for mods
   if (tab !== "pitches") {
     var today2 = new Date().toISOString().split("T")[0] || "";
@@ -774,12 +904,14 @@ function renderModCard(tab: string) {
       html += '<div style="flex-shrink:0;font-size:11px;font-weight:700;color:#fff;background:#999;border:var(--border);padding:2px 8px;margin-bottom:6px;display:inline-block;">⏰ Past Event</div>';
     }
   }
-  // Description with horizontal pages
-  html += '<div id="mod-desc-box-' + dcKey + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
-    '<div id="mod-desc-track-' + dcKey + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
-    '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
-    '</div></div>' +
-    '<div id="mod-desc-nav-' + dcKey + '" style="flex-shrink:0;min-height:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
+  // Description: compact preview for pending/pitches, hidden for published (moved to detail overlay)
+  if (tab !== "published") {
+    html += '<div id="mod-desc-box-' + dcKey + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
+      '<div id="mod-desc-track-' + dcKey + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
+      '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
+      '</div></div>' +
+      '<div id="mod-desc-nav-' + dcKey + '" style="flex-shrink:0;min-height:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
+  }
   // Actions
   html += '<div style="flex-shrink:0;padding-top:10px;">';
   if (tab === "pending") {
@@ -788,13 +920,13 @@ function renderModCard(tab: string) {
     html += '<button class="btn btn-white btn-decline-event" data-id="' + item.id + '" data-action="decline-event" style="flex:1;padding:10px 12px;font-size:13px;">🗑️ Decline</button>';
     html += '</div>';
   } else if (tab === "published") {
-    html += '<div style="display:flex;gap:8px;margin-bottom:6px;">';
-    html += '<button class="btn btn-white btn-view-rsvps" data-id="' + item.id + '" data-action="view-rsvps" style="flex:1;padding:10px 12px;font-size:13px;">👥 Attendees (' + (item.rsvpCount || 0) + ')</button>';
-    html += '<button class="btn btn-white btn-export-csv" data-id="' + item.id + '" data-action="export-csv" style="flex:1;padding:10px 12px;font-size:13px;">📋 Copy CSV</button>';
+    html += '<div style="display:flex;gap:8px;margin-bottom:' + (total > 1 ? '6px' : '0') + ';">';
+    html += '<button class="btn btn-white btn-view-mod-details" data-id="' + item.id + '" data-action="view-mod-details" style="flex:1;padding:10px 12px;font-size:13px;">👁️ View Details →</button>';
+    html += '<button class="btn btn-white btn-view-attendees" data-id="' + item.id + '" data-action="view-attendees-mod" style="flex:1;padding:10px 12px;font-size:13px;">👥 Attendees (' + (item.rsvpCount || 0) + ')</button>';
     html += '</div>';
-    html += '<div style="display:flex;gap:8px;margin-bottom:6px;">';
-    html += '<button class="btn btn-white btn-delete-published" data-id="' + item.id + '" data-action="delete-published" style="width:100%;padding:10px 12px;font-size:13px;">🗑️ Delete</button>';
-    html += '</div><div class="rsvp-attendees hidden" id="rsvps-' + item.id + '" style="flex-shrink:0;background:#fff;border:var(--border);padding:8px;margin-top:-2px;"></div>';
+    html += '<div style="display:flex;gap:8px;margin-bottom:' + (total > 1 ? '6px' : '0') + ';">';
+    html += '<button class="btn btn-white btn-delete-published" data-id="' + item.id + '" data-action="delete-published" style="width:100%;padding:10px 12px;font-size:13px;">🗑️ Delete Event</button>';
+    html += '</div>';
   } else {
     html += '<button class="btn btn-white btn-dismiss-idea" data-id="' + item.id + '" data-action="dismiss-idea" style="width:100%;padding:10px 12px;font-size:13px;">🗑️ Dismiss</button>';
   }
@@ -814,7 +946,23 @@ function renderModCard(tab: string) {
     setTimeout(function () {
       var box = document.getElementById("mod-desc-box-" + dcKey2);
       if (!box) return;
+      // Guard: if box has no dimensions, layout hasn't settled yet — retry later
+      if (box.clientWidth === 0 || box.clientHeight === 0) {
+        log("mod pagination retry: box dimensions 0, waiting for layout");
+        setTimeout(function() {
+          var retryBox = document.getElementById("mod-desc-box-" + dcKey2);
+          if (!retryBox || retryBox.clientWidth === 0 || retryBox.clientHeight === 0) return;
+          var pages = splitTextToPages(modDescFullText[dcKey2] || "", retryBox.clientWidth, retryBox.clientHeight);
+          if (pages.length > 50) { log("mod pagination aborted: " + pages.length + " pages (text too long for card)"); pages = [modDescFullText[dcKey2] || ""]; }
+          modDescTotal[dcKey2] = pages.length;
+          modDescPageIdx[dcKey2] = 0;
+          document.getElementById("mod-desc-track-" + dcKey2)!.outerHTML = buildModDescPagesHTML(dcKey2, pages);
+          document.getElementById("mod-desc-nav-" + dcKey2)!.innerHTML = buildModDescNavHTML(dcKey2);
+        }, 300);
+        return;
+      }
       var pages = splitTextToPages(modDescFullText[dcKey2] || "", box.clientWidth, box.clientHeight);
+      if (pages.length > 50) { log("mod pagination aborted: " + pages.length + " pages (text too long for card)"); pages = [modDescFullText[dcKey2] || ""]; }
       modDescTotal[dcKey2] = pages.length;
       modDescPageIdx[dcKey2] = 0;
       document.getElementById("mod-desc-track-" + dcKey2)!.outerHTML = buildModDescPagesHTML(dcKey2, pages);
@@ -852,6 +1000,9 @@ function renderModPending(events: any[]) {
   renderModCard("pending");
 }
 function renderModPublished(events: any[]) {
+  // Sort by RSVP count descending (most popular first)
+  events.sort(function(a, b) { return (b.rsvpCount || 0) - (a.rsvpCount || 0); });
+  log("renderModPublished sorted " + events.length + " events by RSVP count");
   modItems["published"] = events;
   modCardIdx["published"] = 0;
   if (events.length === 0) {
@@ -1005,6 +1156,306 @@ async function deleteMyEvent(id: string) {
   } catch (e) { showToast("Network error", "error"); }
   finally { setBtnLoading('[data-action="delete-my-event"][data-id="' + id + '"]', false); unlock(k); }
 }
+// Mod detail overlay state — mirrors home page detail overlay exactly
+var modDetailStep = 1;
+var modDetailStep1 = "", modDetailStep2 = "", modDetailStep3 = "", modDetailStep4 = "";
+
+async function showModEventDetails(id: string) {
+  log("showModEventDetails id=" + id);
+  currentModEventId = id;
+  var item = modItems["published"]?.find(function(e: any) { return e.id === id; });
+  if (!item) return;
+  document.getElementById("mod-detail-title")!.textContent = item.title;
+  var date = new Date(item.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  var rc = item.rsvpCount || 0;
+  var badgeColor = rc === 0 ? "#ff4444" : (rc < 5 ? "#ffaa00" : "#00ff88");
+  var badgeText = rc === 0 ? "🔴 No RSVPs" : (rc < 5 ? "🟡 " + rc + " going" : "🟢 " + rc + " going");
+
+  // Card 1: Quick Info
+  var s1 = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;justify-content:center;gap:12px;padding:16px;">' +
+    (item.emoji ? '<div style="text-align:center;font-size:48px;margin-bottom:4px;">' + item.emoji + '</div>' : '') +
+    '<div style="text-align:center;"><div style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">📅 Date</div><div style="font-size:18px;font-weight:700;">' + date + '</div></div>' +
+    '<div style="text-align:center;"><div style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">⏰ Time</div><div style="font-size:18px;font-weight:700;">' + formatTimeWithTz(item.time, appTimezone) + '</div></div>' +
+    '<div style="text-align:center;"><div style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">📍 Location</div><div style="font-size:16px;font-weight:700;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;max-height:42px;">' + escapeHtml(item.location || "TBD") + '</div></div>' +
+    (item.category ? '<div style="text-align:center;margin-top:4px;">' + catBadge(item.category) + '</div>' : '') +
+    '<div style="background:var(--surface);border:var(--border);padding:10px;text-align:center;font-weight:700;font-size:14px;margin-top:2px;">' + badgeText + '</div>' +
+    '</div>';
+
+  // Card 2: Organizer + Description (with auto-pagination)
+  var descFull = item.description || "";
+  descFullText[id] = descFull;
+  descPageIdx[id] = 0;
+  descPageTotal[id] = descFull.length > DESC_SHORT_LENGTH ? 99 : 1;
+  var s2 = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:6px;padding:8px 0;">';
+  if (item.organizer) { var initial = item.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><div style="width:36px;height:36px;border:var(--border);background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(item.organizer) + '</div></div></div>'; }
+  s2 += '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);position:relative;" id="mod-desc-box-' + id + '">' +
+    '<div id="mod-desc-track-' + id + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
+    '<div id="mod-desc-page-initial-' + id + '" style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;font-size:15px;line-height:1.5;word-break:break-word;">' +
+      escapeHtml(descFull.substring(0, DESC_SHORT_LENGTH)) + (descFull.length > DESC_SHORT_LENGTH ? '...' : '') +
+    '</div></div></div>' +
+    '<div id="mod-desc-nav-' + id + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:4px 8px 0 8px;min-height:28px;">' +
+      (descFull.length > DESC_SHORT_LENGTH ? '<button class="btn btn-white btn-sm" data-id="' + id + '" data-action="mod-detail-desc-next" style="padding:4px 14px;font-size:12px;">Read more →</button>' : '') +
+    '</div>';
+  if (item.mapUrl) { s2 += '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-id="' + escapeHtml(item.mapUrl) + '" data-action="copy-link" style="background:#fff;border:var(--border);padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>'; }
+  s2 += '</div>';
+
+  // Card 3: Who's Going
+  attPageIdx[id] = 0;
+  var s3 = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;padding:4px 0;">' +
+    '<div style="text-align:center;padding:12px 0 8px 0;font-weight:700;font-size:17px;flex-shrink:0;">👥 Who\'s Going?</div>' +
+    '<div style="text-align:center;font-size:14px;color:var(--muted);padding-bottom:8px;flex-shrink:0;">' + rc + ' attendee' + (rc !== 1 ? 's' : '') + '</div>' +
+    '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);position:relative;"><div id="mod-rsvps-public-' + id + '" style="position:absolute;top:0;left:0;width:100%;height:100%;"></div></div>' +
+    '<div id="mod-att-nav-' + id + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:6px 8px 0 8px;min-height:32px;"></div>' +
+    '</div>';
+
+  // Card 4: Mod Actions
+  var s4 = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px;text-align:center;">' +
+    '<div style="font-size:56px;">⚙️</div>' +
+    '<div style="font-size:20px;font-weight:700;">Event Actions</div>' +
+    '<div style="font-size:14px;color:var(--muted);margin-bottom:8px;">Manage this event</div>' +
+    '<div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:280px;">' +
+    '<button class="btn btn-white" data-id="' + id + '" data-action="export-csv" style="width:100%;padding:12px;font-size:14px;">📋 Copy CSV</button>' +
+    '<button class="btn btn-white" data-id="' + id + '" data-action="delete-published" style="width:100%;padding:12px;font-size:14px;">🗑️ Delete Event</button>' +
+    '</div>' +
+    '</div>';
+
+  modDetailStep1 = s1; modDetailStep2 = s2; modDetailStep3 = s3; modDetailStep4 = s4;
+  modDetailStep = 1;
+  ["mod-detail-dot-1", "mod-detail-dot-2", "mod-detail-dot-3", "mod-detail-dot-4"].forEach(function (id2, i) { document.getElementById(id2)!.classList.toggle("done", i === 0); });
+  document.getElementById("mod-detail-body")!.innerHTML = s1;
+  document.getElementById("mod-detail-next-btn")!.classList.remove("hidden"); document.getElementById("mod-detail-prev-btn")!.classList.add("hidden");
+  openOverlay("mod-event-details-overlay");
+  // Load attendees on first open
+  loadModPublicAttendees(id);
+  // Auto-paginate description after DOM settles
+  if (descFull.length > DESC_SHORT_LENGTH) {
+    setTimeout(function () {
+      var box = document.getElementById("mod-desc-box-" + id);
+      if (!box) return;
+      if (box.clientWidth === 0 || box.clientHeight === 0) {
+        setTimeout(function() {
+          var retryBox = document.getElementById("mod-desc-box-" + id);
+          if (!retryBox || retryBox.clientWidth === 0 || retryBox.clientHeight === 0) return;
+          var pages = splitTextToPages(descFullText[id] || "", retryBox.clientWidth, retryBox.clientHeight);
+          if (pages.length > 50) { pages = [descFullText[id] || ""]; }
+          descPageTotal[id] = pages.length;
+          descPageIdx[id] = 0;
+          document.getElementById("mod-desc-track-" + id)!.outerHTML = buildDescPagesHTML(id, pages, "mod-desc-track-");
+          document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDetailDescNavHTML(id);
+          persistModStep2(id);
+        }, 300);
+        return;
+      }
+      var pages = splitTextToPages(descFullText[id] || "", box.clientWidth, box.clientHeight);
+      if (pages.length > 50) { pages = [descFullText[id] || ""]; }
+      descPageTotal[id] = pages.length;
+      descPageIdx[id] = 0;
+      document.getElementById("mod-desc-track-" + id)!.outerHTML = buildDescPagesHTML(id, pages, "mod-desc-track-");
+      document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDetailDescNavHTML(id);
+      persistModStep2(id);
+    }, AUTO_PAGINATE_DELAY);
+  }
+}
+
+function persistModStep2(id: string) {
+  var body = document.getElementById("mod-detail-body");
+  if (!body) return;
+  modDetailStep2 = body.innerHTML;
+}
+
+function modDetailNext() {
+  log("modDetailNext from=" + modDetailStep);
+  if (modDetailStep === 1) {
+    document.getElementById("mod-detail-dot-2")!.classList.add("done");
+    document.getElementById("mod-detail-body")!.innerHTML = modDetailStep2;
+    document.getElementById("mod-detail-prev-btn")!.classList.remove("hidden");
+    modDetailStep = 2;
+  } else if (modDetailStep === 2) {
+    document.getElementById("mod-detail-dot-3")!.classList.add("done");
+    document.getElementById("mod-detail-body")!.innerHTML = modDetailStep3;
+    if (currentModEventId) loadModPublicAttendees(currentModEventId);
+    modDetailStep = 3;
+  } else if (modDetailStep === 3) {
+    document.getElementById("mod-detail-dot-4")!.classList.add("done");
+    document.getElementById("mod-detail-body")!.innerHTML = modDetailStep4;
+    document.getElementById("mod-detail-next-btn")!.classList.add("hidden");
+    document.getElementById("mod-detail-prev-btn")!.classList.remove("hidden");
+    modDetailStep = 4;
+  }
+}
+
+function modDetailPrev() {
+  log("modDetailPrev from=" + modDetailStep);
+  if (modDetailStep === 2) {
+    document.getElementById("mod-detail-dot-2")!.classList.remove("done");
+    document.getElementById("mod-detail-body")!.innerHTML = modDetailStep1;
+    document.getElementById("mod-detail-prev-btn")!.classList.add("hidden");
+    modDetailStep = 1;
+  } else if (modDetailStep === 3) {
+    document.getElementById("mod-detail-dot-3")!.classList.remove("done");
+    document.getElementById("mod-detail-body")!.innerHTML = modDetailStep2;
+    document.getElementById("mod-detail-next-btn")!.classList.remove("hidden");
+    modDetailStep = 2;
+  } else if (modDetailStep === 4) {
+    document.getElementById("mod-detail-dot-4")!.classList.remove("done");
+    document.getElementById("mod-detail-body")!.innerHTML = modDetailStep3;
+    document.getElementById("mod-detail-next-btn")!.classList.remove("hidden");
+    if (currentModEventId) loadModPublicAttendees(currentModEventId);
+    modDetailStep = 3;
+  }
+}
+
+function loadModPublicAttendees(eventId: string) {
+  log("loadModPublicAttendees id=" + eventId);
+  var cached = attendeeCache[eventId];
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_ATTENDEES) {
+    renderModAttendees(eventId, cached.data);
+    return;
+  }
+  var container = document.getElementById("mod-rsvps-public-" + eventId);
+  if (container) container.innerHTML = '<div style="text-align:center;padding:20px;">⏳ Loading...</div>';
+  fetch(API_BASE + "/api/rsvp-list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: eventId, includeContactDetails: true }) })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data.type === "rsvp-list") {
+        var att = data.attendees || [];
+        attendeeCache[eventId] = { data: att, timestamp: Date.now() };
+        renderModAttendees(eventId, att);
+      }
+    })
+    .catch(function(e) { console.error(e); });
+}
+
+function renderModAttendees(eventId: string, att: any[]) {
+  log("renderModAttendees id=" + eventId + " count=" + att.length);
+  var container = document.getElementById("mod-rsvps-public-" + eventId);
+  if (!container) { log("renderModAttendees container not found id=" + eventId); return; }
+  if (att.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:20px;font-size:14px;color:var(--muted);">No RSVPs yet</div>';
+    document.getElementById("mod-att-nav-" + eventId)!.innerHTML = '';
+    return;
+  }
+  attListStore[eventId] = att;
+  attPageIdx[eventId] = 0;
+  var totalPages = Math.ceil(att.length / ATTENDEES_PER_PAGE);
+  log("renderModAttendees pages=" + totalPages + " perPage=" + ATTENDEES_PER_PAGE);
+  var html = '<div id="mod-att-track-' + eventId + '" style="display:flex;width:' + (totalPages * 100) + '%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">';
+  for (var i = 0; i < totalPages; i++) {
+    var page = att.slice(i * ATTENDEES_PER_PAGE, (i + 1) * ATTENDEES_PER_PAGE);
+    html += '<div style="min-width:' + (100 / totalPages) + '%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;">';
+    for (var j = 0; j < page.length; j++) {
+      var a = page[j];
+      html += '<div style="font-size:13px;font-weight:600;padding:6px 0;border-bottom:1px solid var(--outline-v);word-break:break-word;">👤 u/' + escapeHtml(a.username);
+      if (a.email) html += '<span style="font-weight:400;color:var(--muted);word-break:break-word;"> ✉️ ' + escapeHtml(a.email) + '</span>';
+      if (a.phone) html += '<span style="font-weight:400;color:var(--muted);word-break:break-word;"> 📱 ' + escapeHtml(a.phone) + '</span>';
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  container.innerHTML = html;
+  document.getElementById("mod-att-nav-" + eventId)!.innerHTML = buildModAttNavHTML(eventId);
+}
+
+function buildModAttNavHTML(eventId: string): string {
+  var att = attListStore[eventId] || [];
+  var total = Math.ceil(att.length / ATTENDEES_PER_PAGE);
+  if (total <= 1) return '';
+  var cur = attPageIdx[eventId] || 0;
+  return (cur > 0 ? '<button class="btn btn-white btn-sm" data-id="' + eventId + '" data-action="mod-detail-att-prev" style="padding:2px 10px;font-size:11px;">← Previous</button>' : '') +
+    '<span style="font-size:11px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
+    (cur < total - 1 ? '<button class="btn btn-white btn-sm" data-id="' + eventId + '" data-action="mod-detail-att-next" style="padding:2px 10px;font-size:11px;">Next →</button>' : '');
+}
+
+// Mod attendees overlay state
+var modAttPage = 0;
+var modAttTotalPages = 1;
+var MOD_ATT_PER_PAGE = 5;
+
+async function showModAttendees(id: string) {
+  log("showModAttendees id=" + id);
+  var item = modItems["published"]?.find(function(e: any) { return e.id === id; });
+  if (!item) return;
+  document.getElementById("mod-attendees-title")!.textContent = "👥 Attendees — " + item.title;
+  var body = document.getElementById("mod-attendees-body")!;
+  body.innerHTML = '<div style="text-align:center;padding:20px;">⏳ Loading attendees...</div>';
+  openOverlay("mod-attendees-overlay");
+  try {
+    var res = await fetch(API_BASE + "/api/rsvp-list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id, includeContactDetails: true }) });
+    var data = await res.json();
+    if (data.type === "rsvp-list") {
+      var att = data.attendees || [];
+      if (att.length === 0) {
+        body.innerHTML = '<div class="empty-state"><span class="emoji">👥</span><h2>No RSVPs yet</h2></div>';
+      } else {
+        var groups: any[][] = [];
+        for (var i = 0; i < att.length; i += MOD_ATT_PER_PAGE) {
+          groups.push(att.slice(i, i + MOD_ATT_PER_PAGE));
+        }
+        modAttTotalPages = groups.length;
+        modAttPage = 0;
+        var html = '<div style="position:relative;width:100%;height:100%;overflow:hidden;">';
+        for (var p = 0; p < groups.length; p++) {
+          var pageAtt = groups[p];
+          var pageContent = '<div style="font-weight:700;font-size:12px;margin-bottom:10px;text-align:center;">' + att.length + ' Attendee' + (att.length > 1 ? 's' : '') + ' — ' + (p + 1) + '/' + groups.length + '</div>';
+          for (var j = 0; j < pageAtt.length; j++) {
+            var a = pageAtt[j];
+            pageContent += '<div style="background:#fff;border:var(--border);padding:8px;margin-bottom:6px;word-break:break-word;">' +
+              '<div style="font-size:13px;font-weight:700;word-break:break-word;">👤 u/' + escapeHtml(a.username) + '</div>';
+            if (a.email) pageContent += '<div style="font-size:11px;color:var(--muted);margin-top:3px;word-break:break-word;">✉️ ' + escapeHtml(a.email) + '</div>';
+            if (a.phone) pageContent += '<div style="font-size:11px;color:var(--muted);word-break:break-word;">📱 ' + escapeHtml(a.phone) + '</div>';
+            pageContent += '</div>';
+          }
+          html += '<div id="mod-att-p' + p + '" style="position:absolute;top:0;left:0;width:100%;height:100%;padding:10px 12px;box-sizing:border-box;overflow-y:auto;-webkit-overflow-scrolling:touch;transition:transform 0.25s,opacity 0.25s;transform:translateX(' + (p * 100) + '%);opacity:' + (p === 0 ? '1' : '0') + ';visibility:' + (p === 0 ? 'visible' : 'hidden') + ';">' + pageContent + '</div>';
+        }
+        // Nav + CSV
+        var hasNav = modAttTotalPages > 1;
+        var navHtml = '<div style="position:absolute;bottom:10px;left:0;right:0;display:flex;justify-content:center;align-items:center;gap:10px;z-index:10;">' +
+          '<button class="btn btn-white btn-sm" id="mod-att-prev" data-action="mod-att-prev" style="padding:4px 10px;font-size:11px;">← Prev</button>' +
+          '<span id="mod-att-dots" style="font-size:11px;font-weight:700;">1/' + modAttTotalPages + '</span>' +
+          '<button class="btn btn-white btn-sm" id="mod-att-next" data-action="mod-att-next" style="padding:4px 10px;font-size:11px;">Next →</button>' +
+          '</div>';
+        var csvHtml = '<div style="position:absolute;bottom:' + (hasNav ? '42px' : '10px') + ';left:0;right:0;display:flex;justify-content:center;padding:0 12px;z-index:10;">' +
+          '<button class="btn btn-white btn-sm" data-id="' + id + '" data-action="export-csv" style="width:100%;max-width:260px;padding:8px;font-size:12px;">📋 Copy CSV</button>' +
+          '</div>';
+        html += csvHtml + (hasNav ? navHtml : '') + '</div>';
+        body.innerHTML = html;
+        updateModAttNav();
+      }
+    }
+  } catch (e) { body.innerHTML = '<div style="text-align:center;padding:20px;color:#ff4444;">Failed to load attendees</div>'; }
+}
+
+function updateModAttNav() {
+  for (var i = 0; i < modAttTotalPages; i++) {
+    var el = document.getElementById("mod-att-p" + i);
+    if (!el) continue;
+    var offset = (i - modAttPage) * 100;
+    el.style.transform = 'translateX(' + offset + '%)';
+    el.style.opacity = i === modAttPage ? '1' : '0';
+    el.style.visibility = i === modAttPage ? 'visible' : 'hidden';
+  }
+  var dots = document.getElementById("mod-att-dots");
+  if (dots) dots.textContent = (modAttPage + 1) + '/' + modAttTotalPages;
+  var prev = document.getElementById("mod-att-prev");
+  var next = document.getElementById("mod-att-next");
+  if (prev) prev.style.visibility = modAttPage === 0 ? 'hidden' : 'visible';
+  if (next) next.style.visibility = modAttPage >= modAttTotalPages - 1 ? 'hidden' : 'visible';
+}
+
+function modAttNext() {
+  if (modAttPage >= modAttTotalPages - 1) { log("modAttNext BLOCKED page=" + modAttPage + "/" + modAttTotalPages); return; }
+  modAttPage++;
+  log("modAttNext page=" + modAttPage + "/" + modAttTotalPages);
+  updateModAttNav();
+}
+
+function modAttPrev() {
+  if (modAttPage <= 0) { log("modAttPrev BLOCKED page=" + modAttPage); return; }
+  modAttPage--;
+  log("modAttPrev page=" + modAttPage + "/" + modAttTotalPages);
+  updateModAttNav();
+}
 async function viewRsvps(eventId: string) { log("viewRsvps id=" + eventId);
   var el = document.getElementById("rsvps-" + eventId)!;
   if (!el.classList.contains("hidden")) { el.classList.add("hidden"); return; }
@@ -1017,7 +1468,7 @@ async function viewRsvps(eventId: string) { log("viewRsvps id=" + eventId);
       if (att.length === 0) el.innerHTML = '<div style="font-size:13px;">No RSVPs</div>';
       else {
         var list = '<div style="font-weight:700;font-size:11px;margin-bottom:8px;">' + att.length + ' Attendees</div>';
-        for (var i = 0; i < att.length; i++) { var a = att[i]; list += '<div style="font-size:13px;font-weight:600;padding:6px 0;border-bottom:1px solid var(--outline-v);">👤 u/' + escapeHtml(a.username); if (a.email) list += '<span style="font-weight:400;color:var(--muted);"> ✉️ ' + escapeHtml(a.email) + '</span>'; if (a.phone) list += '<span style="font-weight:400;color:var(--muted);"> 📱 ' + escapeHtml(a.phone) + '</span>'; list += '</div>'; }
+        for (var i = 0; i < att.length; i++) { var a = att[i]; list += '<div style="font-size:13px;font-weight:600;padding:6px 0;border-bottom:1px solid var(--outline-v);word-break:break-word;">👤 u/' + escapeHtml(a.username); if (a.email) list += '<span style="font-weight:400;color:var(--muted);word-break:break-word;"> ✉️ ' + escapeHtml(a.email) + '</span>'; if (a.phone) list += '<span style="font-weight:400;color:var(--muted);word-break:break-word;"> 📱 ' + escapeHtml(a.phone) + '</span>'; list += '</div>'; }
         el.innerHTML = list;
       }
       el.classList.remove("hidden");
@@ -1046,9 +1497,33 @@ async function submitRsvp() {
       setBtnLoading(".btn-submit-rsvp", false);
       delete detailCache[currentEventId];
       delete attendeeCache[currentEventId];
+      // Optimistically update home cache so button turns green immediately
+      var homeEvt = cachedHomeEvents.find(function(e) { return e.id === currentEventId; });
+      if (homeEvt) { homeEvt.hasRsvped = true; homeEvt.rsvpCount = (homeEvt.rsvpCount || 0) + 1; log("optimistic RSVP update: " + currentEventId + " count=" + homeEvt.rsvpCount); }
       closeOverlay("rsvp-overlay");
-      closeOverlay("details-overlay");
-      showHomePage();
+      // Show RSVP confirmation summary in detail overlay
+      var evt = cachedHomeEvents.find(function(e) { return e.id === currentEventId; });
+      if (evt && !isUpdate) {
+        var confirmHTML = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;padding:20px;text-align:center;padding-top:32px;">' +
+          '<div style="font-size:56px;">🎉</div>' +
+          '<div style="font-size:18px;font-weight:700;">You\'re on the list!</div>' +
+          '<div style="font-size:14px;color:var(--muted);max-width:260px;">' + escapeHtml(evt.title) + '</div>' +
+          '<div style="font-size:13px;color:var(--muted);">📅 ' + escapeHtml(relativeDate(evt.date)) + ' at ' + formatTimeWithTz(evt.time, appTimezone) + '</div>' +
+          '<div style="font-size:13px;color:var(--muted);">📍 ' + escapeHtml(evt.location || "TBD") + '</div>' +
+          '<div style="display:flex;gap:8px;margin-top:8px;width:100%;max-width:260px;">' +
+          '<button class="btn btn-white btn-sm" data-action="copy-event-details" data-id="' + currentEventId + '" style="flex:1;padding:8px;font-size:12px;">📋 Copy Details</button>' +
+          '<button class="btn btn-pink btn-sm" data-action="close-overlay" style="flex:1;padding:8px;font-size:12px;">Done →</button>' +
+          '</div>' +
+          '</div>';
+        document.getElementById("detail-body")!.innerHTML = confirmHTML;
+        document.getElementById("detail-next-btn")!.classList.add("hidden");
+        document.getElementById("detail-prev-btn")!.classList.add("hidden");
+        document.querySelectorAll(".step-dot").forEach(function(d) { d.classList.add("done"); });
+        log("RSVP confirmation card shown for " + currentEventId);
+      } else {
+        closeOverlay("details-overlay");
+        showHomePage();
+      }
     } else {
       showToast(data.error || (isUpdate ? "Update failed - retry" : "RSVP failed - retry"), "error");
       setBtnLoading(".btn-submit-rsvp", false);
@@ -1062,17 +1537,20 @@ async function submitRsvp() {
 }
 function showRsvpOverlay(id: string, email?: string, phone?: string) { log("showRsvpOverlay id=" + id); currentEventId = id; (document.getElementById("rsvp-email") as HTMLInputElement).value = email || ""; (document.getElementById("rsvp-phone") as HTMLInputElement).value = phone || ""; var titleEl = document.querySelector("#rsvp-overlay .overlay-header h2"); if (titleEl) titleEl.textContent = email !== undefined ? "✏️ Update Contact" : "🎟️ RSVP"; var btnEl = document.querySelector(".btn-submit-rsvp") as HTMLElement | null; if (btnEl) { btnEl.textContent = email !== undefined ? "Update →" : "Confirm RSVP →"; btnEl.style.opacity = "1"; btnEl.style.pointerEvents = "auto"; (btnEl as any).disabled = false; delete btnEl.dataset.originalText; } openOverlay("rsvp-overlay"); }
 async function showUpdateRsvpOverlay(id: string) { log("showUpdateRsvpOverlay id=" + id); setBtnLoading('[data-action="update-rsvp"][data-id="' + id + '"]', true, "⏳..."); try { var res = await fetch(API_BASE + "/api/my-rsvp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); var data = await res.json(); if (data.type === "my-rsvp") { showRsvpOverlay(id, data.email || "", data.phone || ""); } else { showToast("Could not load contact info", "error"); } } catch (e) { showToast("Error loading contact info", "error"); } finally { setBtnLoading('[data-action="update-rsvp"][data-id="' + id + '"]', false); } }
-async function leaveEvent(id: string) { log("leaveEvent id=" + id); var title = document.getElementById("details-overlay-title")!.textContent || "this event"; if (!await confirmDestructive('Leave "' + title + '"? You can RSVP again later.')) return; setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', true, "⏳ Leaving..."); try { var res = await fetch(API_BASE + "/api/leave-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); var data = await res.json(); if (data.type === "leave-event" && data.success) { showToast("You've left", "success"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); delete detailCache[id]; delete attendeeCache[id]; closeOverlay("details-overlay"); showHomePage(); } else { showToast("Failed", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } } catch (e) { showToast("Error", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } }
-async function submitPitch() { log("submitPitch"); if (isLocked("submit-pitch")) return; lock("submit-pitch"); var title = (document.getElementById("pitch-title") as HTMLInputElement).value.trim(); var desc = (document.getElementById("pitch-description") as HTMLTextAreaElement).value.trim(); if (!title || !desc) { showToast("Fill all fields", "error"); unlock("submit-pitch"); return; } setBtnLoading("#pitch-submit-btn", true, "⏳ Submitting...");   try { var res = await fetch(API_BASE + "/api/pitch-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, description: desc }) }); var data = await res.json();     if (data.type === "pitch-idea" && data.success) { showToast("Idea sent! ✅", "success"); setBtnLoading("#pitch-submit-btn", false); closeOverlay("pitch-overlay"); } else { showToast(data.error || "Submit failed - retry", "error"); setBtnLoading("#pitch-submit-btn", false); } } catch (e) { showToast("Error", "error"); setBtnLoading("#pitch-submit-btn", false); } finally { unlock("submit-pitch"); } }
+async function leaveEvent(id: string) { log("leaveEvent id=" + id); var title = document.getElementById("details-overlay-title")!.textContent || "this event"; if (!await confirmDestructive('Leave "' + title + '"? You can RSVP again later.')) return; setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', true, "⏳ Leaving..."); try { var res = await fetch(API_BASE + "/api/leave-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); var data = await res.json();     if (data.type === "leave-event" && data.success) { showToast("You've left", "success"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); delete detailCache[id]; delete attendeeCache[id];       // Optimistically update home cache so button turns back to RSVP
+      var leftEvt = cachedHomeEvents.find(function(e) { return e.id === id; });
+      if (leftEvt) { leftEvt.hasRsvped = false; leftEvt.rsvpCount = Math.max(0, (leftEvt.rsvpCount || 0) - 1); log("optimistic leave update: " + id + " count=" + leftEvt.rsvpCount); }
+      closeOverlay("details-overlay"); showHomePage(); } else { showToast("Failed", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } } catch (e) { showToast("Error", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } }
+async function submitPitch() { log("submitPitch"); if (isLocked("submit-pitch")) return; lock("submit-pitch"); var title = (document.getElementById("pitch-title") as HTMLInputElement).value.trim(); var desc = (document.getElementById("pitch-description") as HTMLTextAreaElement).value.trim(); if (!title || !desc) { showToast("Fill all fields", "error"); unlock("submit-pitch"); return; } setBtnLoading("#pitch-submit-btn", true, "⏳ Submitting...");   try { var res = await fetch(API_BASE + "/api/pitch-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, description: desc }) }); var data = await res.json();     if (data.type === "pitch-idea" && data.success) { showToast("Idea sent! ✅", "success"); setBtnLoading("#pitch-submit-btn", false); closeOverlay("pitch-overlay"); loadHome(); } else { showToast(data.error || "Submit failed - retry", "error"); setBtnLoading("#pitch-submit-btn", false); } } catch (e) { showToast("Error", "error"); setBtnLoading("#pitch-submit-btn", false); } finally { unlock("submit-pitch"); } }
 function resetEventForm() { eventStep = 1; ["event-step-1", "event-step-2", "event-step-3", "event-step-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("hidden", i !== 0); }); document.getElementById("event-next-btn")!.classList.remove("hidden"); document.getElementById("event-submit-btn")!.classList.add("hidden"); document.getElementById("event-prev-btn")!.classList.add("hidden"); ["event-dot-1", "event-dot-2", "event-dot-3", "event-dot-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });   ["event-title", "event-organizer", "event-date", "event-time", "event-location", "event-map-url", "event-desc", "event-category"].forEach(function (id) { var el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null; if (el) el.value = ""; }); setBtnLoading("#event-submit-btn", false); }
 function eventPrev() { if (eventStep === 2) { document.getElementById("event-dot-2")!.classList.remove("done"); document.getElementById("event-step-2")!.classList.add("hidden"); document.getElementById("event-step-1")!.classList.remove("hidden"); document.getElementById("event-prev-btn")!.classList.add("hidden"); eventStep = 1; } else if (eventStep === 3) { document.getElementById("event-dot-3")!.classList.remove("done"); document.getElementById("event-step-3")!.classList.add("hidden"); document.getElementById("event-step-2")!.classList.remove("hidden"); eventStep = 2; } else if (eventStep === 4) { document.getElementById("event-dot-4")!.classList.remove("done"); document.getElementById("event-step-4")!.classList.add("hidden"); document.getElementById("event-step-3")!.classList.remove("hidden"); document.getElementById("event-next-btn")!.classList.remove("hidden"); document.getElementById("event-submit-btn")!.classList.add("hidden"); eventStep = 3; } }
 function eventNext() { log("eventNext step=" + eventStep); if (eventStep === 1) { var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var org = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var cat = (document.getElementById("event-category") as HTMLSelectElement).value; if (!title || !org) { showToast("Fill all fields", "error"); return; } if (!cat) { showToast("Select a category", "error"); return; } document.getElementById("event-dot-2")!.classList.add("done"); document.getElementById("event-step-1")!.classList.add("hidden"); document.getElementById("event-step-2")!.classList.remove("hidden"); document.getElementById("event-prev-btn")!.classList.remove("hidden"); eventStep = 2; } else if (eventStep === 2) { var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); if (!date || !time) { showToast("Fill all fields", "error"); return; } document.getElementById("event-dot-3")!.classList.add("done"); document.getElementById("event-step-2")!.classList.add("hidden"); document.getElementById("event-step-3")!.classList.remove("hidden"); eventStep = 3; } else if (eventStep === 3) { var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); if (!loc) { showToast("Location required", "error"); return; } document.getElementById("event-dot-4")!.classList.add("done"); document.getElementById("event-step-3")!.classList.add("hidden"); document.getElementById("event-step-4")!.classList.remove("hidden"); document.getElementById("event-next-btn")!.classList.add("hidden"); document.getElementById("event-submit-btn")!.classList.remove("hidden"); document.getElementById("event-review-title-preview")!.textContent = (document.getElementById("event-title") as HTMLInputElement).value; document.getElementById("event-review-meta-preview")!.textContent = (document.getElementById("event-date") as HTMLInputElement).value + " at " + (document.getElementById("event-time") as HTMLInputElement).value + " · " + loc; eventStep = 4; } }
 async function submitEvent() { log("submitEvent"); if (isLocked("submit-event")) return; lock("submit-event"); var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var organizer = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); var mapUrl = (document.getElementById("event-map-url") as HTMLInputElement).value.trim(); var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim(); var category = (document.getElementById("event-category") as HTMLSelectElement).value; log("submitEvent values: title=" + title + " category=" + category);   if (!title || !organizer || !date || !time || !loc || !desc) { showToast("Fill all fields", "error"); unlock("submit-event"); return; }
   var today = new Date().toISOString().split("T")[0] || "";
   if (date < today) { showToast("Event date must be today or in the future", "error"); unlock("submit-event"); return; }
-  setBtnLoading("#event-submit-btn", true, "⏳ Submitting..."); try { var res = await fetch(API_BASE + "/api/submit-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, organizer: organizer, date: date, time: time, location: loc, mapUrl: mapUrl, desc: desc, category: category }) }); var data = await res.json();     if (data.type === "submit-event" && data.success) { showToast("Event submitted! ✅", "success"); setBtnLoading("#event-submit-btn", false); closeOverlay("event-overlay"); } else { showToast(data.error || "Submit failed - retry", "error"); setBtnLoading("#event-submit-btn", false); } } catch (e) { showToast("Error", "error"); setBtnLoading("#event-submit-btn", false); } finally { unlock("submit-event"); } }
+  setBtnLoading("#event-submit-btn", true, "⏳ Submitting..."); try { var res = await fetch(API_BASE + "/api/submit-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, organizer: organizer, date: date, time: time, location: loc, mapUrl: mapUrl, desc: desc, category: category }) }); var data = await res.json();     if (data.type === "submit-event" && data.success) { showToast("Event submitted! ✅", "success"); setBtnLoading("#event-submit-btn", false); closeOverlay("event-overlay"); loadHome(); } else { showToast(data.error || "Submit failed - retry", "error"); setBtnLoading("#event-submit-btn", false); } } catch (e) { showToast("Error", "error"); setBtnLoading("#event-submit-btn", false); } finally { unlock("submit-event"); } }
 var usernameCached: string | null = null, prefillLoading = false;
-async function prefillOrganizer() { if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; } if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; } if (prefillLoading) return; prefillLoading = true; try { var res = await fetch(API_BASE + "/api/init"); var data = await res.json(); if (data.type === "init" && data.username) { currentUsername = data.username; usernameCached = data.username; (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username; } } catch (e) { console.error(e); } prefillLoading = false; }
+async function prefillOrganizer() { if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; } if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; } if (prefillLoading) return; prefillLoading = true; try { var res = await fetch(API_BASE + "/api/init"); var data = await res.json(); if (data.type === "init" && data.username) { currentUsername = data.username; usernameCached = data.username; (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username; } if (data.type === "init" && data.timezone) { setAppTimezone(data.timezone); } } catch (e) { console.error(e); } prefillLoading = false; }
 
 // ======= OVERLAY HELPERS =======
 function openOverlay(id: string) { document.getElementById(id)!.classList.add("active"); }
@@ -1087,6 +1565,7 @@ function handleAction(action: string, id: string | null) {
     case "home-prev": homePrev(); break;
     case "home-next": homeNext(); break;
     case "share-event": shareEvent(); break;
+    case "refresh-home": log("refresh-home clicked"); loadHome(); break;
     case "desc-next": if (id) {
       log("desc-next id=" + id + " pageTotal=" + (descPageTotal[id] || 0) + " curPage=" + (descPageIdx[id] || 0));
       if (descPageTotal[id] === 99) {
@@ -1127,6 +1606,18 @@ function handleAction(action: string, id: string | null) {
     case "my-event-prev": myEventPrev(); break;
     case "my-rsvp-next": myRsvpNext(); break;
     case "my-rsvp-prev": myRsvpPrev(); break;
+    case "my-stuff-next": {
+      log("my-stuff-next tab=" + myStuffTab);
+      if (myStuffTab === "rsvps") myRsvpNext();
+      else if (myStuffTab === "pitches") myPitchNext();
+      else if (myStuffTab === "events") myEventNext();
+    } break;
+    case "my-stuff-prev": {
+      log("my-stuff-prev tab=" + myStuffTab);
+      if (myStuffTab === "rsvps") myRsvpPrev();
+      else if (myStuffTab === "pitches") myPitchPrev();
+      else if (myStuffTab === "events") myEventPrev();
+    } break;
     case "cancel-my-event": if (id) cancelMyEvent(id); break;
     case "delete-my-event": if (id) deleteMyEvent(id); break;
     case "approve-event": if (id) approveEvent(id); break;
@@ -1138,6 +1629,30 @@ function handleAction(action: string, id: string | null) {
     case "update-rsvp": if (id) showUpdateRsvpOverlay(id); break;
     case "leave-event": if (id) leaveEvent(id); break;
     case "view-rsvps": if (id) viewRsvps(id); break;
+    case "view-mod-details": if (id) showModEventDetails(id); break;
+    case "view-attendees-mod": if (id) showModAttendees(id); break;
+    case "close-mod-details": closeOverlay("mod-event-details-overlay"); break;
+    case "close-mod-attendees": closeOverlay("mod-attendees-overlay"); break;
+    case "mod-detail-next": modDetailNext(); break;
+    case "mod-detail-prev": modDetailPrev(); break;
+    case "mod-att-next": modAttNext(); break;
+    case "mod-att-prev": modAttPrev(); break;
+    case "mod-detail-att-next": if (id) {
+      var c7 = (attPageIdx[id] || 0) + 1;
+      var t7 = Math.ceil((attListStore[id] || []).length / ATTENDEES_PER_PAGE);
+      if (c7 >= t7) break;
+      attPageIdx[id] = c7;
+      slideTrack("mod-att-track-" + id, c7, t7);
+      document.getElementById("mod-att-nav-" + id)!.innerHTML = buildModAttNavHTML(id);
+    } break;
+    case "mod-detail-att-prev": if (id) {
+      var c8 = (attPageIdx[id] || 0) - 1;
+      if (c8 < 0) break;
+      attPageIdx[id] = c8;
+      var t8 = Math.ceil((attListStore[id] || []).length / ATTENDEES_PER_PAGE);
+      slideTrack("mod-att-track-" + id, c8, t8);
+      document.getElementById("mod-att-nav-" + id)!.innerHTML = buildModAttNavHTML(id);
+    } break;
     case "load-attendees": { if (!id) break; loadPublicAttendees(id); } break;
     case "mod-next": if (id) modNext(id); break;
     case "mod-prev": if (id) modPrev(id); break;
@@ -1164,6 +1679,40 @@ function handleAction(action: string, id: string | null) {
       slideTrack("mod-desc-track-" + id, c6, modDescTotal[id] || 1);
       document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDescNavHTML(id);
       setTimeout(function() { unlock(lockKey); }, 300);
+    } break;
+    case "mod-detail-desc-next": {
+      if (!id) break;
+      log("mod-detail-desc-next id=" + id + " pageTotal=" + (descPageTotal[id] || 0) + " curPage=" + (descPageIdx[id] || 0));
+      if (descPageTotal[id] === 99) {
+        log("mod-detail-desc-next PAGINATING id=" + id);
+        var box = document.getElementById("mod-desc-box-" + id);
+        if (!box) return;
+        var pages = splitTextToPages(descFullText[id] || "", box.clientWidth, box.clientHeight);
+        log("mod-detail-desc-next split into " + pages.length + " pages id=" + id);
+        descPageTotal[id] = pages.length;
+        descPageIdx[id] = 0;
+        document.getElementById("mod-desc-track-" + id)!.outerHTML = buildDescPagesHTML(id, pages, "mod-desc-track-");
+        document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDetailDescNavHTML(id);
+        persistModStep2(id);
+      } else {
+        var cur = (descPageIdx[id] || 0) + 1;
+        if (cur >= (descPageTotal[id] || 1)) { log("mod-detail-desc-next BLOCKED at last page id=" + id); return; }
+        descPageIdx[id] = cur;
+        log("mod-detail-desc-next slide id=" + id + " page=" + cur + "/" + descPageTotal[id]);
+        slideTrack("mod-desc-track-" + id, cur, descPageTotal[id] || 1);
+        document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDetailDescNavHTML(id);
+        persistModStep2(id);
+      }
+    } break;
+    case "mod-detail-desc-prev": {
+      if (!id) break;
+      var cur2 = (descPageIdx[id] || 0) - 1;
+      if (cur2 < 0) { log("mod-detail-desc-prev BLOCKED at first page id=" + id); return; }
+      descPageIdx[id] = cur2;
+      log("mod-detail-desc-prev slide id=" + id + " page=" + cur2 + "/" + descPageTotal[id]);
+      slideTrack("mod-desc-track-" + id, cur2, descPageTotal[id] || 1);
+      document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDetailDescNavHTML(id);
+      persistModStep2(id);
     } break;
     case "my-stuff-desc-next": {
       if (!id) break;
@@ -1194,6 +1743,7 @@ function handleAction(action: string, id: string | null) {
       setTimeout(function() { unlock(msLock2); }, 300);
     } break;
     case "copy-link": if (id) { if (navigator.clipboard) navigator.clipboard.writeText(id); else { var ta = document.createElement("textarea"); ta.value = id; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); } showToast("Link copied! 📋", "success"); } break;
+    case "copy-event-details": if (id) { log("copy-event-details id=" + id); var ce = cachedHomeEvents.find(function(e) { return e.id === id; }); if (ce) { var detailText = ce.title + "\n📅 " + relativeDate(ce.date) + " at " + ce.time + "\n📍 " + (ce.location || "TBD") + "\n" + (ce.description || ""); if (navigator.clipboard) navigator.clipboard.writeText(detailText).then(function() { showToast("Event details copied! 📋", "success"); }).catch(function() { showToast("Copy failed", "error"); }); else { var t2 = document.createElement("textarea"); t2.value = detailText; document.body.appendChild(t2); t2.select(); try { document.execCommand("copy"); showToast("Event details copied! 📋", "success"); } catch(e) { showToast("Copy failed", "error"); } document.body.removeChild(t2); } } } break;
     case "export-csv": if (id) exportAttendeesCSV(id); break;
     case "toggle-create": toggleCreateMenu(); break;
     case "close-create-menu": closeCreateMenu(); break;
@@ -1234,6 +1784,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var show = panel.style.display !== "block";
     panel.style.display = show ? "block" : "none";
     log("debug panel " + (show ? "visible" : "hidden"));
+    if (show) { fetchServerLogs(); }
   });
   document.getElementById("debug-copy-all")?.addEventListener("click", function (e) {
     e.stopPropagation();

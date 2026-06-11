@@ -82,6 +82,7 @@ export const ApiEndpoint = {
   MySubmissions: "/api/my-submissions",
   MyRsvp: "/api/my-rsvp",
   ExportAttendees: "/api/export-attendees",
+  ServerLogs: "/api/server-logs",
 } as const;
 
 export type ApiEndpoint = (typeof ApiEndpoint)[keyof typeof ApiEndpoint];

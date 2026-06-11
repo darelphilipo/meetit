@@ -6,6 +6,72 @@
 
 ---
 
+## 0. Core Principles (Non-Negotiable)
+
+### 0.1 Every Feature Must Have Adequate Logging
+
+**Why:** Devvit Web inline webview does NOT surface `console.log`. The only way to debug production issues is via:
+- **Server logs:** `devvit-cli logs r/meetup_hub2_dev` (visible in terminal)
+- **Client logs:** Custom on-screen debug panel (`#debug-panel` with 📋 Copy All button)
+
+**Without logging, you are flying blind.** When a user reports "it didn't work", you have zero visibility into what happened.
+
+**Rule:** For every new feature, you MUST add:
+
+1. **Client-side (app.ts)** — Use the `log()` function (not `console.log`):
+   ```typescript
+   log("featureName action=id state=detail");
+   // GOOD: log("rsvp submit eventId=abc123 email=yes");
+   // BAD: console.log("submitted");  // Never surfaces in production!
+   ```
+
+2. **Server-side (server.ts)** — Use `console.log()` with structured prefixes:
+   ```typescript
+   console.log(`[FEATURE] action detail | key=value`);
+   // GOOD: console.log(`[RSVP] ${username} → ${eventId} | email=${!!email}`);
+   // BAD: console.log("done");  // Useless in log stream
+   ```
+
+3. **Critical paths to log:**
+   - Entry/exit of every user action handler
+   - State mutations (cache updates, optimistic updates)
+   - Error paths (with full error message)
+   - External API calls (webhooks, Reddit API)
+   - Data transformations (sorting, filtering, pagination)
+
+4. **Pre-deployment checklist:**
+   - [ ] Search for `console.log` in app.ts → replace with `log()`
+   - [ ] Search for bare `console.log` in server.ts → add `[FEATURE]` prefix
+   - [ ] Verify debug panel shows logs when testing
+   - [ ] Run `devvit-cli logs` and confirm server logs appear
+
+**Example from RSVP feature:**
+```
+Client: "submitRsvp eventId=abc123" → "optimistic RSVP update: abc123 count=5" → "RSVP confirmation card shown"
+Server: "[RSVP] darelphilip → abc123 | email=no phone=no" → "[RSVP] score=1234567890"
+```
+
+### 0.2 Viewing Server Logs Without CLI
+
+**Problem:** Running `devvit-cli logs r/meetup_hub2_dev` every time is tedious.
+
+**Solution:** Server logs are automatically captured into Redis (`meetit:server_logs` sorted set, last 100 entries). The debug panel has a **📱 Client / 🖥️ Server** toggle button that fetches and displays backend logs inline.
+
+**How it works:**
+1. Every `console.log()` in `server.ts` is also sent to `serverLog()` which stores in Redis
+2. Client calls `/api/server-logs` to retrieve them
+3. Debug panel renders them with color-coded levels (green=info, red=error)
+
+**To use:**
+1. Tap 🐛 debug button
+2. Tap 📱 Client button → switches to 🖥️ Server
+3. Server logs appear (auto-fetched from Redis)
+4. Tap 📋 Copy All to copy server logs to clipboard
+
+**No CLI required.**
+
+---
+
 ## 1. Development Workflow (Step-by-Step)
 
 ### 1.1 Prerequisites
@@ -1733,3 +1799,174 @@ async function dismissIdea(id: string) {
 1. Delete the corresponding `modTabCache[key]` before calling `loadModTab(key)`
 2. Have an `isLocked/lock/unlock` guard to prevent rapid double-taps
 3. Both are required — caching without invalidation causes stale UI; no lock allows duplicate requests
+
+---
+
+## 36. Production Smoke Test Results (2026-06-11)
+
+Real user session logs from r/meetup_hub2_dev (user: darelphilip, mod role).
+
+### ✅ What's Working Fine
+
+| Feature | Evidence | Status |
+|---|---|---|
+| **Home event loading** | `[HOME] Found 4 events, isMod=true` — consistent across 8+ fetches | ✅ Stable |
+| **Mod dashboard (all 3 tabs)** | Pending, Published, Pitches all load without errors | ✅ Stable |
+| **Published event sorting** | `renderModPublished sorted 4 events by RSVP count` — most popular first | ✅ Working |
+| **Card navigation (Prev/Next)** | `modNext tab=published`, `modPrev tab=published` — smooth transitions | ✅ Working |
+| **Mod event details overlay** | `showModEventDetails id=...` — opens correctly | ✅ Working |
+| **Debug panel + unified logs** | `debug panel visible` → `server logs merged: 100 entries, total=50` | ✅ Working |
+| **Server log capture** | 100 server entries auto-captured in Redis, merged with client logs | ✅ Working |
+| **My Stuff tab** | `openMyStuff` → `loadMySubmissions` → successful API call | ✅ Working |
+| **Auth / username** | `darelphilip` correctly identified on every request | ✅ Working |
+| **Timezone display** | `+05:30` suffix showing correctly on times | ✅ Working |
+
+### ⚠️ Issues Found & Fixed
+
+| Issue | Evidence | Fix |
+|---|---|---|
+| **Mod card borders overflow** | Screenshot shows card shadow cut off on right edge | Added `margin: 0 4px` to mod card inline style |
+| **Long description overflow** | Very long descriptions could overflow horizontally | Added `word-break: break-word; overflow-x: auto` to detail overlay |
+| **Attendee list overflow** | Long emails/usernames could break layout | Added `word-break: break-word` to all attendee entry divs |
+| **Redundant home fetches** | 4 `/api/home` calls within 3 seconds (11:09:27–11:09:30) | Likely from rapid navigation + auto-refresh overlap; debounce exists but may need tuning |
+
+### 🔧 Still Needs Work
+
+| Issue | Priority | Notes |
+|---|---|---|
+| **Redundant API calls** | Medium | 4 home fetches in 3s suggests debounce isn't catching rapid switches. May need to increase debounce window or add request deduplication |
+| **Event capacity (E1)** | High | No max attendees limit — could oversubscribe |
+| **Edit event after submission (E2)** | High | Must delete+resubmit currently |
+| **Push notifications (M4)** | Medium | Gated beta, requires approval form |
+| **Attendee preview on home card (E3)** | Medium-High | Social proof — show "5 going" on home card |
+| **Search/filter UI re-enable (E10)** | Low | Code exists, just hidden |
+
+### 📊 Log Analysis Insights
+
+**Server log volume:** 100 entries captured in ~1 minute of active use. Good coverage.
+
+**Client log volume:** 50 unified entries. Merge deduplication working (no duplicate server entries).
+
+**No errors in session:** Zero `[ERROR]` or `server error` entries. All API calls returned successfully.
+
+**Mod features heavily used:** User tested all 3 mod tabs, card navigation, and detail overlays. No crashes.
+
+### 🎯 Next Priority
+
+1. **Deploy current fixes** (card margin, word-break, attendee overflow, redundant API calls, horizontal scrolling)
+2. **Implement E1 (event capacity)** — prevents oversubscription, most requested mod feature
+3. **Continue beta testing** — collect more logs, look for edge cases
+
+---
+
+## 37. Redundant API Call Fix & Horizontal Scrolling Overlays
+
+### 37.1 Redundant API Calls
+
+**Problem:** Logs showed 4 `/api/home` calls within 3 seconds during normal navigation. User wasn't spamming refresh — the app was firing duplicate requests.
+
+**Root cause:** `loadHome()` had a 150ms debounce, but:
+1. No flag to prevent concurrent in-flight requests
+2. Multiple actions call `loadHome()` (submit pitch, submit event, refresh button, showHomePage)
+3. Rapid navigation could queue overlapping fetches
+
+**Fix:**
+```typescript
+var homeFetchInProgress = false;
+var modFetchInProgress = false;
+var DEBOUNCE_DELAY = 300; // increased from 150
+
+async function loadHome() {
+  if (homeFetchInProgress) { log("loadHome skipped: fetch already in progress"); return; }
+  // ... debounce ...
+  homeFetchInProgress = true;
+  try { /* fetch */ }
+  finally { homeFetchInProgress = false; }
+}
+```
+
+Same pattern applied to `loadModTab()`.
+
+**Result:** Only one fetch in flight at a time. Subsequent calls are skipped with a log entry.
+
+### 37.2 Horizontal Scrolling Mod Overlays
+
+**Problem:** Mod detail overlay and attendees overlay used vertical scrolling (`overflow-y: auto`), inconsistent with the home page's horizontal card-based navigation.
+
+**Solution:** Redesigned both overlays to use the same horizontal track pattern as the home page.
+
+**Mod Detail Overlay (3 pages):**
+- **Page 1:** Event info — date, time, location, category, RSVP count badge (centered, emoji, clean layout)
+- **Page 2:** Description — full text in scrollable container within the page
+- **Page 3:** Actions — Copy CSV, Delete Event buttons
+
+**Mod Attendees Overlay (paginated):**
+- Attendees split into pages of 5
+- Horizontal swipe between pages
+- Page indicator: "12 Attendees — Page 2/3"
+- Copy CSV button always visible at bottom
+
+**Navigation pattern (same as home):**
+```
+[← Prev]  1/3  [Next →]
+```
+
+**CSS:**
+- Track: `display:flex; width: N*100%; transition:transform 0.25s`
+- Each page: `min-width:100%; height:100%`
+- Navigation: `position:absolute; bottom:12px`
+
+**Files changed:**
+- `src/client/app.ts` — `showModEventDetails()`, `showModAttendees()`, `modDetailNext/Prev()`, `modAttNext/Prev()`, in-progress flags
+- `public/app.html` — Removed `overflow-y:auto` from mod overlay bodies
+
+### 37.3 Build Size Impact
+
+- Before: 100.5kb
+- After: 107.4kb (+6.9kb for horizontal overlay system + API deduplication)
+
+Acceptable increase for major UX consistency improvement.
+
+### 37.4 Flex Track Bug Fix
+
+**Problem:** Mod detail and attendees overlays showed empty pages when using `display:flex` track with `transform:translateX`.
+
+**Root cause:** When the overlay starts with `display:none`, the browser doesn't calculate flex dimensions. When it becomes visible, flex items with `min-width:100%` and `height:100%` don't recalculate correctly — some pages render with 0 dimensions.
+
+**Fix:** Switched to absolute positioning for each page:
+```
+Each page: position:absolute; top:0; left:0; width:100%; height:100%
+Offset: transform:translateX(N*100%) — slides pages horizontally
+Visibility: opacity + visibility toggled for smooth transitions
+```
+
+**Why this works:** `position:absolute` with explicit `width:100%;height:100%` fills the parent regardless of when the overlay becomes visible. The transform is applied to each page individually, not to a track.
+
+**Pattern:** For overlay "pages" that must work reliably:
+- ❌ Don't use `display:flex` tracks inside overlays that start hidden
+- ✅ Use `position:absolute` pages with `transform:translateX` offsets
+- ✅ Toggle `opacity` + `visibility` for smooth transitions
+
+### 37.5 Mod Detail Layout — Replicated Home Page Design
+
+**Problem:** Mod detail overlay looked "empty and floaty" compared to the rich home page detail overlay.
+
+**Root cause:** The mod detail overlay used a simple centered layout with minimal styling, while the home page uses a dense card-based design with borders, backgrounds, and rich content.
+
+**Fix:** Replicated the exact home page detail overlay layout for mod view:
+
+| Card | Home Page | Mod Detail |
+|---|---|---|
+| **1** | Quick Info (emoji, date, time, location, category, RSVP count) | Same — event info with RSVP badge |
+| **2** | Organizer + Description (with pagination) | Same — organizer avatar + description |
+| **3** | Who's Going (attendees with pagination) | Same — attendee list with pagination |
+| **4** | RSVP / Leave | **Mod Actions** (Copy CSV, Delete Event) |
+
+**Key design elements copied from home page:**
+- `.detail-card` class: `background:#fff; border:var(--border); box-shadow:var(--shadow-sm)`
+- Organizer avatar: 36px circle with initial letter
+- Description box: white background, border, scrollable
+- Attendee list: bordered container with pagination
+- Consistent spacing, fonts, and colors
+
+**Result:** Mod detail overlay now feels as rich and information-dense as the home page, with the same familiar navigation pattern.
