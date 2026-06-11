@@ -597,7 +597,13 @@ async function loadPublicAttendees(eventId: string) {
     if (data.type === "rsvp-list") {
       var att = data.attendees || [];
       attendeeCache[eventId] = { data: att, timestamp: Date.now() };
-      renderAttendees(eventId, att);
+      // Guard: only render if details overlay is still open for this event
+      var detailsOverlay2 = document.getElementById("details-overlay");
+      if (detailsOverlay2 && detailsOverlay2.classList.contains("active") && currentEventId === eventId) {
+        renderAttendees(eventId, att);
+      } else {
+        log("loadPublicAttendees STALE RESPONSE REJECTED — overlay closed or different event");
+      }
     }
   } catch (e) { console.error(e); }
 }
@@ -703,6 +709,13 @@ async function showEventDetails(id: string) {
     var res = await fetch(API_BASE + "/api/event-details", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
     var data = await res.json();
     if (data.type === "event-details" && currentEventId === id) {
+      // Guard: don't re-open if user navigated away while fetch was in flight
+      var detailsOverlay = document.getElementById("details-overlay");
+      if (detailsOverlay && !detailsOverlay.classList.contains("active")) {
+        log("showEventDetails STALE RESPONSE REJECTED — user navigated away from " + id);
+        detailLoading = false;
+        return;
+      }
       log("showEventDetails server response " + id + " hasRsvped=" + data.data.hasRsvped);
       detailCache[id] = { data: data.data, timestamp: Date.now() };
       openDetailsOverlay(data.data);
@@ -1371,7 +1384,13 @@ function loadModPublicAttendees(eventId: string) {
       if (data.type === "rsvp-list") {
         var att = data.attendees || [];
         attendeeCache[eventId] = { data: att, timestamp: Date.now() };
-        renderModAttendees(eventId, att);
+        // Guard: only render if mod detail overlay is still open for this event
+        var modDetailOverlay = document.getElementById("mod-event-details-overlay");
+        if (modDetailOverlay && modDetailOverlay.classList.contains("active") && currentModEventId === eventId) {
+          renderModAttendees(eventId, att);
+        } else {
+          log("loadModPublicAttendees STALE RESPONSE REJECTED — overlay closed or different event");
+        }
       }
     })
     .catch(function(e) { console.error(e); });
@@ -1436,6 +1455,12 @@ async function showModAttendees(id: string) {
     var data = await res.json();
     if (data.type === "rsvp-list") {
       var att = data.attendees || [];
+      // Guard: only render if mod attendees overlay is still open
+      var modAttOverlay = document.getElementById("mod-attendees-overlay");
+      if (!modAttOverlay || !modAttOverlay.classList.contains("active")) {
+        log("showModAttendees STALE RESPONSE REJECTED — overlay closed");
+        return;
+      }
       if (att.length === 0) {
         body.innerHTML = '<div class="empty-state"><span class="emoji">👥</span><h2>No RSVPs yet</h2></div>';
       } else {
@@ -1631,9 +1656,9 @@ var usernameCached: string | null = null, prefillLoading = false;
 async function prefillOrganizer() { if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; } if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; } if (prefillLoading) return; prefillLoading = true; try { var res = await fetch(API_BASE + "/api/init"); var data = await res.json(); if (data.type === "init" && data.username) { currentUsername = data.username; usernameCached = data.username; (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username; } if (data.type === "init" && data.timezone) { setAppTimezone(data.timezone); } } catch (e) { console.error(e); } prefillLoading = false; }
 
 // ======= OVERLAY HELPERS =======
-function openOverlay(id: string) { document.getElementById(id)!.classList.add("active"); }
-function closeOverlay(id: string) { document.getElementById(id)!.classList.remove("active"); resetEventForm(); }
-function closeAllOverlays() { document.querySelectorAll(".overlay").forEach(function (el) { el.classList.remove("active"); }); resetEventForm(); closeCreateMenu(); }
+function openOverlay(id: string) { log("OPEN overlay " + id); document.getElementById(id)!.classList.add("active"); }
+function closeOverlay(id: string) { log("CLOSE overlay " + id); document.getElementById(id)!.classList.remove("active"); resetEventForm(); }
+function closeAllOverlays() { log("CLOSE ALL overlays"); document.querySelectorAll(".overlay").forEach(function (el) { el.classList.remove("active"); }); resetEventForm(); closeCreateMenu(); }
 function showHomePage() { log("showHomePage"); closeAllOverlays(); loadHome(); }
 
 function handleAction(action: string, id: string | null) {
