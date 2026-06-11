@@ -1500,6 +1500,13 @@ async function submitRsvp() {
       // Optimistically update home cache so button turns green immediately
       var homeEvt = cachedHomeEvents.find(function(e) { return e.id === currentEventId; });
       if (homeEvt) { homeEvt.hasRsvped = true; homeEvt.rsvpCount = (homeEvt.rsvpCount || 0) + 1; log("optimistic RSVP update: " + currentEventId + " count=" + homeEvt.rsvpCount); }
+      // Re-render home card to show updated button state instantly
+      renderHomeCard({ eventsByDate: groupByDate(cachedHomeEvents), isMod: cachedHomeIsMod, settings: {} });
+      // Also add to myRsvps so it appears in My Stuff immediately
+      if (homeEvt) {
+        var alreadyInMyRsvps = myRsvps.findIndex(function(e: any) { return e.id === currentEventId; }) >= 0;
+        if (!alreadyInMyRsvps) { myRsvps.push(homeEvt); log("added to myRsvps: " + currentEventId); }
+      }
       closeOverlay("rsvp-overlay");
       // Show RSVP confirmation summary in detail overlay
       var evt = cachedHomeEvents.find(function(e) { return e.id === currentEventId; });
@@ -1540,6 +1547,11 @@ async function showUpdateRsvpOverlay(id: string) { log("showUpdateRsvpOverlay id
 async function leaveEvent(id: string) { log("leaveEvent id=" + id); var title = document.getElementById("details-overlay-title")!.textContent || "this event"; if (!await confirmDestructive('Leave "' + title + '"? You can RSVP again later.')) return; setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', true, "⏳ Leaving..."); try { var res = await fetch(API_BASE + "/api/leave-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) }); var data = await res.json();     if (data.type === "leave-event" && data.success) { showToast("You've left", "success"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); delete detailCache[id]; delete attendeeCache[id];       // Optimistically update home cache so button turns back to RSVP
       var leftEvt = cachedHomeEvents.find(function(e) { return e.id === id; });
       if (leftEvt) { leftEvt.hasRsvped = false; leftEvt.rsvpCount = Math.max(0, (leftEvt.rsvpCount || 0) - 1); log("optimistic leave update: " + id + " count=" + leftEvt.rsvpCount); }
+      // Re-render home card to show updated button state instantly
+      renderHomeCard({ eventsByDate: groupByDate(cachedHomeEvents), isMod: cachedHomeIsMod, settings: {} });
+      // Also update My Stuff if this event is in myRsvps
+      var myStuffIdx = myRsvps.findIndex(function(e: any) { return e.id === id; });
+      if (myStuffIdx >= 0) { myRsvps.splice(myStuffIdx, 1); log("removed from myRsvps: " + id); }
       closeOverlay("details-overlay"); showHomePage(); } else { showToast("Failed", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } } catch (e) { showToast("Error", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } }
 async function submitPitch() { log("submitPitch"); if (isLocked("submit-pitch")) return; lock("submit-pitch"); var title = (document.getElementById("pitch-title") as HTMLInputElement).value.trim(); var desc = (document.getElementById("pitch-description") as HTMLTextAreaElement).value.trim(); if (!title || !desc) { showToast("Fill all fields", "error"); unlock("submit-pitch"); return; } setBtnLoading("#pitch-submit-btn", true, "⏳ Submitting...");   try { var res = await fetch(API_BASE + "/api/pitch-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, description: desc }) }); var data = await res.json();     if (data.type === "pitch-idea" && data.success) { showToast("Idea sent! ✅", "success"); setBtnLoading("#pitch-submit-btn", false); closeOverlay("pitch-overlay"); loadHome(); } else { showToast(data.error || "Submit failed - retry", "error"); setBtnLoading("#pitch-submit-btn", false); } } catch (e) { showToast("Error", "error"); setBtnLoading("#pitch-submit-btn", false); } finally { unlock("submit-pitch"); } }
 function resetEventForm() { eventStep = 1; ["event-step-1", "event-step-2", "event-step-3", "event-step-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("hidden", i !== 0); }); document.getElementById("event-next-btn")!.classList.remove("hidden"); document.getElementById("event-submit-btn")!.classList.add("hidden"); document.getElementById("event-prev-btn")!.classList.add("hidden"); ["event-dot-1", "event-dot-2", "event-dot-3", "event-dot-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });   ["event-title", "event-organizer", "event-date", "event-time", "event-location", "event-map-url", "event-desc", "event-category"].forEach(function (id) { var el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null; if (el) el.value = ""; }); setBtnLoading("#event-submit-btn", false); }
