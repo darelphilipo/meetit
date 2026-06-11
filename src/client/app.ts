@@ -1610,8 +1610,15 @@ async function submitRsvp() {
         document.querySelectorAll(".step-dot").forEach(function(d) { d.classList.add("done"); });
         log("RSVP confirmation card shown for " + currentEventId);
       } else {
-        closeOverlay("details-overlay");
-        showHomePage();
+        closeOverlay("rsvp-overlay");
+        // Stay on My Stuff if user was viewing it, otherwise go home
+        var msOverlayRsvp = document.getElementById("my-stuff-overlay");
+        if (msOverlayRsvp && msOverlayRsvp.classList.contains("active")) {
+          log("submitRsvp update staying on My Stuff tab=" + myStuffTab);
+          if (myStuffTab === "rsvps") renderMyRsvpCard();
+        } else {
+          showHomePage();
+        }
       }
     } else {
       showToast(data.error || (isUpdate ? "Update failed - retry" : "RSVP failed - retry"), "error");
