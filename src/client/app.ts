@@ -1294,8 +1294,7 @@ async function showModEventDetails(id: string) {
   document.getElementById("mod-detail-body")!.innerHTML = s1;
   document.getElementById("mod-detail-next-btn")!.classList.remove("hidden"); document.getElementById("mod-detail-prev-btn")!.classList.add("hidden");
   openOverlay("mod-event-details-overlay");
-  // Load attendees on first open
-  loadModPublicAttendees(id);
+  // Attendees loaded on demand when user navigates to card 3 (Who's Going)
   // Auto-paginate description after DOM settles
   if (descFull.length > DESC_SHORT_LENGTH) {
     setTimeout(function () {
