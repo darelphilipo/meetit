@@ -71,7 +71,7 @@ var appTimezone = "+05:30"; // default, updated from /api/init
 function setAppTimezone(tz: string) { appTimezone = tz || "+05:30"; log("timezone set to " + appTimezone); }
 function relativeDate(dateStr: string): string {
   var today = new Date(); today.setHours(0, 0, 0, 0);
-  var d = new Date(dateStr + "T00:00:00"); d.setHours(0, 0, 0, 0);
+  var d = new Date(dateStr + "T00:00:00Z"); d.setHours(0, 0, 0, 0);
   var diff = Math.round((d.getTime() - today.getTime()) / 86400000);
   if (diff === 0) return "Today";
   if (diff === 1) return "Tomorrow";
@@ -228,7 +228,7 @@ async function loadHome() {
           if (loadSeq === homeLoadSeq) renderHomeCard(data.data);
         }, RENDER_DELAY);
       }
-    } catch (e) { console.error(e); if (msg) msg.textContent = "Could not load."; }
+    } catch (e) { log("error: loadHome " + e); if (msg) msg.textContent = "Could not load."; }
     finally { homeFetchInProgress = false; }
   }, DEBOUNCE_DELAY);
 }
@@ -364,6 +364,7 @@ function fallbackCopy(text: string) {
 
 // ======= MY STUFF (tabbed layout) =======
 var myStuffLoading = false;
+var myStuffLoadSeq = 0;
 var myStuffTab = "rsvps";
 var myRsvps: any[] = [], myRsvpIdx = 0;
 function openMyStuff() { log("openMyStuff"); myStuffTab = "rsvps"; switchMyStuffTab("rsvps", true); loadMySubmissions(); openOverlay("my-stuff-overlay"); }
@@ -391,19 +392,23 @@ function renderMyStuffTab(tab: string) {
 }
 async function loadMySubmissions() {
   log("loadMySubmissions");
+  var loadSeq = ++myStuffLoadSeq;
+  var capturedTab = myStuffTab;
   var container = document.getElementById("my-stuff-container")!;
   container.innerHTML = '<div class="empty-state"><span class="emoji">⏳</span><h2>Loading...</h2></div>';
   try {
     var res = await fetch(API_BASE + "/api/my-submissions");
     var data = await res.json();
+    if (loadSeq !== myStuffLoadSeq) { log("loadMySubmissions stale response, seq=" + loadSeq + " current=" + myStuffLoadSeq); return; }
     if (data.type === "my-submissions") {
       myRsvps = data.rsvps || [];
       myPitches = data.pitches || [];
       myEvents = data.events || [];
       myRsvpIdx = 0; myPitchIdx = 0; myEventIdx = 0;
-      renderMyStuffTab(myStuffTab);
+      if (capturedTab === myStuffTab) renderMyStuffTab(myStuffTab);
     }
   } catch (e) {
+    log("error: loadMySubmissions " + e);
     container.innerHTML = '<div class="empty-state"><span class="emoji">❌</span><h2>Could not load</h2></div>';
   }
   myStuffLoading = false;
@@ -606,7 +611,7 @@ async function loadPublicAttendees(eventId: string) {
         log("loadPublicAttendees STALE RESPONSE REJECTED — overlay closed or different event");
       }
     }
-  } catch (e) { console.error(e); }
+  } catch (e) { log("error: loadPublicAttendees " + e); }
 }
 
 function buildAttNav(eventId: string): string {
@@ -876,7 +881,7 @@ async function loadModTab(tab: string) {
       var d2 = await res2.json();
       if (d2.type === "pitched-ideas") { modTabCache[tab] = { data: d2.ideas, timestamp: Date.now() }; renderModPitches(d2.ideas); }
     }
-  } catch (e) { console.error(e); }
+  } catch (e) { log("error: loadModTab " + e); }
   finally { modFetching[tab] = false; setModLoading(false); }
 }
 function renderModCard(tab: string) {
@@ -1397,7 +1402,7 @@ function loadModPublicAttendees(eventId: string) {
         }
       }
     })
-    .catch(function(e) { console.error(e); });
+    .catch(function(e) { log("error: loadModPublicAttendees " + e); });
 }
 
 function renderModAttendees(eventId: string, att: any[]) {
@@ -1554,7 +1559,7 @@ async function viewRsvps(eventId: string) { log("viewRsvps id=" + eventId);
       }
       el.classList.remove("hidden");
     }
-  } catch (e) { console.error(e); }
+  } catch (e) { log("error: viewRsvps " + e); }
   setBtnLoading('[data-action="view-rsvps"][data-id="' + eventId + '"]', false);
 }
 
@@ -1680,7 +1685,7 @@ async function submitEvent() { log("submitEvent"); if (isLocked("submit-event"))
       if (myStuffOverlay2 && myStuffOverlay2.classList.contains("active") && myStuffTab === "events") { renderMyEventCard(); }
     } else { showToast(data.error || "Submit failed - retry", "error"); setBtnLoading("#event-submit-btn", false); } } catch (e) { showToast("Error", "error"); setBtnLoading("#event-submit-btn", false); } finally { unlock("submit-event"); } }
 var usernameCached: string | null = null, prefillLoading = false;
-async function prefillOrganizer() { if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; } if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; } if (prefillLoading) return; prefillLoading = true; try { var res = await fetch(API_BASE + "/api/init"); var data = await res.json(); if (data.type === "init" && data.username) { currentUsername = data.username; usernameCached = data.username; (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username; } if (data.type === "init" && data.timezone) { setAppTimezone(data.timezone); } } catch (e) { console.error(e); } prefillLoading = false; }
+async function prefillOrganizer() { if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; } if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; } if (prefillLoading) return; prefillLoading = true; try { var res = await fetch(API_BASE + "/api/init"); var data = await res.json(); if (data.type === "init" && data.username) { currentUsername = data.username; usernameCached = data.username; (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username; } if (data.type === "init" && data.timezone) { setAppTimezone(data.timezone); } } catch (e) { log("error: prefillOrganizer " + e); } prefillLoading = false; }
 
 // ======= OVERLAY HELPERS =======
 function openOverlay(id: string) { log("OPEN overlay " + id); document.getElementById(id)!.classList.add("active"); }

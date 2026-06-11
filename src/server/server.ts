@@ -28,6 +28,10 @@ function serverLog(level: "info" | "error", message: string) {
   redis.zRemRangeByRank("meetit:server_logs", 0, -MAX_SERVER_LOGS - 1).catch(() => {});
 }
 
+function safeJSONParse(val: string): any | null {
+  try { return JSON.parse(val); } catch { return null; }
+}
+
 export async function serverOnRequest(
   req: IncomingMessage,
   rsp: ServerResponse,
@@ -38,7 +42,9 @@ export async function serverOnRequest(
     const msg = `server error; ${err instanceof Error ? err.stack : err}`;
     console.error(msg);
     serverLog("error", msg.substring(0, 500));
-    writeJSON<ErrorResponse>(500, { error: "Internal server error", status: 500 }, rsp);
+    const status = (err as any)?.statusCode || 500;
+    const errorMsg = status === 400 ? "Invalid request body" : "Internal server error";
+    writeJSON<ErrorResponse>(status, { error: errorMsg, status }, rsp);
   }
 }
 
@@ -161,6 +167,8 @@ type ApiResponse =
   | { type: "pitched-ideas"; ideas: any[] }
   | { type: "all-approved-events"; events: any[] }
   | { type: "dismiss-idea"; success: boolean }
+  | { type: "delete-pending"; success: boolean }
+  | { type: "delete-published"; success: boolean }
   | { type: "my-submissions"; pitches: any[]; events: MeetitEvent[]; rsvps: any[] }
   | { type: "my-rsvp"; email: string; phone: string }
   | { type: "export-attendees"; csv: string; filename: string }
@@ -214,7 +222,7 @@ async function requireMod(): Promise<ErrorResponse | undefined> {
 
 async function getActiveEvents(): Promise<MeetitEvent[]> {
   const events = await redis.hGetAll("meetit:active_events");
-  const eventList = Object.values(events).map((val) => JSON.parse(val));
+  const eventList = Object.values(events).map((val) => safeJSONParse(val)).filter((e): e is MeetitEvent => e !== null);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return eventList
@@ -224,18 +232,18 @@ async function getActiveEvents(): Promise<MeetitEvent[]> {
 
 async function getAllApprovedEvents(): Promise<MeetitEvent[]> {
   const events = await redis.hGetAll("meetit:active_events");
-  const eventList = Object.values(events).map((val) => JSON.parse(val));
+  const eventList = Object.values(events).map((val) => safeJSONParse(val)).filter((e): e is MeetitEvent => e !== null);
   return eventList.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
 }
 
 async function getActiveEvent(eventId: string): Promise<MeetitEvent | undefined> {
   const eventJson = await redis.hGet("meetit:active_events", eventId);
-  return eventJson ? JSON.parse(eventJson) : undefined;
+  return eventJson ? safeJSONParse(eventJson) : undefined;
 }
 
 async function getPendingEventsList(): Promise<MeetitEvent[]> {
   const events = await redis.hGetAll("meetit:pending_events");
-  return Object.values(events).map((val) => JSON.parse(val));
+  return Object.values(events).map((val) => safeJSONParse(val)).filter((e): e is MeetitEvent => e !== null);
 }
 
 async function getRsvpData(eventId: string, username: string): Promise<{ count: number; hasRsvped: boolean }> {
@@ -327,6 +335,7 @@ async function onHome(): Promise<ApiResponse> {
 
 async function onEventDetails(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
+  if (!eventId) return { error: "Missing eventId", status: 400 };
   const event = await getActiveEvent(eventId);
 
   if (!event) {
@@ -414,6 +423,7 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
   const authError = await requireMod();
   if (authError) return authError;
   const { eventId } = await readJSON<{ eventId: string }>(req);
+  if (!eventId) return { error: "Missing eventId", status: 400 };
   const eventJson = await redis.hGet("meetit:pending_events", eventId);
 
   // C7: Return 404 if event doesn't exist in pending
@@ -427,7 +437,7 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
   const lockAcquired = await redis.hSetNX(lockKey, "status", "approving");
   if (!lockAcquired) {
     console.log(`[APPROVE] ${eventId} already being approved - skipping`);
-    return { type: "approve-event", success: true };
+    return { error: "Event is being approved by another moderator", status: 409 };
   }
   await redis.expire(lockKey, 10); // 10s TTL prevents deadlock
 
@@ -450,7 +460,7 @@ async function onPitchedIdeas(): Promise<ApiResponse> {
   const authError = await requireMod();
   if (authError) return authError;
   const ideas = await redis.hGetAll("meetit:pitched_ideas");
-  const ideasList = Object.values(ideas).map((val) => JSON.parse(val));
+  const ideasList = Object.values(ideas).map((val) => safeJSONParse(val)).filter((i): i is any => i !== null);
   console.log(`[PITCHES] ${ideasList.length} pitched ideas`);
   return { type: "pitched-ideas", ideas: ideasList };
 }
@@ -489,6 +499,7 @@ async function onDismissIdea(req: IncomingMessage): Promise<ApiResponse> {
 
 async function onDeletePending(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
+  if (!eventId) return { error: "Missing eventId", status: 400 };
   const eventJson = await redis.hGet("meetit:pending_events", eventId);
   if (eventJson) {
     const event = JSON.parse(eventJson) as MeetitEvent;
@@ -499,11 +510,12 @@ async function onDeletePending(req: IncomingMessage): Promise<ApiResponse> {
   }
   await redis.hDel("meetit:pending_events", [eventId]);
   console.log(`[DEL-PEND] ${eventId} removed`);
-  return { type: "dismiss-idea", success: true };
+  return { type: "delete-pending", success: true };
 }
 
 async function onDeletePublished(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
+  if (!eventId) return { error: "Missing eventId", status: 400 };
   const eventJson = await redis.hGet("meetit:active_events", eventId);
   if (eventJson) {
     const event = JSON.parse(eventJson) as MeetitEvent;
@@ -521,11 +533,12 @@ async function onDeletePublished(req: IncomingMessage): Promise<ApiResponse> {
   const detailFields = await redis.hKeys(detailsKey);
   if (detailFields.length > 0) await redis.hDel(detailsKey, detailFields);
   console.log(`[DEL-PUB] ${eventId} removed | rsvp_members=${members.length}`);
-  return { type: "dismiss-idea", success: true };
+  return { type: "delete-published", success: true };
 }
 
 async function onLeaveEvent(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
+  if (!eventId) return { error: "Missing eventId", status: 400 };
   const username = context.username;
   if (!username) return { error: "Authentication required", status: 401 };
   const userKey = normalizeUsername(username);
@@ -552,6 +565,7 @@ async function onLeaveEvent(req: IncomingMessage): Promise<ApiResponse> {
 
 async function onRsvpList(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId, includeContactDetails } = await readJSON<{ eventId: string; includeContactDetails?: boolean }>(req);
+  if (!eventId) return { error: "Missing eventId", status: 400 };
   const results = await redis.zRange(`meetit:rsvps:${eventId}`, "-inf", "+inf", { by: "score" });
   console.log(`[RSVP-LIST] ${eventId} | ${results.length} attendees | contact=${!!includeContactDetails}`);
   // Fetch contact details from companion hash
@@ -563,6 +577,7 @@ async function onRsvpList(req: IncomingMessage): Promise<ApiResponse> {
 
 async function onMyRsvp(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId } = await readJSON<{ eventId: string }>(req);
+  if (!eventId) return { error: "Missing eventId", status: 400 };
   const username = normalizeUsername(context.username || "");
   const detailsKey = `meetit:rsvp_details:${eventId}`;
   let detailsRaw = await redis.hGet(detailsKey, username);
@@ -583,20 +598,20 @@ async function onMySubmissions(): Promise<ApiResponse> {
   // Pitches
   const pitchesJson = await redis.hGetAll("meetit:pitched_ideas");
   const pitches = Object.values(pitchesJson)
-    .map((val) => JSON.parse(val))
+    .map((val) => safeJSONParse(val)).filter((i): i is any => i !== null)
     .filter((idea: any) => (idea.submittedBy || "").toLowerCase() === normUser);
 
   // Pending events (organized by user)
   const pendingJson = await redis.hGetAll("meetit:pending_events");
   const pendingEvents = Object.values(pendingJson)
-    .map((val) => JSON.parse(val))
+    .map((val) => safeJSONParse(val)).filter((e): e is MeetitEvent => e !== null)
     .filter((event: MeetitEvent) => matchOrg(event.organizer || ""))
     .map(e => ({ ...e, status: "pending" }));
 
   // Active events (organized by user)
   const activeJson = await redis.hGetAll("meetit:active_events");
   const activeEvents = Object.values(activeJson)
-    .map((val) => JSON.parse(val))
+    .map((val) => safeJSONParse(val)).filter((e): e is MeetitEvent => e !== null)
     .filter((event: MeetitEvent) => matchOrg(event.organizer || ""))
     .map(e => ({ ...e, status: "published" }));
 
@@ -619,7 +634,7 @@ async function onMySubmissions(): Promise<ApiResponse> {
 async function onServerLogs(): Promise<ApiResponse> {
   try {
     const results = await redis.zRange("meetit:server_logs", "-inf", "+inf", { by: "score" });
-    const logs = results.map((r) => JSON.parse(r.member) as { ts: number; level: string; msg: string });
+    const logs = results.map((r) => safeJSONParse(r.member)).filter((l): l is { ts: number; level: string; msg: string } => l !== null);
     console.log(`[SERVER-LOGS] Returning ${logs.length} entries`);
     serverLog("info", `[SERVER-LOGS] Returning ${logs.length} entries`);
     return { type: "server-logs", logs };
@@ -717,6 +732,14 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
   const cronMsg = `[CRON] check-events FIRED at ${new Date().toISOString()}`;
   console.log(cronMsg); serverLog("info", cronMsg);
   try {
+    // Distributed lock: prevent overlapping CRON runs
+    const cronLock = await redis.hSetNX("meetit:cron_lock", "lock", Date.now().toString());
+    if (!cronLock) {
+      console.log(`[CRON] Lock held by another instance - skipping`);
+      return { status: "ok", skipped: true };
+    }
+    await redis.expire("meetit:cron_lock", 240); // 4 min TTL (CRON runs every 5 min)
+
     const allEvents = await redis.hGetAll("meetit:active_events");
 
     // === 1. Reminder posts for upcoming events ===
@@ -724,13 +747,13 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
     const tzSign = timezone.startsWith("-") ? "-" : "+";
     const tzValue = timezone.replace(/^[+-]/, ""); // e.g. "05:30"
     const tzOffset = tzSign + tzValue; // e.g. "+05:30" or "-05:00"
+    const reminderHours = Number(await settings.get("reminder_hours")) || 24;
     for (const [eventId, eventJson] of Object.entries(allEvents)) {
       const event = JSON.parse(eventJson);
       // Parse date+time together for accurate reminder timing using configured timezone
       const eventDateTime = new Date(event.date + "T" + (event.time || "00:00") + ":00" + tzOffset);
       const eventTs = eventDateTime.getTime();
       const nowTs = Date.now();
-      const reminderHours = Number(await settings.get("reminder_hours")) || 24;
       const hoursUntilEvent = (eventTs - nowTs) / 3600000;
 
       if (hoursUntilEvent > reminderHours || hoursUntilEvent < 0) continue;
@@ -780,5 +803,9 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
 
 async function readJSON<T>(req: IncomingMessage): Promise<T> {
   const raw = await readRaw(req);
-  return JSON.parse(raw);
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw Object.assign(new Error("Invalid JSON body"), { statusCode: 400 });
+  }
 }

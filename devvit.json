@@ -17,9 +17,7 @@
   "permissions": {
     "http": {
       "enable": true,
-      "domains": [
-        "hooks.zapier.com"
-      ]
+      "domains": []
     },
     "redis": true,
     "reddit": {
