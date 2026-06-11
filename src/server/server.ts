@@ -38,7 +38,7 @@ export async function serverOnRequest(
     const msg = `server error; ${err instanceof Error ? err.stack : err}`;
     console.error(msg);
     serverLog("error", msg.substring(0, 500));
-    writeJSON<ErrorResponse>(500, { error: msg, status: 500 }, rsp);
+    writeJSON<ErrorResponse>(500, { error: "Internal server error", status: 500 }, rsp);
   }
 }
 

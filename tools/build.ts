@@ -18,7 +18,7 @@ const opts: BuildOptions = {
   bundle: true,
   logLevel: "info", // Print the port and build demarcations.
   metafile: true,
-  sourcemap: "linked",
+  sourcemap: process.argv.includes("--minify") ? false : "linked",
   target: "es2022", // https://esbuild.github.io/content-types/#tsconfig-json
 };
 

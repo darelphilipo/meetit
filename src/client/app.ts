@@ -86,7 +86,7 @@ function formatTimeWithTz(time: string, tz: string): string {
 // Fetch debounce / caches
 var homeFetchTimeout: ReturnType<typeof setTimeout> | null = null;
 var homeFetchInProgress = false;
-var modFetchInProgress = false;
+var modFetching: Record<string, boolean> = {};
 var detailCache: Record<string, { data: any; timestamp: number }> = {};
 var attendeeCache: Record<string, { data: any[]; timestamp: number }> = {};
 var modTabCache: Record<string, { data: any; timestamp: number }> = {};
@@ -187,6 +187,7 @@ function showToast(msg: string, type: "success" | "error") {
 }
 function showCopyToast() { var t = document.createElement("div"); t.className = "toast-copied"; t.textContent = "📍 Copied!"; document.body.appendChild(t); setTimeout(function () { t.remove(); }, COPY_TOAST_DURATION); }
 function escapeHtml(s: string | undefined | null) { var d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function escapeAttr(s: string | undefined | null): string { return (s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
 // ======= HOME - Single card navigation =======
 async function loadHome() {
@@ -555,9 +556,9 @@ function buildMyStuffDescNavHTML(key: string): string {
   var total = myStuffDescPageTotal[key] || 1;
   if (total <= 1) return '';
   var cur = myStuffDescPageIdx[key] || 0;
-  return (cur > 0 ? '<button class="btn btn-white btn-sm" data-key="' + key + '" data-action="my-stuff-desc-prev" style="padding:2px 10px;font-size:11px;">← Previous</button>' : '') +
-    '<span style="font-size:11px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
-    (cur < total - 1 ? '<button class="btn btn-white btn-sm" data-key="' + key + '" data-action="my-stuff-desc-next" style="padding:2px 10px;font-size:11px;">Next →</button>' : '');
+  return (cur > 0 ? '<button class="btn btn-white btn-sm" data-key="' + escapeAttr(key) + '" data-action="my-stuff-desc-prev" style="padding:2px 10px;font-size:11px;">← Previous</button>' : '') +
+    '<span style="font-size:12px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
+    (cur < total - 1 ? '<button class="btn btn-white btn-sm" data-key="' + escapeAttr(key) + '" data-action="my-stuff-desc-next" style="padding:2px 10px;font-size:11px;">Next →</button>' : '');
 }
 
 // ======= CREATE MENU =======
@@ -758,7 +759,7 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
     '<div id="desc-nav-' + e.id + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:4px 8px 0 8px;min-height:28px;">' +
       (hasMore ? '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + e.id + '" data-action="desc-next" style="padding:4px 14px;font-size:12px;">Read more →</button>' : '') +
     '</div>';
-  if (e.mapUrl) { s2 +=       '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-id="' + escapeHtml(e.mapUrl) + '" data-action="copy-link" style="background:#fff;border:var(--border);padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>'; }
+  if (e.mapUrl) { s2 +=       '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-id="' + escapeAttr(e.mapUrl) + '" data-action="copy-link" style="background:#fff;border:var(--border);padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>'; }
   s2 += '</div>';
 
   // Card 3: Who's Going
@@ -857,9 +858,9 @@ async function loadModTab(tab: string) {
     else if (tab === "pitches") renderModPitches(cached.data);
     return;
   }
-  // Skip if already fetching
-  if (modFetchInProgress) { log("loadModTab skipped: fetch already in progress"); return; }
-  modFetchInProgress = true;
+  // Skip if already fetching this tab
+  if (modFetching[tab]) { log("loadModTab skipped: fetch already in progress for " + tab); return; }
+  modFetching[tab] = true;
   setModLoading(true);
   try {
     if (tab === "pending") {
@@ -876,7 +877,7 @@ async function loadModTab(tab: string) {
       if (d2.type === "pitched-ideas") { modTabCache[tab] = { data: d2.ideas, timestamp: Date.now() }; renderModPitches(d2.ideas); }
     }
   } catch (e) { console.error(e); }
-  finally { modFetchInProgress = false; setModLoading(false); }
+  finally { modFetching[tab] = false; setModLoading(false); }
 }
 function renderModCard(tab: string) {
   var items = modItems[tab] || [];
@@ -945,9 +946,9 @@ function renderModCard(tab: string) {
   // Card nav
   if (total > 1) {
     html += '<div style="display:flex;gap:4px;justify-content:center;align-items:center;">' +
-      '<button class="btn btn-white btn-sm btn-mod-prev" data-tab="' + tab + '" data-action="mod-prev" style="flex:1;padding:6px;font-size:12px;">← Prev</button>' +
+      '<button class="btn btn-white btn-sm btn-mod-prev" data-tab="' + escapeAttr(tab) + '" data-action="mod-prev" style="flex:1;padding:6px;font-size:12px;">← Prev</button>' +
       '<span style="font-size:12px;font-weight:700;padding:0 4px;">' + (idx + 1) + '/' + total + '</span>' +
-      '<button class="btn btn-white btn-sm btn-mod-next" data-tab="' + tab + '" data-action="mod-next" style="flex:1;padding:6px;font-size:12px;">Next →</button></div>';
+      '<button class="btn btn-white btn-sm btn-mod-next" data-tab="' + escapeAttr(tab) + '" data-action="mod-next" style="flex:1;padding:6px;font-size:12px;">Next →</button></div>';
   }
   html += '</div>';
   c.innerHTML = html;
@@ -997,9 +998,9 @@ function buildModDescNavHTML(key: string): string {
   var total = modDescTotal[key] || 1;
   if (total <= 1) return '';
   var cur = modDescPageIdx[key] || 0;
-  return (cur > 0 ? '<button class="btn btn-white btn-sm btn-mod-desc-prev" data-key="' + key + '" data-action="mod-desc-prev" style="padding:2px 10px;font-size:11px;">← Previous</button>' : '') +
-    '<span style="font-size:11px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
-    (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-mod-desc-next" data-key="' + key + '" data-action="mod-desc-next" style="padding:2px 10px;font-size:11px;">Next →</button>' : '');
+  return (cur > 0 ? '<button class="btn btn-white btn-sm btn-mod-desc-prev" data-key="' + escapeAttr(key) + '" data-action="mod-desc-prev" style="padding:2px 10px;font-size:11px;">← Previous</button>' : '') +
+    '<span style="font-size:12px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
+    (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-mod-desc-next" data-key="' + escapeAttr(key) + '" data-action="mod-desc-next" style="padding:2px 10px;font-size:11px;">Next →</button>' : '');
 }
 
 function renderModPending(events: any[]) {
@@ -1068,11 +1069,14 @@ function getItemTitle(id: string, store: Record<string, any[]>): string {
   }
   return id;
 }
-var confirmResolve: ((val: boolean) => void) | null = null;
+// Per-element resolver avoids race when two confirms fire in quick succession
 function confirmDestructive(msg: string): Promise<boolean> {
   document.getElementById("confirm-message")!.textContent = msg;
   openOverlay("confirm-overlay");
-  return new Promise(function (resolve) { confirmResolve = resolve; });
+  return new Promise(function (resolve) {
+    var el = document.getElementById("confirm-overlay")!;
+    (el as any)._confirmResolve = resolve;
+  });
 }
 
 // ======= ACTIONS =======
@@ -1260,7 +1264,7 @@ async function showModEventDetails(id: string) {
     '<div id="mod-desc-nav-' + id + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:4px 8px 0 8px;min-height:28px;">' +
       (descFull.length > DESC_SHORT_LENGTH ? '<button class="btn btn-white btn-sm" data-id="' + id + '" data-action="mod-detail-desc-next" style="padding:4px 14px;font-size:12px;">Read more →</button>' : '') +
     '</div>';
-  if (item.mapUrl) { s2 += '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-id="' + escapeHtml(item.mapUrl) + '" data-action="copy-link" style="background:#fff;border:var(--border);padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>'; }
+  if (item.mapUrl) { s2 += '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-id="' + escapeAttr(item.mapUrl) + '" data-action="copy-link" style="background:#fff;border:var(--border);padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>'; }
   s2 += '</div>';
 
   // Card 3: Who's Going
@@ -1895,9 +1899,9 @@ document.addEventListener("DOMContentLoaded", function () {
   });
   document.querySelector(".btn-submit-rsvp")?.addEventListener("click", submitRsvp);
   // Custom confirm overlay buttons
-  document.getElementById("confirm-ok-btn")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); if (confirmResolve) { confirmResolve(true); confirmResolve = null; } });
-  document.getElementById("confirm-cancel-btn")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); if (confirmResolve) { confirmResolve(false); confirmResolve = null; } });
-  document.getElementById("confirm-backdrop")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); if (confirmResolve) { confirmResolve(false); confirmResolve = null; } });
+  document.getElementById("confirm-ok-btn")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var r = (el as any)._confirmResolve; if (r) { r(true); (el as any)._confirmResolve = null; } });
+  document.getElementById("confirm-cancel-btn")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var r = (el as any)._confirmResolve; if (r) { r(false); (el as any)._confirmResolve = null; } });
+  document.getElementById("confirm-backdrop")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var r = (el as any)._confirmResolve; if (r) { r(false); (el as any)._confirmResolve = null; } });
 
   // ONE event delegation listener - replaces all bindButtons() calls
   document.body.addEventListener("click", function(e) {
