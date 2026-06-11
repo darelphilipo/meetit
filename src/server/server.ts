@@ -23,9 +23,13 @@ const MAX_SERVER_LOGS = 100;
 function serverLog(level: "info" | "error", message: string) {
   const entry = JSON.stringify({ ts: Date.now(), level, msg: message });
   // Fire-and-forget: don't await, don't block the request
-  redis.zAdd("meetit:server_logs", { score: Date.now(), member: entry }).catch(() => {});
+  redis.zAdd("meetit:server_logs", { score: Date.now(), member: entry }).catch((e: any) => {
+    console.log(`[SERVER-LOG-FAIL] zAdd error: ${e}`);
+  });
   // Also trim old entries asynchronously
-  redis.zRemRangeByRank("meetit:server_logs", 0, -MAX_SERVER_LOGS - 1).catch(() => {});
+  redis.zRemRangeByRank("meetit:server_logs", 0, -MAX_SERVER_LOGS - 1).catch((e: any) => {
+    console.log(`[SERVER-LOG-FAIL] trim error: ${e}`);
+  });
 }
 
 function safeJSONParse(val: string): any | null {

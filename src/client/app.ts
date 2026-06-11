@@ -133,7 +133,9 @@ async function fetchServerLogs() {
   log("fetching server logs...");
   try {
     var res = await fetch(API_BASE + "/api/server-logs");
+    log("server logs response status=" + res.status);
     var data = await res.json();
+    log("server logs response type=" + data.type + " count=" + (data.logs || []).length);
     if (data.type === "server-logs") {
       var logs = data.logs || [];
       // Merge server logs into unifiedLogs (avoid duplicates by ts+msg)
@@ -154,6 +156,8 @@ async function fetchServerLogs() {
       log("server logs merged: " + logs.length + " entries, total=" + unifiedLogs.length);
       var logsContainer = document.querySelector("#debug-panel .debug-logs");
       renderUnifiedLogs(logsContainer);
+    } else {
+      log("server logs unexpected type: " + data.type);
     }
   } catch (e) { log("server logs fetch failed: " + e); }
 }
