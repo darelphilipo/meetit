@@ -1071,6 +1071,7 @@ function getItemTitle(id: string, store: Record<string, any[]>): string {
 }
 // Per-element resolver avoids race when two confirms fire in quick succession
 function confirmDestructive(msg: string): Promise<boolean> {
+  log("confirmDestructive: " + msg);
   document.getElementById("confirm-message")!.textContent = msg;
   openOverlay("confirm-overlay");
   return new Promise(function (resolve) {
@@ -1637,13 +1638,16 @@ async function leaveEvent(id: string) { log("leaveEvent id=" + id); var title = 
       // Stay on My Stuff if user was viewing it, otherwise go home
       var msOverlay = document.getElementById("my-stuff-overlay");
       if (msOverlay && msOverlay.classList.contains("active")) {
+        log("leaveEvent staying on My Stuff tab=" + myStuffTab + " rsvpsCount=" + myRsvps.length);
         // If RSVPs tab is now empty, switch to another tab
         if (myStuffTab === "rsvps" && myRsvps.length === 0) {
+          log("leaveEvent RSVPs empty, switching to events tab");
           switchMyStuffTab("events", false);
         } else if (myStuffTab === "rsvps") {
           renderMyRsvpCard();
         }
       } else {
+        log("leaveEvent going home (My Stuff not active)");
         showHomePage();
       }
     } else { showToast("Failed", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } } catch (e) { showToast("Error", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } }
@@ -1912,9 +1916,9 @@ document.addEventListener("DOMContentLoaded", function () {
   });
   document.querySelector(".btn-submit-rsvp")?.addEventListener("click", submitRsvp);
   // Custom confirm overlay buttons
-  document.getElementById("confirm-ok-btn")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var r = (el as any)._confirmResolve; if (r) { r(true); (el as any)._confirmResolve = null; } });
-  document.getElementById("confirm-cancel-btn")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var r = (el as any)._confirmResolve; if (r) { r(false); (el as any)._confirmResolve = null; } });
-  document.getElementById("confirm-backdrop")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var r = (el as any)._confirmResolve; if (r) { r(false); (el as any)._confirmResolve = null; } });
+  document.getElementById("confirm-ok-btn")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var r = (el as any)._confirmResolve; if (r) { log("confirm OK"); r(true); (el as any)._confirmResolve = null; } });
+  document.getElementById("confirm-cancel-btn")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var r = (el as any)._confirmResolve; if (r) { log("confirm cancelled"); r(false); (el as any)._confirmResolve = null; } });
+  document.getElementById("confirm-backdrop")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var r = (el as any)._confirmResolve; if (r) { log("confirm backdrop dismissed"); r(false); (el as any)._confirmResolve = null; } });
 
   // ONE event delegation listener - replaces all bindButtons() calls
   document.body.addEventListener("click", function(e) {
