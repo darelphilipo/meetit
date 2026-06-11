@@ -48,8 +48,34 @@
 **Example from RSVP feature:**
 ```
 Client: "submitRsvp eventId=abc123" → "optimistic RSVP update: abc123 count=5" → "RSVP confirmation card shown"
-Server: "[RSVP] darelphilip → abc123 | email=no phone=no" → "[RSVP] score=1234567890"
+Server: "[RSVP] user123 → event_xxx (email=yes, phone=no)"
 ```
+
+### 0.2 Every Fix/Enhancement Gets Logging — No Exceptions
+
+**Why:** A fix without logging is invisible in production. When the fix regresses or an edge case is missed, you have no trail to debug.
+
+**Rule:** Every time you merge a fix or enhancement, BEFORE the commit:
+1. **Add a `log()` call at the entry point of the changed path** — e.g., `log("fixName intent=")`
+2. **Add a `log()` call at each decision branch** — e.g., `log("fixName staying on My Stuff tab=")` vs `log("fixName going home")`
+3. **Add server-side logging** — e.g., `console.log(\`[FIX] detail\`)` for any server changes
+4. **Search the changed code** — any `catch` blocks missing logging? Any early returns?
+5. **Verify in debug panel** — open the app, trigger the flow, confirm logs appear
+
+**Checklist for every commit:**
+```
+[ ] Entry log added at the changed path
+[ ] Each branch/decision has a unique log
+[ ] Error paths are logged
+[ ] Server changes have [FEATURE] prefixed logs
+[ ] Verified in app's debug panel
+```
+
+**Bad commit (no logging):**
+> "fix: stay on My Stuff after leaving"
+
+**Good commit (with logging):**
+> "fix: stay on My Stuff after leaving\n\nLogging: leaveEvent staying on My Stuff, leaveEvent RSVPs empty switching to events, leaveEvent going home"
 
 ### 0.2 Viewing Server Logs Without CLI
 
