@@ -205,7 +205,8 @@ function buildCardShell(opts: { color?: string; headerHtml: string; bodyHtml: st
 }
 function updateCardDots(prefix: string, current: number, total: number) {
   log("updateCardDots prefix=" + prefix + " current=" + current + " total=" + total);
-  var dots = document.getElementById(prefix + "-dots");
+  var dots = document.querySelector(".card-progress." + prefix + "-dots") as HTMLElement | null;
+  if (!dots) { dots = document.getElementById(prefix + "-dots") as HTMLElement | null; }
   if (!dots) { log("updateCardDots dots not found prefix=" + prefix); return; }
   if (total <= 1) { dots.style.display = "none"; return; }
   dots.style.display = "flex";
@@ -983,6 +984,9 @@ function renderModCard(tab: string) {
       headerHtml += '<div style="font-size:11px;font-weight:700;color:#fff;background:#999;border:var(--border);padding:2px 8px;margin-bottom:6px;display:inline-block;">⏰ Past Event</div>';
     }
   }
+  // Progress dots embedded at bottom of header (matches event details overlay pattern)
+  headerHtml += '<div class="card-progress mod-dots"></div>';
+  log("renderModCard header dots embedded tab=" + tab);
 
   // Body - same scrollable description box for all tabs so actions/footer stay anchored
   var bodyHtml = '<div id="mod-desc-box-' + dcKey + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
