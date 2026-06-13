@@ -161,7 +161,7 @@ type ApiResponse =
   | { type: "init"; postId: string; username: string; settings: AppSettings; timezone: string }
   | { type: "home"; data: HomeState }
   | { type: "event-details"; data: EventDetails }
-  | { type: "rsvp"; success: boolean }
+  | { type: "rsvp"; success: boolean; wasExisting?: boolean }
   | { type: "leave-event"; success: boolean }
   | { type: "rsvp-list"; attendees: RsvpAttendee[] }
   | { type: "pitch-idea"; success: boolean }
@@ -250,13 +250,6 @@ async function getPendingEventsList(): Promise<MeetitEvent[]> {
   return Object.values(events).map((val) => safeJSONParse(val)).filter((e): e is MeetitEvent => e !== null);
 }
 
-async function getRsvpData(eventId: string, username: string): Promise<{ count: number; hasRsvped: boolean }> {
-  const results = await redis.zRange(`meetit:rsvps:${eventId}`, "-inf", "+inf", { by: "score" });
-  const userKey = normalizeUsername(username);
-  const hasRsvped = Boolean(userKey) && results.some((r) => normalizeUsername(r.member) === userKey);
-  return { count: results.length, hasRsvped };
-}
-
 async function getRsvpCount(eventId: string): Promise<number> {
   return await redis.zCard(`meetit:rsvps:${eventId}`);
 }
@@ -307,12 +300,20 @@ async function onHome(): Promise<ApiResponse> {
   const appSettings = await getSettings();
 
   const username = context.username || "";
-  const eventsWithCounts = await Promise.all(
-    events.map(async (event) => {
-      const { count, hasRsvped } = await getRsvpData(event.id, username);
-      return { ...event, rsvpCount: count, hasRsvped };
-    })
-  );
+  // PERF1: batch RSVP queries instead of N+1 zRange per event
+  const userKey = normalizeUsername(username);
+  const [counts, rsvped] = await Promise.all([
+    Promise.all(events.map((event) => redis.zCard(`meetit:rsvps:${event.id}`))),
+    Promise.all(events.map((event) => redis.zScore(`meetit:rsvps:${event.id}`, userKey).then((s) => s != null))),
+  ]);
+  const eventsWithCounts = events.map((event, i) => ({
+    ...event,
+    rsvpCount: counts[i] || 0,
+    hasRsvped: !!userKey && rsvped[i],
+  }));
+  const batchMsg = `[HOME] batched RSVP queries for ${events.length} events`;
+  console.log(batchMsg);
+  serverLog("info", batchMsg);
 
   const eventsByDate: Record<string, MeetitEvent[]> = {};
   for (const event of eventsWithCounts) {
@@ -371,6 +372,8 @@ async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
   if (!username) return { error: "Authentication required", status: 401 };
   const rsvpMsg = `[RSVP] ${username} → ${eventId} (email=${email ? "yes" : "no"}, phone=${phone ? "yes" : "no"})`;
   console.log(rsvpMsg); serverLog("info", rsvpMsg);
+  // BUG7: detect re-RSVP so client can show "Contact info updated"
+  const wasExisting = await isUserRsvped(eventId, username);
   await addRsvp(eventId, username, email, phone);
 
   if (GOOGLE_SHEETS_WEBHOOK_URL) {
@@ -383,7 +386,7 @@ async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
     } catch (e) { console.log(`Webhook send failed (ignored): ${e}`); }
   }
 
-  return { type: "rsvp", success: true };
+  return { type: "rsvp", success: true, wasExisting };
 }
 
 async function onPitchIdea(req: IncomingMessage): Promise<ApiResponse> {
@@ -476,12 +479,11 @@ async function onAllApprovedEvents(): Promise<ApiResponse> {
   console.log(`[ALL-APPROVED] Total approved events in Redis: ${events.length}`);
   // Filter out hardcoded default event
   const realEvents = events.filter(e => e.id !== "default-bangalore-tech-chai");
-  const eventsWithCounts = await Promise.all(
-    realEvents.map(async (event) => {
-      const count = await getRsvpCount(event.id);
-      return { ...event, rsvpCount: count };
-    })
+  // PERF2: batch zCard counts for all published events
+  const counts = await Promise.all(
+    realEvents.map((event) => redis.zCard(`meetit:rsvps:${event.id}`))
   );
+  const eventsWithCounts = realEvents.map((event, i) => ({ ...event, rsvpCount: counts[i] || 0 }));
   console.log(`[ALL-APPROVED] Returning ${eventsWithCounts.length} events to mod dashboard`);
   return { type: "all-approved-events", events: eventsWithCounts };
 }
@@ -622,12 +624,18 @@ async function onMySubmissions(): Promise<ApiResponse> {
   const myEvents = [...pendingEvents, ...activeEvents];
 
   // RSVP'd events (events the user is attending, not organizing)
+  // PERF3: batch zScore queries instead of sequential loop
   const rsvpEvents: any[] = [];
-  for (const [eventId, eventJson] of Object.entries(activeJson)) {
-    const event = JSON.parse(eventJson);
-    const rsvpScore = await getUserRsvpScore(eventId, normUser);
-    if (rsvpScore != null) {
-      rsvpEvents.push({ ...event, status: "rsvpd", rsvpScore });
+  const activeEntries = Object.entries(activeJson);
+  const rsvpScores = await Promise.all(
+    activeEntries.map(([eventId, eventJson]) =>
+      redis.zScore(`meetit:rsvps:${eventId}`, normUser).then((score) => ({ eventJson, score }))
+    )
+  );
+  for (const { eventJson, score } of rsvpScores) {
+    if (score != null) {
+      const event = JSON.parse(eventJson);
+      rsvpEvents.push({ ...event, status: "rsvpd", rsvpScore: score });
     }
   }
   console.log(`[MY-SUBMISSIONS] pitches=${pitches.length} myEvents=${myEvents.length} rsvps=${rsvpEvents.length}`);
@@ -773,10 +781,19 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
 
     // === 2. Mod alerts for new pending items ===
     const pendingKey = "meetit:last_alert_check";
-    const lastCheck = await redis.get(pendingKey) || "0";
+    const lastCheckRaw = await redis.get(pendingKey);
     const nowTs = Date.now().toString();
     const pendingEvents = await redis.hGetAll("meetit:pending_events");
     const pitchedIdeas = await redis.hGetAll("meetit:pitched_ideas");
+    // BUG3: on first CRON run, initialize lastCheck to now and skip alerting for existing items
+    if (!lastCheckRaw) {
+      const firstRunMsg = `[CRON] First run - skipping alert for existing items`;
+      console.log(firstRunMsg);
+      serverLog("info", firstRunMsg);
+      await redis.set(pendingKey, nowTs);
+      return { status: "ok", skipped: true };
+    }
+    const lastCheck = lastCheckRaw;
     let newItems = 0;
     for (const [, json] of Object.entries({ ...pendingEvents, ...pitchedIdeas })) {
       const item = JSON.parse(json);
@@ -785,15 +802,11 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
     }
     if (newItems > 0) {
       console.log(`[CRON] ${newItems} new items since last check`);
-      // Attempt to notify via message to subreddit
+      // Notify mods via modmail only (no public posts)
       try {
         await reddit.sendPrivateMessage({ subject: `Meetit: ${newItems} new item(s) await review`, text: `There are ${newItems} new pending event(s) or pitch(es) to review.\n\nOpen the Meetit app in r/${context.subredditName} to manage them.`, to: `/r/${context.subredditName}` });
         console.log(`[CRON] Mod alert sent`);
       } catch (e) { console.log(`[CRON] Mod alert failed (may not be supported): ${e}`); }
-      // Also try creating an alert post as fallback
-      try {
-        await reddit.submitCustomPost({ title: `🔔 Meetit: ${newItems} new item(s) need review`, userGeneratedContent: { text: `Open the Meetit app to review ${newItems} new pending event(s) or pitch(es).` } });
-      } catch (e2) { console.log(`[CRON] Alert post failed: ${e2}`); }
     }
     await redis.set(pendingKey, nowTs);
 

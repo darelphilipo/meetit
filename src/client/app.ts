@@ -1579,19 +1579,24 @@ async function submitRsvp() {
   var phone = (document.getElementById("rsvp-phone") as HTMLInputElement).value.trim();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast("Invalid email format", "error"); unlock("rsvp"); return; }
   if (phone && !/^[\d\s\-\+\(\)]{7,20}$/.test(phone)) { showToast("Invalid phone format", "error"); unlock("rsvp"); return; }
-  var isUpdate = document.querySelector("#rsvp-overlay .overlay-header h2")?.textContent?.includes("Update");
-  setBtnLoading(".btn-submit-rsvp", true, isUpdate ? "⏳ Updating..." : "⏳ RSVPing...");
+  var isUpdate = false;
+  setBtnLoading(".btn-submit-rsvp", true, "⏳ Processing...");
   try {
     var res = await fetch(API_BASE + "/api/rsvp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: currentEventId, email: email, phone: phone }) });
     var data = await res.json();
     if (data.type === "rsvp" && data.success) {
-      showToast(isUpdate ? "Contact updated! ✅" : "RSVP confirmed! 🎉", "success");
+      isUpdate = data.wasExisting;
+      showToast(isUpdate ? "Contact info updated ✅" : "RSVP confirmed! 🎉", "success");
       setBtnLoading(".btn-submit-rsvp", false);
       delete detailCache[currentEventId];
       delete attendeeCache[currentEventId];
       // Optimistically update home cache so button turns green immediately
       var homeEvt = cachedHomeEvents.find(function(e) { return e.id === currentEventId; });
-      if (homeEvt) { homeEvt.hasRsvped = true; homeEvt.rsvpCount = (homeEvt.rsvpCount || 0) + 1; log("optimistic RSVP update: " + currentEventId + " count=" + homeEvt.rsvpCount); }
+      if (homeEvt) {
+        homeEvt.hasRsvped = true;
+        if (!isUpdate) { homeEvt.rsvpCount = (homeEvt.rsvpCount || 0) + 1; }
+        log("optimistic RSVP update: " + currentEventId + " count=" + homeEvt.rsvpCount + " isUpdate=" + isUpdate);
+      }
       // Re-render home card to show updated button state instantly
       renderHomeCard({ eventsByDate: groupByDate(cachedHomeEvents), isMod: cachedHomeIsMod, settings: {} });
       // Also add to myRsvps so it appears in My Stuff immediately
@@ -1602,10 +1607,12 @@ async function submitRsvp() {
       closeOverlay("rsvp-overlay");
       // Show RSVP confirmation summary in detail overlay
       var evt = cachedHomeEvents.find(function(e) { return e.id === currentEventId; });
-      if (evt && !isUpdate) {
+      if (evt) {
+        var confirmEmoji = isUpdate ? "✅" : "🎉";
+        var confirmHeading = isUpdate ? "Contact info updated" : "You\'re on the list!";
         var confirmHTML = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;padding:20px;text-align:center;padding-top:32px;">' +
-          '<div style="font-size:56px;">🎉</div>' +
-          '<div style="font-size:18px;font-weight:700;">You\'re on the list!</div>' +
+          '<div style="font-size:56px;">' + confirmEmoji + '</div>' +
+          '<div style="font-size:18px;font-weight:700;">' + confirmHeading + '</div>' +
           '<div style="font-size:14px;color:var(--muted);max-width:260px;">' + escapeHtml(evt.title) + '</div>' +
           '<div style="font-size:13px;color:var(--muted);">📅 ' + escapeHtml(relativeDate(evt.date)) + ' at ' + formatTimeWithTz(evt.time, appTimezone) + '</div>' +
           '<div style="font-size:13px;color:var(--muted);">📍 ' + escapeHtml(evt.location || "TBD") + '</div>' +
@@ -1618,7 +1625,7 @@ async function submitRsvp() {
         document.getElementById("detail-next-btn")!.classList.add("hidden");
         document.getElementById("detail-prev-btn")!.classList.add("hidden");
         document.querySelectorAll(".step-dot").forEach(function(d) { d.classList.add("done"); });
-        log("RSVP confirmation card shown for " + currentEventId);
+        log("RSVP confirmation card shown for " + currentEventId + " isUpdate=" + isUpdate);
       } else {
         closeOverlay("rsvp-overlay");
         // Stay on My Stuff if user was viewing it, otherwise go home
