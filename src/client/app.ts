@@ -302,6 +302,7 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
     var relDate = relativeDate(event._date || "");
     var dateStr = event._date ? new Date(event._date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) : "";
     log("renderHomeCard index=" + homeCardIdx + " total=" + count + " id=" + event.id);
+    log("renderHomeCard layout=full-viewport-flex shell=card-shell");
 
     var headerHtml =
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">' +
@@ -962,10 +963,11 @@ function renderModCard(tab: string) {
   var headerHtml = '';
   if (item.emoji) { headerHtml += '<div style="font-size:28px;margin-bottom:4px;">' + item.emoji + '</div>'; }
   headerHtml += '<h3 style="font-size:18px;font-weight:700;margin:0 0 4px 0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(item.title) + '</h3>';
-  headerHtml += '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:6px;">';
+  headerHtml += '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:4px;min-width:0;">';
   if (tab === "pitches") { headerHtml += '👤 u/' + escapeHtml(item.submittedBy) + ' · ' + escapeHtml(new Date(item.submittedAt).toLocaleString()); }
-  else { headerHtml += '📅 ' + escapeHtml(item.date) + ' at ' + escapeHtml(item.time) + ' · 📍 ' + escapeHtml(item.location || ""); }
+  else { headerHtml += '<span style="flex-shrink:0;">📅 ' + escapeHtml(item.date) + ' at ' + escapeHtml(item.time) + ' ·</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📍 ' + escapeHtml(item.location || "") + '</span>'; }
   headerHtml += '</div>';
+  log("renderModCard metadata location truncated tab=" + tab);
   if (tab !== "pitches" && item.category) { headerHtml += '<div style="margin-bottom:6px;">' + catBadge(item.category) + '</div>'; }
   // RSVP count badge for published events
   if (tab === "published") {
@@ -982,21 +984,13 @@ function renderModCard(tab: string) {
     }
   }
 
-  // Body
-  var bodyHtml = '';
-  if (tab !== "published") {
-    bodyHtml = '<div id="mod-desc-box-' + dcKey + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
-      '<div id="mod-desc-track-' + dcKey + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
-      '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
-      '</div></div>' +
-      '<div id="mod-desc-nav-' + dcKey + '" style="flex-shrink:0;min-height:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
-  } else {
-    bodyHtml = '<div style="flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:12px;text-align:center;padding:16px;">' +
-      '<div style="font-size:48px;">📋</div>' +
-      '<div style="font-size:16px;font-weight:700;">' + escapeHtml(item.title) + '</div>' +
-      '<div style="font-size:14px;color:var(--muted);">Tap an action below to manage this event.</div>' +
-      '</div>';
-  }
+  // Body - same scrollable description box for all tabs so actions/footer stay anchored
+  var bodyHtml = '<div id="mod-desc-box-' + dcKey + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
+    '<div id="mod-desc-track-' + dcKey + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
+    '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
+    '</div></div>' +
+    '<div id="mod-desc-nav-' + dcKey + '" style="flex-shrink:0;min-height:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
+  log("renderModCard description box tab=" + tab + " hasDesc=" + (desc.length > 0));
 
   // Actions
   var actionsHtml = '';
