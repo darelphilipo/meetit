@@ -370,10 +370,10 @@ async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
   if (!event) return { error: "Event not found", status: 404 };
   const username = context.username;
   if (!username) return { error: "Authentication required", status: 401 };
-  const rsvpMsg = `[RSVP] ${username} → ${eventId} (email=${email ? "yes" : "no"}, phone=${phone ? "yes" : "no"})`;
-  console.log(rsvpMsg); serverLog("info", rsvpMsg);
   // BUG7: detect re-RSVP so client can show "Contact info updated"
   const wasExisting = await isUserRsvped(eventId, username);
+  const rsvpMsg = `[RSVP] ${username} → ${eventId} (email=${email ? "yes" : "no"}, phone=${phone ? "yes" : "no"}, update=${wasExisting})`;
+  console.log(rsvpMsg); serverLog("info", rsvpMsg);
   await addRsvp(eventId, username, email, phone);
 
   if (GOOGLE_SHEETS_WEBHOOK_URL) {
@@ -484,6 +484,9 @@ async function onAllApprovedEvents(): Promise<ApiResponse> {
     realEvents.map((event) => redis.zCard(`meetit:rsvps:${event.id}`))
   );
   const eventsWithCounts = realEvents.map((event, i) => ({ ...event, rsvpCount: counts[i] || 0 }));
+  const perf2Msg = `[ALL-APPROVED] batched RSVP counts for ${realEvents.length} events`;
+  console.log(perf2Msg);
+  serverLog("info", perf2Msg);
   console.log(`[ALL-APPROVED] Returning ${eventsWithCounts.length} events to mod dashboard`);
   return { type: "all-approved-events", events: eventsWithCounts };
 }
