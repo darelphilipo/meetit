@@ -193,6 +193,42 @@ function showCopyToast() { var t = document.createElement("div"); t.className = 
 function escapeHtml(s: string | undefined | null) { var d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
 function escapeAttr(s: string | undefined | null): string { return (s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
+// ======= UNIFIED CARD SHELL =======
+function buildCardShell(opts: { color?: string; headerHtml: string; bodyHtml: string; actionsHtml?: string; footerHtml?: string; className?: string }): string {
+  log("buildCardShell" + (opts.className ? " class=" + opts.className : ""));
+  return '<div class="card-shell fade-in' + (opts.className ? ' ' + opts.className : '') + '"' + (opts.color ? ' style="background:' + opts.color + ';"' : '') + '>' +
+    '<div class="card-shell-header">' + opts.headerHtml + '</div>' +
+    '<div class="card-shell-body">' + opts.bodyHtml + '</div>' +
+    (opts.actionsHtml ? '<div class="card-shell-actions">' + opts.actionsHtml + '</div>' : '') +
+    (opts.footerHtml ? '<div class="card-shell-footer">' + opts.footerHtml + '</div>' : '') +
+    '</div>';
+}
+function updateCardDots(prefix: string, current: number, total: number) {
+  log("updateCardDots prefix=" + prefix + " current=" + current + " total=" + total);
+  var dots = document.getElementById(prefix + "-dots");
+  if (!dots) { log("updateCardDots dots not found prefix=" + prefix); return; }
+  if (total <= 1) { dots.style.display = "none"; return; }
+  dots.style.display = "flex";
+  var html = "";
+  for (var i = 0; i < total; i++) {
+    html += '<div class="card-progress-dot' + (i === current ? ' done' : '') + '"></div>';
+  }
+  dots.innerHTML = html;
+}
+function updateCardNav(prefix: string, current: number, total: number) {
+  log("updateCardNav prefix=" + prefix + " current=" + current + " total=" + total);
+  var prevBtn = document.getElementById(prefix + "-prev-btn");
+  var nextBtn = document.getElementById(prefix + "-next-btn");
+  if (!prevBtn || !nextBtn) { log("updateCardNav buttons not found prefix=" + prefix); return; }
+  if (total <= 1) {
+    prevBtn.classList.add("hidden");
+    nextBtn.classList.add("hidden");
+    return;
+  }
+  prevBtn.classList.toggle("hidden", current === 0);
+  nextBtn.classList.toggle("hidden", current >= total - 1);
+}
+
 // ======= HOME - Single card navigation =======
 async function loadHome() {
   // Skip if already fetching
@@ -250,10 +286,10 @@ function flattenHomeEvents(eventsByDate: Record<string, any[]>): any[] {
 function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boolean; settings: any }) {
   var dates = Object.keys(state.eventsByDate).sort();
   var c = document.getElementById("events-container")!;
-  
+
   if (dates.length === 0) {
     log("renderHomeCard empty state");
-    c.innerHTML = '<div class="empty-state"><span class="emoji">🐱</span><h2>Wow, so empty!</h2><p>No events yet — be the first to create one!</p><div style="display:flex;gap:8px;justify-content:center;margin-top:12px;"><button class="btn btn-pink btn-sm" data-action="create-pitch" style="padding:8px 14px;">💡 Pitch Idea</button><button class="btn btn-sm" data-action="create-event" style="padding:8px 14px;background:#fff;">📋 Submit Event</button></div></div>';
+    c.innerHTML = '<div class="empty-state" style="height:100%;"><span class="emoji">🐱</span><h2>Wow, so empty!</h2><p>No events yet — be the first to create one!</p><div style="display:flex;gap:8px;justify-content:center;margin-top:12px;"><button class="btn btn-pink btn-sm" data-action="create-pitch" style="padding:8px 14px;">💡 Pitch Idea</button><button class="btn btn-sm" data-action="create-event" style="padding:8px 14px;background:#fff;">📋 Submit Event</button></div></div>';
   } else {
     // Flatten all events
     var all = flattenHomeEvents(state.eventsByDate);
@@ -265,42 +301,54 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
     var count = all.length;
     var relDate = relativeDate(event._date || "");
     var dateStr = event._date ? new Date(event._date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) : "";
+    log("renderHomeCard index=" + homeCardIdx + " total=" + count + " id=" + event.id);
 
-    c.innerHTML =
-      '<div class="event-card fade-in" style="display:flex;flex-direction:column;">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-shrink:0;">' +
-      '<div style="display:flex;align-items:center;gap:6px;">' +
-      (event.emoji ? '<div style="width:36px;height:36px;background:var(--primary);border:var(--border);display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:var(--shadow-sm);flex-shrink:0;">' + event.emoji + '</div>' : '<div style="width:36px;height:36px;background:var(--surface);border:var(--border);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;box-shadow:var(--shadow-sm);flex-shrink:0;">📅</div>') +
-      '<span style="font-size:11px;font-weight:700;background:var(--surface);border:var(--border);padding:2px 8px;">' + (homeCardIdx + 1) + '/' + count + '</span>' +
+    var headerHtml =
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">' +
+      '<div style="display:flex;align-items:center;gap:6px;min-width:0;">' +
+      (event.emoji ? '<div style="width:40px;height:40px;background:var(--primary);border:var(--border);display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:var(--shadow-sm);flex-shrink:0;">' + event.emoji + '</div>' : '<div style="width:40px;height:40px;background:var(--surface);border:var(--border);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;box-shadow:var(--shadow-sm);flex-shrink:0;">📅</div>') +
+      '<div style="min-width:0;">' +
+      '<h3 style="font-size:18px;font-weight:700;margin:0;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;">' + escapeHtml(event.title) + '</h3>' +
+      '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-top:2px;">by ' + escapeHtml(event.organizer || "Anonymous") + '</div>' +
+      '</div></div>' +
+      '<span style="font-size:11px;font-weight:700;color:var(--muted);text-align:right;flex-shrink:0;">' + escapeHtml(relDate) + (relDate === "Today" || relDate === "Tomorrow" ? "<br>" + dateStr : "") + '</span>' +
       '</div>' +
-      '<span style="font-size:11px;font-weight:700;color:var(--muted);">' + escapeHtml(relDate) + (relDate === "Today" || relDate === "Tomorrow" ? " · " + dateStr : "") + '</span>' +
-      '</div>' +
-      '<h3 style="font-size:17px;font-weight:700;margin-bottom:2px;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;max-height:47px;">' + escapeHtml(event.title) + '</h3>' +
-      '<div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:6px;">by ' + escapeHtml(event.organizer || "Anonymous") + '</div>' +
-      '<div class="event-meta" style="margin-bottom:6px;">' +
-      '<span class="event-tag" style="font-size:11px;padding:2px 6px;">⏰ ' + formatTimeWithTz(event.time, appTimezone) + '</span>' +
-      '<span class="event-tag" style="font-size:11px;padding:2px 6px;background:var(--primary);">👥 ' + (event.rsvpCount || 0) + '</span>' +
+      '<div class="event-meta" style="margin-bottom:8px;">' +
+      '<span class="event-tag" style="font-size:12px;padding:3px 8px;">⏰ ' + formatTimeWithTz(event.time, appTimezone) + '</span>' +
+      '<span class="event-tag" style="font-size:12px;padding:3px 8px;background:var(--primary);">👥 ' + (event.rsvpCount || 0) + '</span>' +
       (event.category ? catBadge(event.category) : '') +
       '</div>' +
-      '<div style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:8px;">' + escapeHtml((event.description || "").substring(0, DESC_PREVIEW_LENGTH)) + ((event.description || "").length > DESC_PREVIEW_LENGTH ? "..." : "") + '</div>' +
-      '<div style="flex-shrink:0;padding-top:8px;border-top:2px solid var(--outline-v);margin-top:auto;">' +
-      '<div style="display:flex;gap:6px;align-items:center;">' +
-      '<button class="btn btn-white btn-sm btn-view-details" data-id="' + event.id + '" data-action="view-details" style="flex:1;margin-top:0;padding:8px 10px;font-size:12px;">View Details →</button>' +
-      (event.hasRsvped
-        ? '<button class="btn btn-green btn-sm btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:1;margin-top:0;padding:8px 10px;font-size:12px;">✅ Going</button>'
-        : '<button class="btn btn-pink btn-sm btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:1;margin-top:0;padding:8px 10px;font-size:12px;">🎟️ RSVP</button>') +
-      (homeShareUrl ? '<button class="btn btn-white btn-sm btn-share-event" data-action="share-event" style="margin-top:0;padding:8px 10px;font-size:12px;">📤</button>' : '') +
-      '</div>' +
-      (count > 1 ? '<div style="display:flex;gap:6px;margin-top:6px;"><button class="btn btn-white btn-sm btn-home-prev" data-action="home-prev" style="flex:1;padding:6px;font-size:11px;">← Prev</button><button class="btn btn-white btn-sm btn-home-next" data-action="home-next" style="flex:1;padding:6px;font-size:11px;">Next →</button></div>' : '') +
-      '</div>' +
+      '<div class="card-progress" id="home-dots"></div>';
+
+    var bodyHtml =
+      '<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:4px 2px;">' +
+      '<div style="font-size:15px;color:var(--on-surface);line-height:1.55;word-break:break-word;">' + escapeHtml((event.description || "").substring(0, DESC_PREVIEW_LENGTH)) + ((event.description || "").length > DESC_PREVIEW_LENGTH ? "..." : "") + '</div>' +
       '</div>';
+
+    var actionsHtml =
+      '<div style="display:flex;gap:6px;align-items:center;">' +
+      '<button class="btn btn-white btn-sm btn-view-details" data-id="' + event.id + '" data-action="view-details" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">View Details →</button>' +
+      (event.hasRsvped
+        ? '<button class="btn btn-green btn-sm btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">✅ Going</button>'
+        : '<button class="btn btn-pink btn-sm btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">🎟️ RSVP</button>') +
+      (homeShareUrl ? '<button class="btn btn-white btn-sm btn-share-event" data-action="share-event" style="margin-top:0;padding:10px 12px;font-size:13px;">📤</button>' : '') +
+      '</div>';
+
+    var footerHtml = count > 1
+      ? '<button class="footer-btn footer-btn-prev" id="home-prev-btn" data-action="home-prev">← Prev</button>' +
+        '<span style="font-size:12px;font-weight:700;">' + (homeCardIdx + 1) + '/' + count + '</span>' +
+        '<button class="footer-btn footer-btn-next" id="home-next-btn" data-action="home-next">Next →</button>'
+      : '';
+
+    c.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, footerHtml: footerHtml });
+    updateCardDots("home", homeCardIdx, count);
+    updateCardNav("home", homeCardIdx, count);
   }
   document.getElementById("mod-btn")!.classList.toggle("hidden", !state.isMod);
-  
 }
 
-function homePrev() { var events = searchFilteredEvents || cachedHomeEvents; log("homePrev idx=" + homeCardIdx + " total=" + events.length); if (events.length > 1) { homeCardIdx = (homeCardIdx - 1 + events.length) % events.length; renderHomeCard({ eventsByDate: groupByDate(events), isMod: cachedHomeIsMod, settings: {} }); } }
-function homeNext() { var events = searchFilteredEvents || cachedHomeEvents; log("homeNext idx=" + homeCardIdx + " total=" + events.length); if (events.length > 1) { homeCardIdx = (homeCardIdx + 1) % events.length; renderHomeCard({ eventsByDate: groupByDate(events), isMod: cachedHomeIsMod, settings: {} }); } }
+function homePrev() { var events = searchFilteredEvents || cachedHomeEvents; log("homePrev idx=" + homeCardIdx + " total=" + events.length); if (events.length > 1) { homeCardIdx = (homeCardIdx - 1 + events.length) % events.length; log("homePrev newIdx=" + homeCardIdx); renderHomeCard({ eventsByDate: groupByDate(events), isMod: cachedHomeIsMod, settings: {} }); } }
+function homeNext() { var events = searchFilteredEvents || cachedHomeEvents; log("homeNext idx=" + homeCardIdx + " total=" + events.length); if (events.length > 1) { homeCardIdx = (homeCardIdx + 1) % events.length; log("homeNext newIdx=" + homeCardIdx); renderHomeCard({ eventsByDate: groupByDate(events), isMod: cachedHomeIsMod, settings: {} }); } }
 function groupByDate(events: any[]): Record<string, any[]> { var g: Record<string, any[]> = {}; for (var i = 0; i < events.length; i++) { var event = events[i]; if (!event) continue; var d = event._date || ""; if (!g[d]) g[d] = []; g[d]!.push(event); } return g; }
 
 // Search/filter events client-side
@@ -418,8 +466,10 @@ async function loadMySubmissions() {
   myStuffLoading = false;
 }
 function renderMyRsvpCard() {
+  log("renderMyRsvpCard idx=" + myRsvpIdx + " total=" + myRsvps.length);
   var el = document.getElementById("my-stuff-container")!;
   updateMyStuffFooter("rsvps");
+  updateCardDots("my-stuff", myRsvpIdx, myRsvps.length);
   if (myRsvps.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;"><span class="emoji" style="font-size:36px;">🎟️</span><h2 style="font-size:14px;">No RSVPs yet</h2><p style="font-size:12px;">Go to the Home tab to find events!</p><button class="btn btn-sm" data-action="close-overlay" style="margin-top:8px;padding:6px 12px;font-size:12px;background:#fff;">← Back to Home</button></div>'; return; }
   if (myRsvpIdx >= myRsvps.length) myRsvpIdx = 0;
   var e = myRsvps[myRsvpIdx];
@@ -428,20 +478,24 @@ function renderMyRsvpCard() {
   myStuffDescFullText[key] = desc;
   if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   myStuffDescPageIdx[key] = 0;
-  el.innerHTML = '<div class="detail-card fade-in" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;padding:10px;box-sizing:border-box;">' +
-    '<div style="flex-shrink:0;"><h3 style="font-size:16px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
+
+  var headerHtml = '<h3 style="font-size:17px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
     '<div style="font-size:12px;color:var(--muted);font-weight:600;">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div>' +
     '<div style="font-size:12px;color:var(--muted);">📍 ' + escapeHtml(e.location || "") + '</div>' +
-    (e.category ? '<div style="margin:4px 0;">' + catBadge(e.category) + '</div>' : '') + '</div>' +
-    '<div id="my-stuff-desc-box-' + key + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);margin:6px 0;position:relative;">' +
+    (e.category ? '<div style="margin:4px 0;">' + catBadge(e.category) + '</div>' : '');
+
+  var bodyHtml = '<div id="my-stuff-desc-box-' + key + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
       '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
-        '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:13px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
+        '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
       '</div></div>' +
-    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>' +
-    '<div style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;padding-top:4px;">' +
-      '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="update-rsvp" style="padding:6px 14px;font-size:12px;">✏️ Update Contact</button>' +
-      '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="leave-event" style="padding:6px 14px;font-size:12px;">❌ Leave</button>' +
-    '</div></div>';
+    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
+
+  var actionsHtml = '<div style="display:flex;gap:8px;">' +
+      '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="update-rsvp" style="flex:1;padding:8px 14px;font-size:13px;">✏️ Update Contact</button>' +
+      '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="leave-event" style="flex:1;padding:8px 14px;font-size:13px;">❌ Leave</button>' +
+    '</div>';
+
+  el.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml });
   if (desc.length > DESC_SHORT_LENGTH) {
     setTimeout(function () {
       var box = document.getElementById("my-stuff-desc-box-" + key);
@@ -455,8 +509,10 @@ function renderMyRsvpCard() {
   }
 }
 function renderMyPitchCard() {
+  log("renderMyPitchCard idx=" + myPitchIdx + " total=" + myPitches.length);
   var el = document.getElementById("my-stuff-container")!;
   updateMyStuffFooter("pitches");
+  updateCardDots("my-stuff", myPitchIdx, myPitches.length);
   if (myPitches.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;"><span class="emoji" style="font-size:36px;">💡</span><h2 style="font-size:14px;">No pitches yet</h2><p style="font-size:12px;">Pitch an idea from the Create menu!</p><button class="btn btn-pink btn-sm" data-action="create-pitch" style="margin-top:8px;padding:6px 12px;font-size:12px;">💡 Pitch an Idea</button></div>'; return; }
   if (myPitchIdx >= myPitches.length) myPitchIdx = 0;
   var p = myPitches[myPitchIdx];
@@ -465,16 +521,18 @@ function renderMyPitchCard() {
   myStuffDescFullText[key] = desc;
   if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   myStuffDescPageIdx[key] = 0;
-  el.innerHTML = '<div class="detail-card fade-in" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;padding:10px;box-sizing:border-box;">' +
-    '<div style="flex-shrink:0;"><h3 style="font-size:16px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(p.title) + '</h3></div>' +
-    '<div id="my-stuff-desc-box-' + key + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);margin:6px 0;position:relative;">' +
+
+  var headerHtml = '<h3 style="font-size:17px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(p.title) + '</h3>';
+
+  var bodyHtml = '<div id="my-stuff-desc-box-' + key + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
       '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
-        '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:13px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
+        '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
       '</div></div>' +
-    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>' +
-    '<div style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;padding-top:4px;">' +
-      '<button class="btn btn-white btn-sm" data-id="' + p.id + '" data-action="delete-pitch" style="padding:6px 14px;font-size:12px;">🗑️ Delete</button>' +
-    '</div></div>';
+    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
+
+  var actionsHtml = '<button class="btn btn-white btn-sm" data-id="' + p.id + '" data-action="delete-pitch" style="width:100%;padding:8px 14px;font-size:13px;">🗑️ Delete</button>';
+
+  el.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml });
   if (desc.length > DESC_SHORT_LENGTH) {
     setTimeout(function () {
       var box = document.getElementById("my-stuff-desc-box-" + key);
@@ -488,8 +546,10 @@ function renderMyPitchCard() {
   }
 }
 function renderMyEventCard() {
+  log("renderMyEventCard idx=" + myEventIdx + " total=" + myEvents.length);
   var el = document.getElementById("my-stuff-container")!;
   updateMyStuffFooter("events");
+  updateCardDots("my-stuff", myEventIdx, myEvents.length);
   if (myEvents.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;"><span class="emoji" style="font-size:36px;">📋</span><h2 style="font-size:14px;">No events yet</h2><p style="font-size:12px;">Submit an event from the Create menu!</p><button class="btn btn-sm" data-action="create-event" style="margin-top:8px;padding:6px 12px;font-size:12px;background:#fff;">📋 Submit Event</button></div>'; return; }
   if (myEventIdx >= myEvents.length) myEventIdx = 0;
   var e = myEvents[myEventIdx];
@@ -499,22 +559,24 @@ function renderMyEventCard() {
   myStuffDescFullText[key] = desc;
   if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   myStuffDescPageIdx[key] = 0;
-  el.innerHTML = '<div class="detail-card fade-in" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;padding:10px;box-sizing:border-box;">' +
-    '<div style="flex-shrink:0;"><h3 style="font-size:16px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
+
+  var headerHtml = '<h3 style="font-size:17px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
     '<div style="font-size:12px;color:var(--muted);font-weight:600;">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div>' +
     '<div style="font-size:12px;font-weight:600;">' + status + '</div>' +
-    (e.category ? '<div style="margin:4px 0;">' + catBadge(e.category) + '</div>' : '') + '</div>' +
-    '<div id="my-stuff-desc-box-' + key + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);margin:6px 0;position:relative;">' +
+    (e.category ? '<div style="margin:4px 0;">' + catBadge(e.category) + '</div>' : '');
+
+  var bodyHtml = '<div id="my-stuff-desc-box-' + key + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
       '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
-        '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:13px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
+        '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
       '</div></div>' +
-    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>' +
-    '<div style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;padding-top:4px;">' +
-      (e.status === "pending" ?
-        '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="cancel-my-event" style="padding:6px 14px;font-size:12px;">❌ Cancel</button>' :
-        '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="delete-my-event" style="padding:6px 14px;font-size:12px;">🗑️ Delete</button>'
-      ) +
-    '</div></div>';
+    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
+
+  var actionsHtml = (e.status === "pending" ?
+        '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="cancel-my-event" style="width:100%;padding:8px 14px;font-size:13px;">❌ Cancel</button>' :
+        '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="delete-my-event" style="width:100%;padding:8px 14px;font-size:13px;">🗑️ Delete</button>'
+      );
+
+  el.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml });
   if (desc.length > DESC_SHORT_LENGTH) {
     setTimeout(function () {
       var box = document.getElementById("my-stuff-desc-box-" + key);
@@ -533,16 +595,7 @@ function updateMyStuffFooter(tab: string) {
   else if (tab === "pitches") { items = myPitches; idx = myPitchIdx; }
   else if (tab === "events") { items = myEvents; idx = myEventIdx; }
   log("updateMyStuffFooter tab=" + tab + " idx=" + idx + " total=" + items.length);
-  var prevBtn = document.getElementById("my-stuff-prev-btn");
-  var nextBtn = document.getElementById("my-stuff-next-btn");
-  if (!prevBtn || !nextBtn) { log("updateMyStuffFooter buttons not found"); return; }
-  if (items.length <= 1) {
-    prevBtn.classList.add("hidden");
-    nextBtn.classList.add("hidden");
-    return;
-  }
-  prevBtn.classList.toggle("hidden", idx === 0);
-  nextBtn.classList.toggle("hidden", idx >= items.length - 1);
+  updateCardNav("my-stuff", idx, items.length);
 }
 function myRsvpNext() { log("myRsvpNext idx=" + myRsvpIdx + "→" + (myRsvpIdx + 1) + " total=" + myRsvps.length); myRsvpIdx++; if (myRsvpIdx >= myRsvps.length) myRsvpIdx = myRsvps.length - 1; renderMyRsvpCard(); }
 function myRsvpPrev() { log("myRsvpPrev idx=" + myRsvpIdx + "→" + (myRsvpIdx - 1)); myRsvpIdx--; if (myRsvpIdx < 0) myRsvpIdx = 0; renderMyRsvpCard(); }
@@ -851,8 +904,8 @@ function detailPrev() {
   }
 }
 
-function modNext(tab: string) { log("modNext tab=" + tab); var idx = (modCardIdx[tab] || 0) + 1; modCardIdx[tab] = idx; renderModCard(tab); }
-function modPrev(tab: string) { log("modPrev tab=" + tab); var items = modItems[tab] || []; var idx = (modCardIdx[tab] || 0) - 1; if (idx < 0) idx = items.length - 1; modCardIdx[tab] = idx; renderModCard(tab); }
+function modNext() { var tab = modTab; log("modNext tab=" + tab); var idx = (modCardIdx[tab] || 0) + 1; var items = modItems[tab] || []; if (idx >= items.length) idx = items.length - 1; modCardIdx[tab] = idx; renderModCard(tab); updateCardDots("mod", idx, items.length); updateCardNav("mod", idx, items.length); }
+function modPrev() { var tab = modTab; log("modPrev tab=" + tab); var idx = (modCardIdx[tab] || 0) - 1; if (idx < 0) idx = 0; modCardIdx[tab] = idx; renderModCard(tab); updateCardDots("mod", idx, (modItems[tab] || []).length); updateCardNav("mod", idx, (modItems[tab] || []).length); }
 var modTab = "pending";
 function showModDashboard() { openOverlay("mod-screen"); delete modTabCache["published"]; delete modTabCache["pitches"]; loadModTab("pending"); }
 function switchModTab(tab: string) { if (tab === modTab) return; modTab = tab; document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) { t.classList.toggle("active", (t as HTMLElement).dataset.mtab === tab); }); delete modTabCache[tab]; loadModTab(tab); }
@@ -889,6 +942,7 @@ async function loadModTab(tab: string) {
   finally { modFetching[tab] = false; setModLoading(false); }
 }
 function renderModCard(tab: string) {
+  log("renderModCard tab=" + tab);
   var items = modItems[tab] || [];
   var idx = modCardIdx[tab] || 0;
   if (items.length === 0) return;
@@ -896,72 +950,77 @@ function renderModCard(tab: string) {
   var item = items[idx];
   var total = items.length;
   var c = document.getElementById("pending-events-container")!;
-  var cardClass = tab === "pitches" ? "idea-card" : (tab === "pending" ? "pending-card" : "event-card");
   var desc = item.description || "";
   var dcKey = tab + "-" + idx;
+  var color = tab === "pending" ? "#ff69b4" : (tab === "pitches" ? "#ffeaa7" : "#fff");
 
   modDescFullText[dcKey] = desc;
   if (!modDescTotal[dcKey]) modDescTotal[dcKey] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   modDescPageIdx[dcKey] = 0;
 
-  var html = '<div class="' + cardClass + ' fade-in" style="height:100%;display:flex;flex-direction:column;padding:10px;margin:0 4px;overflow:hidden;box-sizing:border-box;">';
-  if (item.emoji) { html += '<div style="font-size:28px;margin-bottom:4px;">' + item.emoji + '</div>'; }
-  html += '<div style="flex-shrink:0;"><h3 style="font-size:17px;font-weight:700;margin:0 0 4px 0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(item.title) + '</h3></div>';
-  html += '<div style="flex-shrink:0;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px;">';
-  if (tab === "pitches") { html += '👤 u/' + escapeHtml(item.submittedBy) + ' · ' + escapeHtml(new Date(item.submittedAt).toLocaleString()); }
-  else { html += '📅 ' + escapeHtml(item.date) + ' at ' + escapeHtml(item.time) + ' · 📍 ' + escapeHtml(item.location || ""); }
-  html += '</div>';
-  if (tab !== "pitches" && item.category) { html += '<div style="flex-shrink:0;margin-bottom:6px;">' + catBadge(item.category) + '</div>'; }
+  // Header
+  var headerHtml = '';
+  if (item.emoji) { headerHtml += '<div style="font-size:28px;margin-bottom:4px;">' + item.emoji + '</div>'; }
+  headerHtml += '<h3 style="font-size:18px;font-weight:700;margin:0 0 4px 0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(item.title) + '</h3>';
+  headerHtml += '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:6px;">';
+  if (tab === "pitches") { headerHtml += '👤 u/' + escapeHtml(item.submittedBy) + ' · ' + escapeHtml(new Date(item.submittedAt).toLocaleString()); }
+  else { headerHtml += '📅 ' + escapeHtml(item.date) + ' at ' + escapeHtml(item.time) + ' · 📍 ' + escapeHtml(item.location || ""); }
+  headerHtml += '</div>';
+  if (tab !== "pitches" && item.category) { headerHtml += '<div style="margin-bottom:6px;">' + catBadge(item.category) + '</div>'; }
   // RSVP count badge for published events
   if (tab === "published") {
     var rc = item.rsvpCount || 0;
     var badgeColor = rc === 0 ? "#ff4444" : (rc < 5 ? "#ffaa00" : "#00ff88");
     var badgeText = rc === 0 ? "🔴 No RSVPs" : (rc < 5 ? "🟡 " + rc + " going" : "🟢 " + rc + " going");
-    html += '<div style="flex-shrink:0;font-size:11px;font-weight:700;color:#fff;background:' + badgeColor + ';border:var(--border);padding:2px 8px;margin-bottom:6px;display:inline-block;">' + badgeText + '</div>';
+    headerHtml += '<div style="font-size:11px;font-weight:700;color:#fff;background:' + badgeColor + ';border:var(--border);padding:2px 8px;margin-bottom:6px;display:inline-block;">' + badgeText + '</div>';
   }
   // Past event badge for mods
   if (tab !== "pitches") {
     var today2 = new Date().toISOString().split("T")[0] || "";
     if (item.date < today2) {
-      html += '<div style="flex-shrink:0;font-size:11px;font-weight:700;color:#fff;background:#999;border:var(--border);padding:2px 8px;margin-bottom:6px;display:inline-block;">⏰ Past Event</div>';
+      headerHtml += '<div style="font-size:11px;font-weight:700;color:#fff;background:#999;border:var(--border);padding:2px 8px;margin-bottom:6px;display:inline-block;">⏰ Past Event</div>';
     }
   }
-  // Description: compact preview for pending/pitches, hidden for published (moved to detail overlay)
+
+  // Body
+  var bodyHtml = '';
   if (tab !== "published") {
-    html += '<div id="mod-desc-box-' + dcKey + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
+    bodyHtml = '<div id="mod-desc-box-' + dcKey + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
       '<div id="mod-desc-track-' + dcKey + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
       '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
       '</div></div>' +
       '<div id="mod-desc-nav-' + dcKey + '" style="flex-shrink:0;min-height:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
-  }
-  // Actions
-  html += '<div style="flex-shrink:0;padding-top:10px;">';
-  if (tab === "pending") {
-    html += '<div style="display:flex;gap:8px;margin-bottom:' + (total > 1 ? '6px' : '0') + ';">';
-    html += '<button class="btn btn-green btn-approve-event" data-id="' + item.id + '" data-action="approve-event" style="flex:1;padding:10px 12px;font-size:13px;">✅ Approve</button>';
-    html += '<button class="btn btn-white btn-decline-event" data-id="' + item.id + '" data-action="decline-event" style="flex:1;padding:10px 12px;font-size:13px;">🗑️ Decline</button>';
-    html += '</div>';
-  } else if (tab === "published") {
-    html += '<div style="display:flex;gap:8px;margin-bottom:' + (total > 1 ? '6px' : '0') + ';">';
-    html += '<button class="btn btn-white btn-view-mod-details" data-id="' + item.id + '" data-action="view-mod-details" style="flex:1;padding:10px 12px;font-size:13px;">👁️ View Details →</button>';
-    html += '<button class="btn btn-white btn-view-attendees" data-id="' + item.id + '" data-action="view-attendees-mod" style="flex:1;padding:10px 12px;font-size:13px;">👥 Attendees (' + (item.rsvpCount || 0) + ')</button>';
-    html += '</div>';
-    html += '<div style="display:flex;gap:8px;margin-bottom:' + (total > 1 ? '6px' : '0') + ';">';
-    html += '<button class="btn btn-white btn-delete-published" data-id="' + item.id + '" data-action="delete-published" style="width:100%;padding:10px 12px;font-size:13px;">🗑️ Delete Event</button>';
-    html += '</div>';
   } else {
-    html += '<button class="btn btn-white btn-dismiss-idea" data-id="' + item.id + '" data-action="dismiss-idea" style="width:100%;padding:10px 12px;font-size:13px;">🗑️ Dismiss</button>';
+    bodyHtml = '<div style="flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:12px;text-align:center;padding:16px;">' +
+      '<div style="font-size:48px;">📋</div>' +
+      '<div style="font-size:16px;font-weight:700;">' + escapeHtml(item.title) + '</div>' +
+      '<div style="font-size:14px;color:var(--muted);">Tap an action below to manage this event.</div>' +
+      '</div>';
   }
-  // Card nav
-  if (total > 1) {
-    html += '<div style="display:flex;gap:4px;justify-content:center;align-items:center;">' +
-      '<button class="btn btn-white btn-sm btn-mod-prev" data-tab="' + escapeAttr(tab) + '" data-action="mod-prev" style="flex:1;padding:6px;font-size:12px;">← Prev</button>' +
-      '<span style="font-size:12px;font-weight:700;padding:0 4px;">' + (idx + 1) + '/' + total + '</span>' +
-      '<button class="btn btn-white btn-sm btn-mod-next" data-tab="' + escapeAttr(tab) + '" data-action="mod-next" style="flex:1;padding:6px;font-size:12px;">Next →</button></div>';
+
+  // Actions
+  var actionsHtml = '';
+  if (tab === "pending") {
+    actionsHtml = '<div style="display:flex;gap:8px;">' +
+      '<button class="btn btn-green btn-approve-event" data-id="' + item.id + '" data-action="approve-event" style="flex:1;padding:10px 12px;font-size:13px;">✅ Approve</button>' +
+      '<button class="btn btn-white btn-decline-event" data-id="' + item.id + '" data-action="decline-event" style="flex:1;padding:10px 12px;font-size:13px;">🗑️ Decline</button>' +
+      '</div>';
+  } else if (tab === "published") {
+    actionsHtml = '<div style="display:flex;gap:8px;">' +
+      '<button class="btn btn-white btn-view-mod-details" data-id="' + item.id + '" data-action="view-mod-details" style="flex:1;padding:10px 12px;font-size:13px;">👁️ View Details →</button>' +
+      '<button class="btn btn-white btn-view-attendees" data-id="' + item.id + '" data-action="view-attendees-mod" style="flex:1;padding:10px 12px;font-size:13px;">👥 Attendees (' + (item.rsvpCount || 0) + ')</button>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;">' +
+      '<button class="btn btn-white btn-delete-published" data-id="' + item.id + '" data-action="delete-published" style="width:100%;padding:10px 12px;font-size:13px;">🗑️ Delete Event</button>' +
+      '</div>';
+  } else {
+    actionsHtml = '<button class="btn btn-white btn-dismiss-idea" data-id="' + item.id + '" data-action="dismiss-idea" style="width:100%;padding:10px 12px;font-size:13px;">🗑️ Dismiss</button>';
   }
-  html += '</div>';
-  c.innerHTML = html;
-  
+
+  c.innerHTML = buildCardShell({ color: color, headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml });
+  updateCardDots("mod", idx, total);
+  updateCardNav("mod", idx, total);
+
   // Auto-paginate description after DOM settles
   var dcKey2 = dcKey;
   if (desc.length > DESC_SHORT_LENGTH) {
@@ -1013,11 +1072,14 @@ function buildModDescNavHTML(key: string): string {
 }
 
 function renderModPending(events: any[]) {
+  log("renderModPending count=" + events.length);
   modItems["pending"] = events;
   modCardIdx["pending"] = 0;
   if (events.length === 0) {
     document.getElementById("pending-events-container")!.innerHTML = '<div class="empty-state"><span class="emoji">📋</span><h2>No pending events</h2></div>';
-     return;
+    updateCardDots("mod", 0, 0);
+    updateCardNav("mod", 0, 0);
+    return;
   }
   renderModCard("pending");
 }
@@ -1029,16 +1091,21 @@ function renderModPublished(events: any[]) {
   modCardIdx["published"] = 0;
   if (events.length === 0) {
     document.getElementById("pending-events-container")!.innerHTML = '<div class="empty-state"><span class="emoji">✅</span><h2>No published events</h2></div>';
-     return;
+    updateCardDots("mod", 0, 0);
+    updateCardNav("mod", 0, 0);
+    return;
   }
   renderModCard("published");
 }
 function renderModPitches(ideas: any[]) {
+  log("renderModPitches count=" + ideas.length);
   modItems["pitches"] = ideas;
   modCardIdx["pitches"] = 0;
   if (ideas.length === 0) {
     document.getElementById("pending-events-container")!.innerHTML = '<div class="empty-state"><span class="emoji">💡</span><h2>No pitched ideas</h2></div>';
-     return;
+    updateCardDots("mod", 0, 0);
+    updateCardNav("mod", 0, 0);
+    return;
   }
   renderModCard("pitches");
 }
@@ -1802,8 +1869,8 @@ function handleAction(action: string, id: string | null) {
       document.getElementById("mod-att-nav-" + id)!.innerHTML = buildModAttNavHTML(id);
     } break;
     case "load-attendees": { if (!id) break; loadPublicAttendees(id); } break;
-    case "mod-next": if (id) modNext(id); break;
-    case "mod-prev": if (id) modPrev(id); break;
+    case "mod-next": modNext(); break;
+    case "mod-prev": modPrev(); break;
     case "mod-desc-next": {
       if (!id) break;
       var lockKey = "mod-desc-" + id;

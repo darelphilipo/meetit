@@ -1996,3 +1996,41 @@ Visibility: opacity + visibility toggled for smooth transitions
 - Consistent spacing, fonts, and colors
 
 **Result:** Mod detail overlay now feels as rich and information-dense as the home page, with the same familiar navigation pattern.
+
+## 38. Unified Card Shell UI Pattern (2026-06-13)
+
+**Change:** Introduced a reusable card shell component used by Home, Mod Dashboard, and My Stuff browse/carousel views, matching the layout already proven in the Event Details overlay.
+
+**Pattern:**
+```
+[fixed header]
+[progress dots (item position)]
+[full-viewport scrollable card body]
+[fixed footer nav: Prev / Next]
+```
+
+**CSS classes:**
+- `.card-shell`: `position:absolute; top:0; left:0; right:0; bottom:0; display:flex; flex-direction:column;`
+- `.card-shell-header`: `flex-shrink:0`
+- `.card-shell-body`: `flex:1; min-height:0; overflow:hidden; position:relative; display:flex; flex-direction:column`
+- `.card-shell-actions`: contextual action row between body and footer
+- `.card-shell-footer`: fixed footer nav bar
+- `.card-progress` / `.card-progress-dot` / `.card-progress-dot.done`: item position dots
+
+**JS helpers:**
+- `buildCardShell({color, headerHtml, bodyHtml, actionsHtml, footerHtml, className})`
+- `updateCardDots(prefix, current, total)` updates `<div id="{prefix}-dots">`
+- `updateCardNav(prefix, current, total)` shows/hides `<button id="{prefix}-prev-btn">` / `<button id="{prefix}-next-btn">`
+
+**iOS Safari note:** The shell relies on absolute positioning (not `height:100%`) inside flex parents. The card body uses `display:flex; flex-direction:column` so internal scrollable regions can use `flex:1; min-height:0` instead of `height:100%`.
+
+**Contextual actions preserved:**
+- Home: View Details + RSVP/Going + Share
+- Mod Pending: Approve + Decline
+- Mod Published: View Details + Attendees + Delete
+- Mod Pitches: Dismiss
+- My Stuff RSVPs: Update Contact + Leave
+- My Stuff Events: Cancel (pending) / Delete (published)
+- My Stuff Pitches: Delete
+
+**Logging:** Every changed path (render, nav, helper entry) gets a `log()` call per §0.2.

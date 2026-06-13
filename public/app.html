@@ -89,6 +89,16 @@
     .footer-btn-next { background: var(--primary); color: var(--on-surface); margin-left: auto; }
     .footer-btn-rsvp { background: var(--secondary); color: var(--on-surface); width: 100%; }
 
+    /* Unified card shell */
+    .card-shell { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; padding: 12px; box-sizing: border-box; background: #fff; border: var(--border); box-shadow: var(--shadow-sm); }
+    .card-shell-header { flex-shrink: 0; }
+    .card-shell-body { flex: 1; min-height: 0; overflow: hidden; position: relative; display: flex; flex-direction: column; }
+    .card-shell-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; }
+    .card-shell-footer { padding: 8px 0; border-top: var(--border); background: transparent; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .card-progress { display: flex; justify-content: center; align-items: center; gap: 6px; padding: 6px 0; flex-shrink: 0; }
+    .card-progress-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--outline-v); border: 2px solid transparent; }
+    .card-progress-dot.done { background: var(--primary); border-color: #1c1c0f; }
+
     .form-group { margin-bottom: 16px; }
     .form-group label { display: block; font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 4px; color: var(--muted); }
     .form-group input, .form-group textarea { width: 100%; padding: 12px 14px; border: var(--border); font-family: var(--font); font-size: 16px; font-weight: 500; background: var(--bg); color: var(--on-surface); }
@@ -119,7 +129,8 @@
     .detail-desc { background: #fff; border: var(--border); line-height: 1.45; word-break: break-word; }
     .detail-desc-scroll { max-height: min(42vh, 260px); overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .detail-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
-    #events-container { min-height: calc(100vh - 170px); }
+    #events-container { position: relative; height: calc(100vh - 170px); }
+    #events-container .loading-screen { min-height: 100%; }
 
     /* Animated Loading Screen */
     .loading-screen {
@@ -219,6 +230,7 @@
         <div class="tab my-stuff-tab" data-mtab="events" data-action="switch-my-stuff-tab">📋 My Events</div>
         <div class="tab my-stuff-tab" data-mtab="pitches" data-action="switch-my-stuff-tab">💡 Pitches</div>
       </div>
+      <div class="card-progress" id="my-stuff-dots"></div>
       <div class="overlay-body" id="my-stuff-container" style="overflow:hidden;position:relative;padding:0;"></div>
       <div class="overlay-footer">
         <button class="footer-btn footer-btn-prev hidden" id="my-stuff-prev-btn" data-action="my-stuff-prev">← Back</button>
@@ -250,7 +262,12 @@
         <div class="tab mod-tab" data-mtab="published" data-action="switch-mod-tab">✅ Published</div>
         <div class="tab mod-tab" data-mtab="pitches" data-action="switch-mod-tab">💡 Pitches</div>
       </div>
-      <div class="overlay-body" id="pending-events-container" style="padding:0 16px;"></div>
+      <div class="card-progress" id="mod-dots"></div>
+      <div class="overlay-body" id="pending-events-container" style="padding:0;position:relative;"></div>
+      <div class="overlay-footer">
+        <button class="footer-btn footer-btn-prev hidden" id="mod-prev-btn" data-action="mod-prev">← Back</button>
+        <button class="footer-btn footer-btn-next hidden" id="mod-next-btn" data-action="mod-next">Next →</button>
+      </div>
     </div>
 
     <!-- Mod Event Details Overlay -->
