@@ -2034,3 +2034,97 @@ Visibility: opacity + visibility toggled for smooth transitions
 - My Stuff Pitches: Delete
 
 **Logging:** Every changed path (render, nav, helper entry) gets a `log()` call per §0.2.
+
+## 39. v1.4.0 Post-Release Refinements (2026-06-15)
+
+After shipping the unified card shell, real-device testing surfaced four issues that the v1.4.0 release didn't fully address. Fixing them turned a "works" build into a "snappy and stable" build. This section captures the lessons so the next UI redesign doesn't repeat them.
+
+### 39.1 Flex Layout Beats Magic `calc()` for Full-Viewport Cards
+
+**Bug:** Home page card ended ~⅔ down the screen with empty white space below it, even though the card shell used `position:absolute;top:0;left:0;right:0;bottom:0`.
+
+**Root cause:** `#events-container` was sized with `height: calc(100vh - 170px)` — a hard-coded magic number that underestimated the header height. The card shell expanded to fill that container, but the container itself was too short.
+
+**Fix:** Replace the calc with a flex column:
+```css
+.container { display: flex; flex-direction: column; min-height: calc(100vh - 32px); ... }
+#events-container { flex: 1; position: relative; min-height: 0; }
+```
+
+**Why it works:**
+- `.container` is always at least viewport-height-minus-body-padding.
+- `#events-container` flexes to fill the remaining space exactly, no matter how tall the header grows.
+- `min-height: 0` on `#events-container` lets its child (the absolutely-positioned card shell) actually shrink-fit instead of expanding to intrinsic content height (the same iOS Safari flex trap from §21).
+
+**Lesson:** Prefer flex columns over `calc(100vh - Npx)` for fill-the-remaining-space layouts. Magic numbers drift whenever the header changes.
+
+### 39.2 Truncate User-Generated Metadata, Always
+
+**Bug:** Mod Published tab pushed the "Delete Event" button off-screen when the event location was a long string ("Ok I can see 👀 in your the…").
+
+**Root cause:** The metadata row `<div>📅 {date} at {time} · 📍 {location}</div>` had no width constraint, so the location wrapped to multiple lines and ballooned the header. With the header tall, the body + actions + footer no longer fit in the viewport, and the footer got pushed below the fold.
+
+**Fix:** Two-step change:
+1. Make the metadata row a flex container with `min-width:0` and wrap the location in a separate `<span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">`.
+2. Truncate title to 2 lines with `-webkit-line-clamp:2` (already in place) and category chips to one line.
+
+**Lesson:** Any text field that comes from user input must have a width constraint and a truncation strategy. The classic CSS flex trap: a flex child defaults to `min-width:auto` which means it will overflow rather than shrink. Always set `min-width:0` on the truncating child.
+
+### 39.3 Scrollable Body Anchors Actions and Footer
+
+**Bug:** The mod Published tab originally used a centered placeholder body (big emoji + title + "Tap an action below…"). The placeholder had no content scroll, so the card body filled with whitespace and the action buttons sat in the middle of the card instead of the bottom.
+
+**Root cause:** The placeholder was `display:flex; justify-content:center; align-items:center` with no scrollable child. Combined with the card shell body's `flex:1`, the placeholder took all available space and pushed actions and footer down — but the actions/footer themselves were flex-shrink:0, so they eventually overflowed the bottom.
+
+**Fix:** Use the same scrollable description box for all three mod tabs (Pending / Published / Pitches). The body now has bounded content that scrolls, which:
+- Keeps the action row visually anchored right above the footer.
+- Shows the actual event description in Published instead of a placeholder.
+- Uses the same `splitTextToPages()` + nav pattern already proven in Event Details.
+
+**Lesson:** In a flex card shell, the body should always be a real scrollable container, not an empty/placeholder region. If you don't have content for the body, render the description anyway — empty space below the header looks broken; scrolling content looks intentional.
+
+### 39.4 Embed Progress Dots in the Card Header
+
+**Bug:** Mod dashboard progress dots lived in a separate row between the tabs and the card body, wasting ~30px of vertical space on every mod card.
+
+**Root cause:** The initial implementation used a standalone `<div class="card-progress" id="mod-dots">` injected between `#mod-tabs` and `#pending-events-container`. This pattern doesn't scale: every view that wants dots ends up adding another row.
+
+**Fix:** Move dots into the card header as the last child. For Mod cards:
+```ts
+headerHtml += '<div class="card-progress mod-dots"></div>';
+```
+Then update `updateCardDots("mod", ...)` to find dots by class first, with an id-based fallback for Home/My Stuff:
+```ts
+var dots = document.querySelector(".card-progress." + prefix + "-dots") as HTMLElement | null;
+if (!dots) { dots = document.getElementById(prefix + "-dots") as HTMLElement | null; }
+```
+
+**Why this is the right pattern:**
+- Dots become part of the card's intrinsic vertical layout — no extra row overhead.
+- The card shell is self-contained: `buildCardShell()` produces a complete card including dots, ready to drop into any container.
+- Class-based selectors scale better than id-based when you have multiple cards in the DOM (e.g., a list view).
+
+**Lesson:** When a piece of UI is conceptually part of a card, render it inside the card. Don't split a single visual unit across the overlay chrome and the card.
+
+### 39.5 Version Hygiene: Tag + Release Notes Per Shipping Commit
+
+**Practice:** After merging a feature/fix branch, immediately:
+1. Create an annotated tag (e.g., `v1.4.0`).
+2. `git push origin <tag>`.
+3. `gh release create <tag> --title "..." --notes-file notes.md --latest`.
+4. Reference the compare URL (`compare/v1.3.3...v1.4.0`) in the notes.
+
+**Why:**
+- The release page becomes the single source of truth for "what's in this version" — easier than `git log`.
+- The `--latest` flag auto-promotes it as the current release; old releases stay accessible.
+- The OpenSpec change task `5.4` can be marked complete with a note that it's "shipped to GitHub" (Devvit upload to the subreddit remains a separate, user-authorized step).
+
+**Note for this project:** Devvit upload still requires OAuth authorization in a browser, which only the user can do. "Shipped to GitHub" is the highest level a build agent can reach. A separate `devvit-cli upload` step is needed to publish to r/meetup_hub2_dev.
+
+### 39.6 From Here: UI Polish + Mod Features Only
+
+v1.4.0 is the stable baseline. Major functionality (events, RSVPs, mod dashboard, CRON, debug logging) is snappy and works on iOS/Android. Future work is constrained to:
+- **UI polish** — typography tokens, spacing scale, transitions, edge-case responsiveness.
+- **New mod features** — bulk approve, edit after submission, attendee preview, RSVP capacity limits.
+
+**Do not revisit** core card shell, event delegation, optimistic updates, or guard patterns without strong reason. Those are settled.
