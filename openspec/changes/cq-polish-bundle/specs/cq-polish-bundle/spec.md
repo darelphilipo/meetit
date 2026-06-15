@@ -21,3 +21,16 @@ The system SHALL provide `npm run lint`, `npm run lint:fix`, `npm run format`, a
 #### Scenario: Developer runs lint
 - **WHEN** the developer runs `npm run lint`
 - **THEN** ESLint reports any code style issues and exits non-zero on errors
+
+### Requirement: Category data has a single source of truth
+The system SHALL define event categories exactly once, in `EventCategories` (`src/shared/api.ts`). The `CAT_MAP` in `src/client/app.ts` and the `CATEGORY_EMOJI` in `src/shared/meetit.ts` SHALL be derived from `EventCategories` at module load time, not duplicated.
+
+#### Scenario: Adding a new category
+- **WHEN** a developer adds a new entry to `EventCategories` in `api.ts`
+- **THEN** the new category is automatically available in the home card category badge, mod card category badge, My Stuff form, and pitch form
+- **AND** no other file needs to be edited
+
+#### Scenario: Category emoji renders correctly
+- **WHEN** a user creates a pitch with category "tech"
+- **THEN** the form shows the 💻 emoji (from `EventCategories[tech].emoji`)
+- **AND** the home card shows the same emoji in the category badge

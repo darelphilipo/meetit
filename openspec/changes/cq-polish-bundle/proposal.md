@@ -9,7 +9,7 @@ Code quality items from the 2026-06-07 audit. None are critical, but they would 
 - **CQ5:** `log()` also writes to `console.log` (no-op in Devvit).
 - **CQ6:** `showToast` creates a new div each time, no z-index management.
 - **CQ7:** `actionLocks` never cleaned up.
-- **CQ8:** `CATEGORY_EMOJI` duplicated in `meetit.ts` and `app.ts`.
+- **CQ8:** Category data triplicated across `EventCategories` (api.ts), `CAT_MAP` (app.ts), and `CATEGORY_EMOJI` (meetit.ts). All three define the same 12 categories.
 - **CQ9:** Duplicate `.container` CSS rule in `app.html` (already fixed in v1.3.0).
 - **CQ10:** No `prefers-reduced-motion`.
 - **CQ11:** No `prefers-color-scheme` (no dark mode).
@@ -24,7 +24,7 @@ Code quality items from the 2026-06-07 audit. None are critical, but they would 
 - **CQ3:** Add try/catch around `renderHomeCard`, `renderModCard`, etc. with a fallback error state.
 - **CQ5:** Remove the `console.log` fallback in `log()` (the debug panel is the only surface).
 - **CQ7:** Add a periodic cleanup of `actionLocks` (TTL-based).
-- **CQ8:** Import `CATEGORY_EMOJI` from `meetit.ts` in `app.ts` instead of duplicating.
+- **CQ8:** Make `EventCategories` (in `api.ts`) the single source of truth. Build `CAT_MAP` in `app.ts` at startup from `EventCategories`. Derive `CATEGORY_EMOJI` in `meetit.ts` from `EventCategories` (or remove it and have `meetit.ts` import from `api.ts`). Adding a category to `api.ts` should automatically reflect in all three places.
 - **CQ10:** Add `@media (prefers-reduced-motion: reduce)` to disable animations.
 - **CQ12:** Add `eslint` and `prettier` config; add `lint` and `format` scripts.
 
@@ -46,7 +46,9 @@ Code quality items from the 2026-06-07 audit. None are critical, but they would 
 
 ## Impact
 
-- `src/client/app.ts`: error boundaries, CATEGORY_EMOJI import.
+- `src/client/app.ts`: error boundaries, build `CAT_MAP` from `EventCategories` at startup, remove duplicated category data.
+- `src/shared/meetit.ts`: remove `CATEGORY_EMOJI`, derive from `EventCategories` (or import from `api.ts`).
+- `src/shared/api.ts`: `EventCategories` is now the canonical source.
 - `public/app.html`: reduced-motion media query.
 - `package.json`: `lint` and `format` scripts.
 - `.eslintrc.json`, `.prettierrc`: new config files.

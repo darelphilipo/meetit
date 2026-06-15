@@ -28,3 +28,18 @@ The CRON reminder fires when `hoursUntilEvent <= reminderHours && hoursUntilEven
 ## Why Low Priority
 
 The CRON has been reliable in production; downtime is rare. This is a defense-in-depth change.
+
+## Current Code Regression (2026-06-15 audit)
+
+`onCheckEvents` (`server.ts:777-782`) currently sets `remindedKey` BEFORE attempting the reminder post:
+
+```ts
+await redis.set(remindedKey, "true");     // line 777 — flag set first
+await redis.expire(remindedKey, 86400);   // line 778
+console.log(`[CRON] Reminder post for ${event.title}`);
+try {
+  await reddit.submitCustomPost({ ... }); // line 781 — post second
+} catch (e) { console.error(`[CRON] Post failed: ${e}`); }
+```
+
+This means a failed post leaves the flag set, and the reminder will NOT be retried. This is the exact failure mode this change is supposed to fix. **When implementing this change, move lines 777-778 to AFTER the successful `submitCustomPost` call (inside the try block, after the await).**

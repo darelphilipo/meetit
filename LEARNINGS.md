@@ -2241,3 +2241,25 @@ docs/
 
 ### When reviewing a PR
 - New .md file at root (other than the 3 essentials) → ask to relocate to `docs/` or `openspec/`.
+
+## 42. sendPrivateMessage: Modmail vs Individual PM (2026-06-15)
+
+**The two `sendPrivateMessage` modes are NOT the same in Devvit.** This is a frequent source of confusion when reviewing CRON code:
+
+| Mode | API call | Status |
+|---|---|---|
+| **Modmail to subreddit** | `reddit.sendPrivateMessage({ to: "/r/subreddit", subject, text })` | ✅ **Works** in Devvit (tested in `onCheckEvents` CRON) |
+| **DM to individual user** | `reddit.sendPrivateMessage({ to: "username", subject, text })` | ❌ **Fails** with `ERR_INVALID_ARG_TYPE` |
+
+See `docs/archive/BUG_REGISTRY.md` §P2 for the original discovery.
+
+**Implications:**
+- Mod alerts (modmail to `/r/subreddit`) in `onCheckEvents` (`server.ts:810`) are correct and working. They are **not** "wasted API calls" — they succeed.
+- The disabled `onSendReminders` (`server.ts:693`) was an individual-user DM function. It is correctly a no-op.
+- If you see a `try/catch` around `sendPrivateMessage`, check the `to` field before assuming it's broken. The try/catch is defensive but the modmail version works.
+
+**Tested flows:**
+- ✅ `onCheckEvents` → modmail to `/r/meetup_hub2_dev` → arrives in modmail
+- ❌ Direct user DM → throws `ERR_INVALID_ARG_TYPE` → never arrives
+
+**Reference:** Original investigation in BUG_REGISTRY §P2 (2026-05-27).
