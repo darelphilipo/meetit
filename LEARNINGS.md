@@ -2204,3 +2204,40 @@ and link to the OpenSpec list. Do not delete the file — the historical record 
 | `ux6-15-list-view-and-polish` | 2/5 | proposed (bundle) |
 | `perf4-6-render-and-fonts` | 2/5 | proposed (bundle) |
 | `cq1-12-code-quality-and-tests` | 1/5 | proposed (bundle) |
+
+## 41. Project Documentation Structure (2026-06-15)
+
+**Principle:** Repo root is reserved for essentials only. All historical or auxiliary documentation lives under `docs/`.
+
+### Root essentials
+- `LEARNINGS.md` — platform knowledge base (always at root; agents reference it frequently)
+- `README.md` — project overview and setup
+- `TEST_CASES.md` — manual end-to-end test suite
+- `LICENSE`, `package.json`, `tsconfig.json`, `devvit.json`, `package-lock.json`
+- `.gitignore`, `.npmrc`, `.nvmrc`
+- `.opencode/` — OpenCode project config (commands, skills)
+- `docs/`, `openspec/`, `src/`, `public/`, `tools/`
+
+### `docs/` layout
+```
+docs/
+├── README.md           # Index of all documentation
+├── archive/            # Historical files, DO NOT EDIT
+│   ├── BUG_REGISTRY.md
+│   ├── ENHANCEMENTS.md
+│   └── AUDIT.md
+└── releases/           # Version release notes
+    ├── v1.4.0.md
+    ├── v1.4.1.md
+    └── v1.4.2.md
+```
+
+### When to create new things
+- **New historical record (a completed initiative, a frozen design doc):** add to `docs/archive/` with an archive header.
+- **New release notes:** add `docs/releases/vX.Y.Z.md` immediately after tagging the release.
+- **New active requirement/enhancement/bug fix:** add to `openspec/changes/<name>/` per §40.
+- **New platform knowledge (gotcha, pattern, decision):** add a new section to `LEARNINGS.md` at root.
+- **Never add .md files to root other than the 3 essentials** (`README.md`, `TEST_CASES.md`, `LEARNINGS.md`).
+
+### When reviewing a PR
+- New .md file at root (other than the 3 essentials) → ask to relocate to `docs/` or `openspec/`.
