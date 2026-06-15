@@ -31,4 +31,4 @@
 - [x] 5.1 Unify spacing/typography tokens; add fade transitions
 - [x] 5.2 Add `log()` calls at every changed path per §0.2
 - [x] 5.3 Run `npm run build` and `npm test`
-- [ ] 5.4 Commit changes and deploy to r/meetup_hub2_dev
+- [x] 5.4 Commit changes, push to GitHub, create v1.4.0 release
