@@ -1,8 +1,9 @@
-# ⚠️ ARCHIVED 2026-06-15 — see `openspec/changes/` for active tracking
+# ⚠️ ARCHIVED 2026-06-15 — see `../../openspec/changes/` for active tracking
 
 > All active enhancement tracking now lives in OpenSpec.
 > Run `openspec list` to see the current backlog.
 > This file is kept for historical context only — do not edit.
+> Moved from repo root → `docs/archive/` 2026-06-15.
 
 ---
 

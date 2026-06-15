@@ -1,6 +1,6 @@
 ## Why
 
-The `filterHomeEvents()` function in the client already implements search and category filter logic, but the UI is commented out (LEARNINGS §39.3 / BUG_REGISTRY U20). The community is small today, but when the events list grows past ~10, search and filter become necessary. The code is already written — re-enabling the UI is mostly uncommenting and a small CSS addition.
+The `filterHomeEvents()` function in the client already implements search and category filter logic, but the UI is commented out (LEARNINGS §39.3 / BUG_REGISTRY U20, now in `docs/archive/`). The community is small today, but when the events list grows past ~10, search and filter become necessary. The code is already written — re-enabling the UI is mostly uncommenting and a small CSS addition.
 
 ## Priority: 1/5
 

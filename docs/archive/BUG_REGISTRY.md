@@ -1,8 +1,9 @@
-# ⚠️ ARCHIVED 2026-06-15 — see `openspec/changes/` for active tracking
+# ⚠️ ARCHIVED 2026-06-15 — see `../../openspec/changes/` for active tracking
 
 > All active bug tracking now lives in OpenSpec.
 > Run `openspec list` to see open changes (most are tagged `fix-`).
 > This file is the historical record of all bugs encountered and fixed.
+> Moved from repo root → `docs/archive/` 2026-06-15.
 > Do not edit.
 
 ---

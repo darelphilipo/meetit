@@ -2180,9 +2180,9 @@ When a legacy file is archived, prepend:
 and link to the OpenSpec list. Do not delete the file — the historical record (who fixed what and when) is valuable.
 
 ### What This Replaces
-- `BUG_REGISTRY.md` — bug list (all entries fixed; historical).
-- `ENHANCEMENTS.md` — feature backlog (now in `openspec/changes/`).
-- `AUDIT.md` — full app audit (~34 still open, now in `openspec/changes/`).
+- `docs/archive/BUG_REGISTRY.md` — bug list (all entries fixed; historical). Moved from repo root 2026-06-15.
+- `docs/archive/ENHANCEMENTS.md` — feature backlog (now in `openspec/changes/`). Moved from repo root 2026-06-15.
+- `docs/archive/AUDIT.md` — full app audit (~34 still open, now in `openspec/changes/`). Moved from repo root 2026-06-15.
 
 ### Active Changes Snapshot (2026-06-15)
 | Change | Priority | Status |

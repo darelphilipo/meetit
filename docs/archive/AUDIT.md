@@ -1,8 +1,9 @@
-# ⚠️ ARCHIVED 2026-06-15 — see `openspec/changes/` for active tracking
+# ⚠️ ARCHIVED 2026-06-15 — see `../../openspec/changes/` for active tracking
 
 > All active audit findings now live in OpenSpec changes.
 > Each open audit item → `openspec/changes/fix-<name>/` or `openspec/changes/<bundle>/`.
 > This file is the full app audit snapshot from 2026-06-07.
+> Moved from repo root → `docs/archive/` 2026-06-15.
 > Do not edit.
 
 ---
