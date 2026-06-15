@@ -1,8 +1,19 @@
-# Meetit Full App Audit
+# ⚠️ ARCHIVED 2026-06-15 — see `openspec/changes/` for active tracking
+
+> All active audit findings now live in OpenSpec changes.
+> Each open audit item → `openspec/changes/fix-<name>/` or `openspec/changes/<bundle>/`.
+> This file is the full app audit snapshot from 2026-06-07.
+> Do not edit.
+
+---
+
+# Meetit Full App Audit (HISTORICAL)
 
 > Date: 2026-06-07  
 > Scope: All source files, config, build, tests  
 > Files audited: `app.ts` (1266 lines), `server.ts` (759 lines), `api.ts` (102 lines), `meetit.ts` (94 lines), `app.html` (349 lines), `devvit.json` (104 lines), `package.json` (28 lines), `build.ts` (56 lines), `meetit-behavior.test.ts` (67 lines)
+>
+> **Status at archive (2026-06-15):** UX1, UX2, UX3, UX4, UX5, UX10, PERF1, PERF2, PERF3, BUG4 fixed in v1.3.x/v1.4.0. ~34 items still open → migrated to `openspec/changes/`.
 
 ---
 

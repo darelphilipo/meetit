@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Define the unified card shell UI pattern used by Home, Mod Dashboard, and My Stuff browse/carousel views. The shell provides a consistent full-viewport card with a fixed header, progress dots, scrollable body, contextual action row, and fixed footer navigation. This spec is the archived capability for the v1.4.0 release.
+
+## Requirements
 
 ### Requirement: Card shell provides consistent browse layout
 The system SHALL render Home, Mod Dashboard, and My Stuff event cards using a shared card shell with a fixed header, progress dots, a scrollable body, a contextual action row, and a fixed footer navigation bar.

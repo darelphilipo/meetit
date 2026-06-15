@@ -1,5 +1,15 @@
-# Meetit Enhancement Backlog
+# ⚠️ ARCHIVED 2026-06-15 — see `openspec/changes/` for active tracking
 
+> All active enhancement tracking now lives in OpenSpec.
+> Run `openspec list` to see the current backlog.
+> This file is kept for historical context only — do not edit.
+
+---
+
+# Meetit Enhancement Backlog (HISTORICAL)
+
+> **Status at archive:** E1, E2, E3, E9, E10 still pending → moved to `openspec/changes/e1-`, `e2-`, `e3-`, `e9-`, `e10-`.
+> E4, E5, E6, E7, E8 completed in v1.3.x/v1.4.0 — see git log.
 > Priority: HIGH > MEDIUM-HIGH > MEDIUM > LOW-MEDIUM  
 > Effort: S (1-2h) / M (3-5h) / L (5-10h) / XL (10h+)  
 > Status: pending / in-progress / done
@@ -36,42 +46,27 @@
 
 ## Tier 2 — Medium Impact
 
-### E4: Pull-to-Refresh / Auto-Refresh
-- **Priority:** MEDIUM-HIGH
-- **Effort:** S
-- **Status:** pending
+### E4: Pull-to-Refresh / Auto-Refresh  *(done v1.3.x)*
 - **Description:** Add a visible "↻ Refresh" button in the header. Auto-refresh `loadHome()` when returning from overlays (RSVP, event details, My Stuff). Invalidate caches on mutations.
 - **Affected files:** `src/client/app.ts` (refresh action, cache invalidation on RSVP/leave/submit), `public/app.html` (refresh icon in header)
 - **Notes:** No way to refresh events without reloading the page. Users see stale data after RSVPing or leaving an event.
 
-### E5: Mod Dashboard — Attendee Count Badges & Sort
-- **Priority:** MEDIUM
-- **Effort:** S
-- **Status:** pending
+### E5: Mod Dashboard — Attendee Count Badges & Sort  *(done v1.3.x)*
 - **Description:** Color-coded attendee count badges on Published tab (🔴 0, 🟡 1-4, 🟢 5+). Sort published events by RSVP count descending. Show total RSVPs across all events in the mod header.
 - **Affected files:** `src/client/app.ts` (badge rendering in `renderModCard`, sort logic in `renderModPublished`), `src/server/server.ts` (already returns `rsvpCount`)
 - **Notes:** Mods can't tell at a glance which events are popular. Sorting by date is less useful than sorting by engagement.
 
-### E6: Localize Date/Time with Timezone
-- **Priority:** MEDIUM
-- **Effort:** S
-- **Status:** pending
+### E6: Localize Date/Time with Timezone  *(done v1.4.0)*
 - **Description:** Show timezone abbreviation next to times (e.g., "6:00 PM IST"). Show relative dates on home card ("Tomorrow", "In 3 days"). The timezone is already configured in settings and used by CRON.
 - **Affected files:** `src/client/app.ts` (format dates with tz label, relative date helper), `src/server/server.ts` (include timezone in init/home response), `src/shared/api.ts` (add timezone to `HomeState`)
 - **Notes:** CRON already uses the configured timezone but users see no indication. "6:00 PM" is ambiguous for communities spanning timezones.
 
-### E7: Empty State — Add CTA Buttons
-- **Priority:** MEDIUM
-- **Effort:** S
-- **Status:** pending
+### E7: Empty State — Add CTA Buttons  *(done v1.3.x)*
 - **Description:** Replace "Wow, so empty! Tap ➕ to pitch an idea" with actionable buttons: "💡 Pitch an Idea" and "📋 Submit Event" directly in the empty state. Same for My Stuff empty states.
 - **Affected files:** `src/client/app.ts` (update empty state HTML in `renderHomeCard`, `renderMyRsvpCard`, `renderMyPitchCard`, `renderMyEventCard`)
 - **Notes:** Trivial HTML change. The ➕ icon in the header is small and easy to miss. Direct CTAs in the empty state increase first-action rate.
 
-### E8: RSVP Confirmation — Show Event Summary
-- **Priority:** MEDIUM
-- **Effort:** S
-- **Status:** pending
+### E8: RSVP Confirmation — Show Event Summary  *(done v1.4.0)*
 - **Description:** After RSVP, instead of just "🎉 You're on the list!", show: event title, date, time, location, and a "📋 Copy Details" button. Optionally add "Add to Calendar" link generation.
 - **Affected files:** `src/client/app.ts` (enhance RSVP success state in `openDetailsOverlay` step 4, or show a post-RSVP overlay)
 - **Notes:** Currently kicks user to home after RSVP with no confirmation of what they signed up for. This is a trust issue.

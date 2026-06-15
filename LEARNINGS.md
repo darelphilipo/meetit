@@ -2128,3 +2128,79 @@ v1.4.0 is the stable baseline. Major functionality (events, RSVPs, mod dashboard
 - **New mod features** — bulk approve, edit after submission, attendee preview, RSVP capacity limits.
 
 **Do not revisit** core card shell, event delegation, optimistic updates, or guard patterns without strong reason. Those are settled.
+
+## 40. OpenSpec as the Single Source of Truth for Tracking (2026-06-15)
+
+**Principle:** All new requirements, enhancements, and bug fixes are tracked exclusively in OpenSpec (`openspec/changes/`). The legacy `BUG_REGISTRY.md`, `ENHANCEMENTS.md`, and `AUDIT.md` files are now **archived** — kept for historical context but no longer maintained.
+
+### Why
+- OpenSpec ties requirements to specs, design docs, and tasks in one place.
+- The `applyRequires` gate ensures changes can't be implemented without a complete proposal.
+- The validation CLI catches missing or malformed changes.
+- Priority (1–5 scale) lives in each change's `proposal.md` — easy to filter and rank.
+- One tool, one place, one workflow.
+
+### Priority Scale
+- **5/5** — Top priority. Do next.
+- **4/5** — High impact. Do soon.
+- **3/5** — Important. Do this iteration.
+- **2/5** — Useful. Backlog.
+- **1/5** — Future. Tracked but not active work.
+
+### File Layout
+```
+openspec/
+  changes/
+    <change-name>/
+      proposal.md       # Why, what changes, priority, impact
+      design.md         # Context, decisions, risks, open questions
+      tasks.md          # Numbered checklist, - [ ] for pending, - [x] for done
+      specs/
+        <capability>/
+          spec.md       # ADDED/MODIFIED requirements with WHEN/THEN scenarios
+  specs/                # Archived/main specs (mirror of completed changes)
+```
+
+### Lifecycle
+1. **Proposed:** `proposal.md` + `design.md` + `tasks.md` + `specs/<cap>/spec.md` exist. Not yet implemented.
+2. **In Progress:** Tasks check off as work happens. Spec may iterate.
+3. **Complete:** All tasks checked, build/test/type-check pass, code merged, then `openspec archive <name>` moves the change into `openspec/specs/<cap>/spec.md` and the change folder is removed.
+4. **Future/Parked:** Tasks are empty or all unchecked. Status documented in `proposal.md`.
+
+### Creating a New Change
+- **Required:** `proposal.md` (with **Priority:** field at the top), `tasks.md`.
+- **Recommended:** `design.md` for non-trivial changes, `specs/<cap>/spec.md` for user-visible behavior changes.
+- **Naming:** kebab-case, descriptive prefix. Examples: `e3-attendee-preview-on-home-card`, `fix-bug6-past-event-rsvp-block`, `add-dark-mode`.
+
+### Archive Headers
+When a legacy file is archived, prepend:
+```markdown
+# ⚠️ ARCHIVED 2026-06-15 — see openspec/changes/ for active tracking
+```
+and link to the OpenSpec list. Do not delete the file — the historical record (who fixed what and when) is valuable.
+
+### What This Replaces
+- `BUG_REGISTRY.md` — bug list (all entries fixed; historical).
+- `ENHANCEMENTS.md` — feature backlog (now in `openspec/changes/`).
+- `AUDIT.md` — full app audit (~34 still open, now in `openspec/changes/`).
+
+### Active Changes Snapshot (2026-06-15)
+| Change | Priority | Status |
+|---|---|---|
+| `e1-event-capacity` | 4/5 | proposed |
+| `e2-edit-event` | 3/5 | proposed |
+| `e3-attendee-preview-on-home-card` | 5/5 | proposed |
+| `e9-notify-opt-in` | 1/5 | future (Devvit push gated) |
+| `e10-search-filter-ui` | 1/5 | future |
+| `fix-sec1-webhook-consent` | 5/5 | proposed |
+| `fix-sec2-rate-limiting` | 4/5 | proposed |
+| `fix-sec3-csv-injection` | 3/5 | proposed |
+| `fix-bug2-cron-reminder-retry` | 2/5 | proposed |
+| `fix-bug3-first-cron-skip` | 3/5 | proposed |
+| `fix-bug5-default-event-magic-string` | 2/5 | proposed |
+| `fix-bug6-past-event-rsvp-block` | 2/5 | proposed |
+| `fix-bug7-rsvp-confirm-update` | 2/5 | proposed |
+| `fix-bug8-confirm-resolver-queue` | 2/5 | proposed |
+| `ux6-15-list-view-and-polish` | 2/5 | proposed (bundle) |
+| `perf4-6-render-and-fonts` | 2/5 | proposed (bundle) |
+| `cq1-12-code-quality-and-tests` | 1/5 | proposed (bundle) |

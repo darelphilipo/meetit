@@ -1,6 +1,17 @@
-# Meetit Bug Registry — Complete Audit Reference
+# ⚠️ ARCHIVED 2026-06-15 — see `openspec/changes/` for active tracking
+
+> All active bug tracking now lives in OpenSpec.
+> Run `openspec list` to see open changes (most are tagged `fix-`).
+> This file is the historical record of all bugs encountered and fixed.
+> Do not edit.
+
+---
+
+# Meetit Bug Registry — Complete Audit Reference (HISTORICAL)
 
 > Every bug, crash, quirk, and niggle that has occurred in the app, in chronological order of discovery.
+>
+> **Status at archive:** Every entry below is FIXED. The fix column documents the resolution. Future bugs → `openspec/changes/fix-<name>/`.
 
 ---
 
