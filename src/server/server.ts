@@ -16,7 +16,6 @@ import {
 import { buildAttendees, createPendingEvent, isConfiguredModerator, isSubmissionOwner, normalizeUsername } from "../shared/meetit.ts";
 import { once } from "node:events";
 
-const GOOGLE_SHEETS_WEBHOOK_URL = ""; // Set to your Zapier/Google Sheets webhook URL
 const MAX_SERVER_LOGS = 100;
 
 // Capture all server logs into Redis for UI retrieval
@@ -375,16 +374,6 @@ async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
   const rsvpMsg = `[RSVP] ${username} → ${eventId} (email=${email ? "yes" : "no"}, phone=${phone ? "yes" : "no"}, update=${wasExisting})`;
   console.log(rsvpMsg); serverLog("info", rsvpMsg);
   await addRsvp(eventId, username, email, phone);
-
-  if (GOOGLE_SHEETS_WEBHOOK_URL) {
-    try {
-      await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, email, phone, event_id: eventId }),
-      });
-    } catch (e) { console.log(`Webhook send failed (ignored): ${e}`); }
-  }
 
   return { type: "rsvp", success: true, wasExisting };
 }
