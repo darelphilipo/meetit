@@ -66,6 +66,30 @@
     .btn-sm { width: auto; display: inline-block; padding: 6px 14px; font-size: 13px; margin-top: 0; }
     .btn-inline { width: auto; display: inline-block; padding: 8px 18px; font-size: 13px; margin-top: 8px; }
 
+    /* =========================================================
+       Section-scoped button sizes (v1.5.1 — manage size per section
+       by adding ONE class to the parent. This replaces ~40 inline
+       style overrides that were drifting across renders).
+       ========================================================= */
+    /* Action row buttons (Home/Mod/My-Stuff card action area).
+       Single-line, equal-height, equal-flex, ellipsis on overflow. */
+    .card-shell-actions .btn,
+    .btn-action { flex: 1; min-width: 0; margin-top: 0; padding: 8px 6px; font-size: 12px; line-height: 1.1; min-height: 38px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: var(--shadow-sm); }
+    .card-shell-actions .btn:hover, .btn-action:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 #1c1c0f; }
+    /* Square icon-only button in an action row (e.g. Share) */
+    .btn-icon { flex: 0 0 auto; margin-top: 0; padding: 8px 10px; font-size: 14px; min-height: 38px; min-width: 38px; line-height: 1; box-shadow: var(--shadow-sm); }
+    .btn-icon:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 #1c1c0f; }
+    /* Full-width single-button action row (mod delete/dismiss) */
+    .btn-action-full { width: 100%; margin-top: 0; padding: 10px 8px; font-size: 13px; min-height: 40px; box-shadow: var(--shadow-sm); }
+    /* Pager buttons (pagination prev/next in desc/att nav strips) */
+    .btn-pager { margin-top: 0; padding: 4px 10px; font-size: 11px; min-height: 24px; line-height: 1.1; }
+    /* Compact buttons inside overlay footers (RSVP overlay, mod attendees overlay, confirm) */
+    .btn-compact { width: auto; display: inline-block; margin-top: 0; padding: 10px 14px; font-size: 13px; }
+    /* Buttons inside empty states (smaller, compact) */
+    .btn-empty { margin-top: 8px; padding: 6px 12px; font-size: 12px; min-height: 30px; }
+    /* Inline copy button (next to Google Maps link, etc.) */
+    .btn-copy { width: auto; display: inline-block; margin-top: 0; padding: 6px 14px; font-size: 12px; }
+
     .empty-state { background: #fff; border: var(--border); text-align: center; padding: 40px 20px; box-shadow: var(--shadow-md); }
     .empty-state .emoji { font-size: 64px; display: block; margin-bottom: 12px; }
     .empty-state h2 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
@@ -407,8 +431,8 @@
         <div style="font-size:48px;">⚠️</div>
         <div id="confirm-message" style="font-size:16px;font-weight:700;text-align:center;line-height:1.4;color:var(--on-surface);"></div>
         <div style="display:flex;gap:10px;width:100%;">
-          <button class="btn btn-white btn-sm" id="confirm-cancel-btn" style="flex:1;padding:12px;font-size:14px;text-align:center;">Cancel</button>
-          <button class="btn btn-pink btn-sm" id="confirm-ok-btn" style="flex:1;padding:12px;font-size:14px;text-align:center;">Yes, Do It</button>
+          <button class="btn btn-white btn-compact" id="confirm-cancel-btn" style="flex:1;">Cancel</button>
+          <button class="btn btn-pink btn-compact" id="confirm-ok-btn" style="flex:1;">Yes, Do It</button>
         </div>
       </div>
     </div>

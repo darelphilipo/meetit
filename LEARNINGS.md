@@ -2294,6 +2294,55 @@ See `docs/archive/BUG_REGISTRY.md` §P2 for the original discovery.
 - The `homeShareUrl` global (acknowledged low risk in v1.4.3)
 - `buildCardShell` signature (kept backward-compatible by adding `noFade` as an optional, defaulted-false parameter)
 
+## 44. Section-Scoped Button Size System (2026-06-17)
+
+**v1.5.1 fixes the "View Details is way bigger than RSVP" bug.**
+
+### The bug
+Inline `style="padding:...; font-size:...; margin-top:...; flex:...; "` attributes had drifted across ~40 button call sites. Different buttons in the same row had different paddings (8px vs 10px vs 12px), different font-sizes (11px vs 12px vs 13px vs 14px), and different margins. Long labels like "View Details →" wrapped to 2 lines because the column was too narrow, making the button appear visibly larger than the shorter "RSVP" button next to it.
+
+### The fix: section-scoped button classes
+Instead of inline overrides, every button now uses one of these classes (defined once in `:root` → CSS, top of `app.html`):
+
+| Class | Use | Padding | Font | Min-height |
+|---|---|---|---|---|
+| `.btn` (default) | Full-width CTAs (Submit Event, RSVP Now, etc.) | 10px 16px | 14px | auto |
+| `.btn-action` | Action row buttons in card shell (View Details, RSVP, Approve, Decline, etc.) | 8px 6px | 12px | 38px |
+| `.btn-icon` | Square icon-only buttons in action row (Share 📤) | 8px 10px | 14px | 38px / 38px |
+| `.btn-action-full` | Full-width single-button action row (Delete Event, Dismiss) | 10px 8px | 13px | 40px |
+| `.btn-pager` | Pagination prev/next (desc nav, att nav) | 4px 10px | 11px | 24px |
+| `.btn-compact` | Inline buttons in overlay footers (RSVP submit, confirm yes/no, mod attendees CSV) | 10px 14px | 13px | auto |
+| `.btn-copy` | Inline copy buttons next to links (Google Maps Copy) | 6px 14px | 12px | auto |
+| `.btn-empty` | Buttons inside empty states | 6px 12px | 12px | 30px |
+
+**Adding the right class to the right button in the right section** is now enough — no inline style needed.
+
+### Why section-scoped, not ad-hoc utilities
+The user requested "make it such that it's easier to manage the size consistency in each section easily". The classes are named by **where the button lives**, not by what it does. So if you ever decide the mod card action row needs bigger buttons, you change `.btn-action` in one place and every action row across the app updates. Compare to ad-hoc utilities like `.btn-pad-sm` (sized-by-property) which would scatter "what size should a mod approve button be?" knowledge across every render function.
+
+### Bug-specific fix: "View Details →" was wrapping
+The home card's "View Details →" was wrapping to 2 lines at `font-size:13px` because the column was narrow. Fixed by:
+1. Dropping font to 12px (in `.btn-action`)
+2. Adding `white-space: nowrap; overflow: hidden; text-overflow: ellipsis;` so anything that would wrap is now ellipsized
+3. Shortening the label from "View Details →" to "Details →" so it fits in one line
+
+Same fix applied to mod card "View Details →" (now "Details →"). My Stuff "Update Contact" (now "Update"). All single-line action row labels are now ≤10 chars.
+
+### What was deliberately NOT changed
+- `.btn-sm` and `.btn-inline` classes (left in place; rarely used; not worth removing)
+- `style="width:80%;"` on the RSVP Now button in details step 4 (centered fullscreen CTA, not in an action row — needs the inline width constraint for visual centering)
+- The 4 outline-style tab headers (`.tab`) — those have their own size system
+
+### Manual test checklist
+- [ ] Home card: 3 action buttons are equal height, single line, "Details →" doesn't wrap
+- [ ] Mod card pending: Approve / Decline equal height
+- [ ] Mod card published: Details / Attendees (count) equal height, Delete below full width
+- [ ] My Stuff RSVP card: Update / Leave equal height
+- [ ] Mod attendees: pager prev/next + Copy CSV don't overlap
+- [ ] Empty states (no RSVPs, no pitches, no events): buttons fit comfortably in the compact card
+- [ ] Confirm overlay: Cancel / Yes, Do It equal width, equal height
+- [ ] RSVP overlay: single Confirm button (no change needed, uses `.btn`)
+
 ### Manual test checklist (do on each release)
 
 - [ ] iOS Safari: tap every button, verify hover lift + active press

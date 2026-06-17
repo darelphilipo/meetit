@@ -302,7 +302,7 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
 
   if (dates.length === 0) {
     log("renderHomeCard empty state");
-    c.innerHTML = '<div class="empty-state" style="height:100%;"><span class="emoji">🐱</span><h2>Wow, so empty!</h2><p>No events yet — be the first to create one!</p><div style="display:flex;gap:8px;justify-content:center;margin-top:12px;"><button class="btn btn-pink btn-sm" data-action="create-pitch" style="padding:8px 14px;">💡 Pitch Idea</button><button class="btn btn-sm" data-action="create-event" style="padding:8px 14px;background:#fff;">📋 Submit Event</button></div></div>';
+    c.innerHTML = '<div class="empty-state" style="height:100%;"><span class="emoji">🐱</span><h2>Wow, so empty!</h2><p>No events yet — be the first to create one!</p><div style="display:flex;gap:8px;justify-content:center;margin-top:12px;"><button class="btn btn-pink btn-empty" data-action="create-pitch">💡 Pitch Idea</button><button class="btn btn-white btn-empty" data-action="create-event">📋 Submit Event</button></div></div>';
   } else {
     // Flatten all events
     var all = flattenHomeEvents(state.eventsByDate);
@@ -341,11 +341,11 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
 
     var actionsHtml =
       '<div style="display:flex;gap:6px;align-items:center;">' +
-      '<button class="btn btn-white btn-sm btn-view-details" data-id="' + event.id + '" data-action="view-details" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">View Details →</button>' +
+      '<button class="btn btn-white btn-action btn-view-details" data-id="' + event.id + '" data-action="view-details">Details →</button>' +
       (event.hasRsvped
-        ? '<button class="btn btn-green btn-sm btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">✅ Going</button>'
-        : '<button class="btn btn-pink btn-sm btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:1;margin-top:0;padding:10px 12px;font-size:13px;">🎟️ RSVP</button>') +
-      (homeShareUrl ? '<button class="btn btn-white btn-sm btn-share-event" data-action="share-event" style="margin-top:0;padding:10px 12px;font-size:13px;">📤</button>' : '') +
+        ? '<button class="btn btn-green btn-action btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card">✅ Going</button>'
+        : '<button class="btn btn-pink btn-action btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card">🎟️ RSVP</button>') +
+      (homeShareUrl ? '<button class="btn btn-white btn-icon btn-share-event" data-action="share-event" title="Copy share link" aria-label="Copy share link">📤</button>' : '') +
       '</div>';
 
     var footerHtml = count > 1
@@ -483,7 +483,7 @@ function renderMyRsvpCard(opts: { noFade?: boolean } = {}) {
   var el = document.getElementById("my-stuff-container")!;
   updateMyStuffFooter("rsvps");
   updateCardDots("my-stuff", myRsvpIdx, myRsvps.length);
-  if (myRsvps.length === 0) { el.innerHTML = '<div class="empty-state compact"><span class="emoji">🎟️</span><h2>No RSVPs yet</h2><p>Go to the Home tab to find events!</p><button class="btn btn-sm" data-action="close-overlay" style="margin-top:8px;padding:6px 12px;font-size:12px;background:#fff;">← Back to Home</button></div>'; return; }
+  if (myRsvps.length === 0) { el.innerHTML = '<div class="empty-state compact"><span class="emoji">🎟️</span><h2>No RSVPs yet</h2><p>Go to the Home tab to find events!</p><button class="btn btn-white btn-empty" data-action="close-overlay">← Back to Home</button></div>'; return; }
   if (myRsvpIdx >= myRsvps.length) myRsvpIdx = 0;
   var e = myRsvps[myRsvpIdx];
   var key = "rsvp-" + e.id;
@@ -504,8 +504,8 @@ function renderMyRsvpCard(opts: { noFade?: boolean } = {}) {
     '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
 
   var actionsHtml = '<div style="display:flex;gap:8px;">' +
-      '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="update-rsvp" style="flex:1;padding:8px 14px;font-size:13px;">✏️ Update Contact</button>' +
-      '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="leave-event" style="flex:1;padding:8px 14px;font-size:13px;">❌ Leave</button>' +
+      '<button class="btn btn-white btn-action" data-id="' + e.id + '" data-action="update-rsvp">✏️ Update</button>' +
+      '<button class="btn btn-white btn-action" data-id="' + e.id + '" data-action="leave-event">❌ Leave</button>' +
     '</div>';
 
   el.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, noFade: opts.noFade });
@@ -526,7 +526,7 @@ function renderMyPitchCard(opts: { noFade?: boolean } = {}) {
   var el = document.getElementById("my-stuff-container")!;
   updateMyStuffFooter("pitches");
   updateCardDots("my-stuff", myPitchIdx, myPitches.length);
-  if (myPitches.length === 0) { el.innerHTML = '<div class="empty-state compact"><span class="emoji">💡</span><h2>No pitches yet</h2><p>Pitch an idea from the Create menu!</p><button class="btn btn-pink btn-sm" data-action="create-pitch" style="margin-top:8px;padding:6px 12px;font-size:12px;">💡 Pitch an Idea</button></div>'; return; }
+  if (myPitches.length === 0) { el.innerHTML = '<div class="empty-state compact"><span class="emoji">💡</span><h2>No pitches yet</h2><p>Pitch an idea from the Create menu!</p><button class="btn btn-pink btn-empty" data-action="create-pitch">💡 Pitch an Idea</button></div>'; return; }
   if (myPitchIdx >= myPitches.length) myPitchIdx = 0;
   var p = myPitches[myPitchIdx];
   var key = "pitch-" + p.id;
@@ -543,7 +543,7 @@ function renderMyPitchCard(opts: { noFade?: boolean } = {}) {
       '</div></div>' +
     '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
 
-  var actionsHtml = '<button class="btn btn-white btn-sm" data-id="' + p.id + '" data-action="delete-pitch" style="width:100%;padding:8px 14px;font-size:13px;">🗑️ Delete</button>';
+  var actionsHtml = '<button class="btn btn-white btn-action-full" data-id="' + p.id + '" data-action="delete-pitch">🗑️ Delete</button>';
 
   el.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, noFade: opts.noFade });
   if (desc.length > DESC_SHORT_LENGTH) {
@@ -563,7 +563,7 @@ function renderMyEventCard(opts: { noFade?: boolean } = {}) {
   var el = document.getElementById("my-stuff-container")!;
   updateMyStuffFooter("events");
   updateCardDots("my-stuff", myEventIdx, myEvents.length);
-  if (myEvents.length === 0) { el.innerHTML = '<div class="empty-state compact"><span class="emoji">📋</span><h2>No events yet</h2><p>Submit an event from the Create menu!</p><button class="btn btn-sm" data-action="create-event" style="margin-top:8px;padding:6px 12px;font-size:12px;background:#fff;">📋 Submit Event</button></div>'; return; }
+  if (myEvents.length === 0) { el.innerHTML = '<div class="empty-state compact"><span class="emoji">📋</span><h2>No events yet</h2><p>Submit an event from the Create menu!</p><button class="btn btn-white btn-empty" data-action="create-event">📋 Submit Event</button></div>'; return; }
   if (myEventIdx >= myEvents.length) myEventIdx = 0;
   var e = myEvents[myEventIdx];
   var status = e.status === "published" ? "✅ Published" : "⏳ Pending";
@@ -585,8 +585,8 @@ function renderMyEventCard(opts: { noFade?: boolean } = {}) {
     '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
 
   var actionsHtml = (e.status === "pending" ?
-        '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="cancel-my-event" style="width:100%;padding:8px 14px;font-size:13px;">❌ Cancel</button>' :
-        '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="delete-my-event" style="width:100%;padding:8px 14px;font-size:13px;">🗑️ Delete</button>'
+        '<button class="btn btn-white btn-action-full" data-id="' + e.id + '" data-action="cancel-my-event">❌ Cancel</button>' :
+        '<button class="btn btn-white btn-action-full" data-id="' + e.id + '" data-action="delete-my-event">🗑️ Delete</button>'
       );
 
   el.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, noFade: opts.noFade });
@@ -631,9 +631,9 @@ function buildMyStuffDescNavHTML(key: string): string {
   var total = myStuffDescPageTotal[key] || 1;
   if (total <= 1) return '';
   var cur = myStuffDescPageIdx[key] || 0;
-  return (cur > 0 ? '<button class="btn btn-white btn-sm" data-key="' + escapeAttr(key) + '" data-action="my-stuff-desc-prev" style="padding:2px 10px;font-size:11px;">← Previous</button>' : '') +
+  return (cur > 0 ? '<button class="btn btn-white btn-pager" data-key="' + escapeAttr(key) + '" data-action="my-stuff-desc-prev">← Previous</button>' : '') +
     '<span style="font-size:12px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
-    (cur < total - 1 ? '<button class="btn btn-white btn-sm" data-key="' + escapeAttr(key) + '" data-action="my-stuff-desc-next" style="padding:2px 10px;font-size:11px;">Next →</button>' : '');
+    (cur < total - 1 ? '<button class="btn btn-white btn-pager" data-key="' + escapeAttr(key) + '" data-action="my-stuff-desc-next">Next →</button>' : '');
 }
 
 // ======= CREATE MENU =======
@@ -688,9 +688,9 @@ function buildAttNav(eventId: string): string {
   var total = Math.ceil((attListStore[eventId] || []).length / ATTENDEES_PER_PAGE);
   if (total <= 1) return '';
   var cur = attPageIdx[eventId] || 0;
-  return (cur > 0 ? '<button class="btn btn-white btn-sm btn-att-prev" data-id="' + eventId + '" data-action="att-prev" style="padding:4px 12px;font-size:12px;">← Prev</button>' : '') +
+  return (cur > 0 ? '<button class="btn btn-white btn-pager btn-att-prev" data-id="' + eventId + '" data-action="att-prev">← Prev</button>' : '') +
     '<span style="font-size:12px;font-weight:700;padding:4px 8px;">' + (cur + 1) + '/' + total + '</span>' +
-    (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-att-next" data-id="' + eventId + '" data-action="att-next" style="padding:4px 12px;font-size:12px;">Next →</button>' : '');
+    (cur < total - 1 ? '<button class="btn btn-white btn-pager btn-att-next" data-id="' + eventId + '" data-action="att-next">Next →</button>' : '');
 }
 
 function slideTrack(trackId: string, page: number, totalPages: number) {
@@ -734,18 +734,18 @@ function buildDescNavHTML(eventId: string): string {
   var total = descPageTotal[eventId] || 1;
   if (total <= 1) return '';
   var cur = descPageIdx[eventId] || 0;
-  return (cur > 0 ? '<button class="btn btn-white btn-sm btn-desc-prev" data-id="' + eventId + '" data-action="desc-prev" style="padding:4px 12px;font-size:12px;">← Previous</button>' : '') +
+  return (cur > 0 ? '<button class="btn btn-white btn-pager btn-desc-prev" data-id="' + eventId + '" data-action="desc-prev">← Previous</button>' : '') +
     '<span style="font-size:12px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
-    (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + eventId + '" data-action="desc-next" style="padding:4px 12px;font-size:12px;">Next →</button>' : '');
+    (cur < total - 1 ? '<button class="btn btn-white btn-pager btn-desc-next" data-id="' + eventId + '" data-action="desc-next">Next →</button>' : '');
 }
 
 function buildModDetailDescNavHTML(eventId: string): string {
   var total = descPageTotal[eventId] || 1;
   if (total <= 1) return '';
   var cur = descPageIdx[eventId] || 0;
-  return (cur > 0 ? '<button class="btn btn-white btn-sm" data-id="' + eventId + '" data-action="mod-detail-desc-prev" style="padding:4px 12px;font-size:12px;">← Previous</button>' : '') +
+  return (cur > 0 ? '<button class="btn btn-white btn-pager" data-id="' + eventId + '" data-action="mod-detail-desc-prev">← Previous</button>' : '') +
     '<span style="font-size:12px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
-    (cur < total - 1 ? '<button class="btn btn-white btn-sm" data-id="' + eventId + '" data-action="mod-detail-desc-next" style="padding:4px 12px;font-size:12px;">Next →</button>' : '');
+    (cur < total - 1 ? '<button class="btn btn-white btn-pager" data-id="' + eventId + '" data-action="mod-detail-desc-next">Next →</button>' : '');
 }
 
 function persistStep2(eventId: string) {
@@ -832,9 +832,9 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
       escapeHtml(descShort) + (hasMore ? '...' : '') +
     '</div></div></div>' +
     '<div id="desc-nav-' + e.id + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:4px 8px 0 8px;min-height:28px;">' +
-      (hasMore ? '<button class="btn btn-white btn-sm btn-desc-next" data-id="' + e.id + '" data-action="desc-next" style="padding:4px 14px;font-size:12px;">Read more →</button>' : '') +
+      (hasMore ? '<button class="btn btn-white btn-pager btn-desc-next" data-id="' + e.id + '" data-action="desc-next">Read more →</button>' : '') +
     '</div>';
-  if (e.mapUrl) { s2 +=       '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-id="' + escapeAttr(e.mapUrl) + '" data-action="copy-link" style="background:#fff;border:var(--border);padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>'; }
+  if (e.mapUrl) { s2 +=       '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy btn-copy-link" data-id="' + escapeAttr(e.mapUrl) + '" data-action="copy-link">📋 Copy</button></div>'; }
   s2 += '</div>';
 
   // Card 3: Who's Going
@@ -853,15 +853,15 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
       '<div style="font-size:18px;font-weight:700;">You\'re on the list!</div>' +
       '<div style="font-size:14px;color:var(--muted);">See you there</div>' +
       '<div style="display:flex;gap:8px;margin-top:8px;width:100%;max-width:260px;">' +
-      '<button class="btn btn-white btn-update-rsvp" data-id="' + e.id + '" data-action="update-rsvp" style="flex:1;padding:10px 12px;font-size:13px;">✏️ Update Contact</button>' +
-      '<button class="btn btn-white btn-leave-event" data-id="' + e.id + '" data-action="leave-event" style="flex:1;padding:10px 12px;font-size:13px;">❌ Leave</button>' +
+      '<button class="btn btn-white btn-action btn-update-rsvp" data-id="' + e.id + '" data-action="update-rsvp">✏️ Update</button>' +
+      '<button class="btn btn-white btn-action btn-leave-event" data-id="' + e.id + '" data-action="leave-event">❌ Leave</button>' +
       '</div>' +
       '</div>'
     : '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;text-align:center;">' +
       '<div style="font-size:64px;">🎟️</div>' +
       '<div style="font-size:20px;font-weight:700;">Ready to join?</div>' +
       '<div style="font-size:14px;color:var(--muted);">' + d.rsvpCount + ' people are going</div>' +
-      '<button class="btn btn-pink btn-rsvp-now" data-id="' + e.id + '" data-action="rsvp-now" style="width:80%;">🎟️ RSVP Now</button>' +
+      '<button class="btn btn-pink btn-rsvp-now" data-id="' + e.id + '" data-action="rsvp-now" style="width:80%;">🎟️ RSVP Now</button>';
       '</div>';
 
   detailStep1 = s1; detailStep2 = s2; detailStep3 = s3; detailStep4 = s4;
@@ -1017,19 +1017,19 @@ function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
   var actionsHtml = '';
   if (tab === "pending") {
     actionsHtml = '<div style="display:flex;gap:8px;">' +
-      '<button class="btn btn-green btn-approve-event" data-id="' + item.id + '" data-action="approve-event" style="flex:1;padding:10px 12px;font-size:13px;">✅ Approve</button>' +
-      '<button class="btn btn-white btn-decline-event" data-id="' + item.id + '" data-action="decline-event" style="flex:1;padding:10px 12px;font-size:13px;">🗑️ Decline</button>' +
+      '<button class="btn btn-green btn-action btn-approve-event" data-id="' + item.id + '" data-action="approve-event">✅ Approve</button>' +
+      '<button class="btn btn-white btn-action btn-decline-event" data-id="' + item.id + '" data-action="decline-event">🗑️ Decline</button>' +
       '</div>';
   } else if (tab === "published") {
     actionsHtml = '<div style="display:flex;gap:8px;">' +
-      '<button class="btn btn-white btn-view-mod-details" data-id="' + item.id + '" data-action="view-mod-details" style="flex:1;padding:10px 12px;font-size:13px;">👁️ View Details →</button>' +
-      '<button class="btn btn-white btn-view-attendees" data-id="' + item.id + '" data-action="view-attendees-mod" style="flex:1;padding:10px 12px;font-size:13px;">👥 Attendees (' + (item.rsvpCount || 0) + ')</button>' +
+      '<button class="btn btn-white btn-action btn-view-mod-details" data-id="' + item.id + '" data-action="view-mod-details">Details →</button>' +
+      '<button class="btn btn-white btn-action btn-view-attendees" data-id="' + item.id + '" data-action="view-attendees-mod">👥 ' + (item.rsvpCount || 0) + '</button>' +
       '</div>' +
       '<div style="display:flex;gap:8px;">' +
-      '<button class="btn btn-white btn-delete-published" data-id="' + item.id + '" data-action="delete-published" style="width:100%;padding:10px 12px;font-size:13px;">🗑️ Delete Event</button>' +
+      '<button class="btn btn-white btn-action-full btn-delete-published" data-id="' + item.id + '" data-action="delete-published">🗑️ Delete Event</button>' +
       '</div>';
   } else {
-    actionsHtml = '<button class="btn btn-white btn-dismiss-idea" data-id="' + item.id + '" data-action="dismiss-idea" style="width:100%;padding:10px 12px;font-size:13px;">🗑️ Dismiss</button>';
+    actionsHtml = '<button class="btn btn-white btn-action-full btn-dismiss-idea" data-id="' + item.id + '" data-action="dismiss-idea">🗑️ Dismiss</button>';
   }
 
   c.innerHTML = buildCardShell({ color: color, headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, noFade: opts.noFade });
@@ -1081,9 +1081,9 @@ function buildModDescNavHTML(key: string): string {
   var total = modDescTotal[key] || 1;
   if (total <= 1) return '';
   var cur = modDescPageIdx[key] || 0;
-  return (cur > 0 ? '<button class="btn btn-white btn-sm btn-mod-desc-prev" data-key="' + escapeAttr(key) + '" data-action="mod-desc-prev" style="padding:2px 10px;font-size:11px;">← Previous</button>' : '') +
+  return (cur > 0 ? '<button class="btn btn-white btn-pager btn-mod-desc-prev" data-key="' + escapeAttr(key) + '" data-action="mod-desc-prev">← Previous</button>' : '') +
     '<span style="font-size:12px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
-    (cur < total - 1 ? '<button class="btn btn-white btn-sm btn-mod-desc-next" data-key="' + escapeAttr(key) + '" data-action="mod-desc-next" style="padding:2px 10px;font-size:11px;">Next →</button>' : '');
+    (cur < total - 1 ? '<button class="btn btn-white btn-pager btn-mod-desc-next" data-key="' + escapeAttr(key) + '" data-action="mod-desc-next">Next →</button>' : '');
 }
 
 function renderModPending(events: any[]) {
@@ -1356,9 +1356,9 @@ async function showModEventDetails(id: string) {
       escapeHtml(descFull.substring(0, DESC_SHORT_LENGTH)) + (descFull.length > DESC_SHORT_LENGTH ? '...' : '') +
     '</div></div></div>' +
     '<div id="mod-desc-nav-' + id + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:4px 8px 0 8px;min-height:28px;">' +
-      (descFull.length > DESC_SHORT_LENGTH ? '<button class="btn btn-white btn-sm" data-id="' + id + '" data-action="mod-detail-desc-next" style="padding:4px 14px;font-size:12px;">Read more →</button>' : '') +
+      (descFull.length > DESC_SHORT_LENGTH ? '<button class="btn btn-white btn-pager" data-id="' + id + '" data-action="mod-detail-desc-next">Read more →</button>' : '') +
     '</div>';
-  if (item.mapUrl) { s2 += '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy-link" data-id="' + escapeAttr(item.mapUrl) + '" data-action="copy-link" style="background:#fff;border:var(--border);padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:var(--shadow-sm);">📋 Copy</button></div>'; }
+  if (item.mapUrl) { s2 += '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy btn-copy-link" data-id="' + escapeAttr(item.mapUrl) + '" data-action="copy-link">📋 Copy</button></div>'; }
   s2 += '</div>';
 
   // Card 3: Who's Going
@@ -1376,8 +1376,8 @@ async function showModEventDetails(id: string) {
     '<div style="font-size:20px;font-weight:700;">Event Actions</div>' +
     '<div style="font-size:14px;color:var(--muted);margin-bottom:8px;">Manage this event</div>' +
     '<div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:280px;">' +
-    '<button class="btn btn-white" data-id="' + id + '" data-action="export-csv" style="width:100%;padding:12px;font-size:14px;">📋 Copy CSV</button>' +
-    '<button class="btn btn-white" data-id="' + id + '" data-action="delete-published" style="width:100%;padding:12px;font-size:14px;">🗑️ Delete Event</button>' +
+    '<button class="btn btn-white" data-id="' + id + '" data-action="export-csv">📋 Copy CSV</button>' +
+    '<button class="btn btn-white" data-id="' + id + '" data-action="delete-published">🗑️ Delete Event</button>' +
     '</div>' +
     '</div>';
 
@@ -1535,9 +1535,9 @@ function buildModAttNavHTML(eventId: string): string {
   var total = Math.ceil(att.length / ATTENDEES_PER_PAGE);
   if (total <= 1) return '';
   var cur = attPageIdx[eventId] || 0;
-  return (cur > 0 ? '<button class="btn btn-white btn-sm" data-id="' + eventId + '" data-action="mod-detail-att-prev" style="padding:2px 10px;font-size:11px;">← Previous</button>' : '') +
+  return (cur > 0 ? '<button class="btn btn-white btn-pager" data-id="' + eventId + '" data-action="mod-detail-att-prev">← Previous</button>' : '') +
     '<span style="font-size:11px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
-    (cur < total - 1 ? '<button class="btn btn-white btn-sm" data-id="' + eventId + '" data-action="mod-detail-att-next" style="padding:2px 10px;font-size:11px;">Next →</button>' : '');
+    (cur < total - 1 ? '<button class="btn btn-white btn-pager" data-id="' + eventId + '" data-action="mod-detail-att-next">Next →</button>' : '');
 }
 
 // Mod attendees overlay state
@@ -1591,12 +1591,12 @@ async function showModAttendees(id: string) {
         // Nav + CSV
         var hasNav = modAttTotalPages > 1;
         var navHtml = '<div style="position:absolute;bottom:10px;left:0;right:0;display:flex;justify-content:center;align-items:center;gap:10px;z-index:10;">' +
-          '<button class="btn btn-white btn-sm" id="mod-att-prev" data-action="mod-att-prev" style="padding:4px 10px;font-size:11px;">← Prev</button>' +
+          '<button class="btn btn-white btn-pager" id="mod-att-prev" data-action="mod-att-prev">← Prev</button>' +
           '<span id="mod-att-dots" style="font-size:11px;font-weight:700;">1/' + modAttTotalPages + '</span>' +
-          '<button class="btn btn-white btn-sm" id="mod-att-next" data-action="mod-att-next" style="padding:4px 10px;font-size:11px;">Next →</button>' +
+          '<button class="btn btn-white btn-pager" id="mod-att-next" data-action="mod-att-next">Next →</button>' +
           '</div>';
         var csvHtml = '<div style="position:absolute;bottom:' + (hasNav ? '42px' : '10px') + ';left:0;right:0;display:flex;justify-content:center;padding:0 12px;z-index:10;">' +
-          '<button class="btn btn-white btn-sm" data-id="' + id + '" data-action="export-csv" style="width:100%;max-width:260px;padding:8px;font-size:12px;">📋 Copy CSV</button>' +
+          '<button class="btn btn-white btn-compact" data-id="' + id + '" data-action="export-csv">📋 Copy CSV</button>' +
           '</div>';
         html += csvHtml + (hasNav ? navHtml : '') + '</div>';
         body.innerHTML = html;
@@ -1705,8 +1705,8 @@ async function submitRsvp() {
           '<div style="font-size:13px;color:var(--muted);">📅 ' + escapeHtml(relativeDate(evt.date)) + ' at ' + formatTimeWithTz(evt.time, appTimezone) + '</div>' +
           '<div style="font-size:13px;color:var(--muted);">📍 ' + escapeHtml(evt.location || "TBD") + '</div>' +
           '<div style="display:flex;gap:8px;margin-top:8px;width:100%;max-width:260px;">' +
-          '<button class="btn btn-white btn-sm" data-action="copy-event-details" data-id="' + currentEventId + '" style="flex:1;padding:8px;font-size:12px;">📋 Copy Details</button>' +
-          '<button class="btn btn-pink btn-sm" data-action="close-overlay" style="flex:1;padding:8px;font-size:12px;">Done →</button>' +
+          '<button class="btn btn-white btn-compact" data-action="copy-event-details" data-id="' + currentEventId + '">📋 Copy Details</button>' +
+          '<button class="btn btn-pink btn-compact" data-action="close-overlay">Done →</button>' +
           '</div>' +
           '</div>';
         document.getElementById("detail-body")!.innerHTML = confirmHTML;
