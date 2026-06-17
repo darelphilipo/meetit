@@ -2395,3 +2395,46 @@ The user said "should also have the field" — not "must require". Forcing the d
 - [ ] Old pitches in Mod Dashboard: no proposed line shown
 - [ ] Server validation: invalid date string returns "Invalid date format" error
 
+## 46. Side-by-Side Form Rows + Review Page Horizontal Scroll (2026-06-17)
+
+**v1.6.1 fixes two layout regressions from v1.5.5/v1.5.6 + v1.6.0.**
+
+### Side-by-side date+time
+
+**Problem:** In v1.5.4 we restructured the submit-event form into 5 steps. Date and Time were two stacked `form-group`s. Same in v1.6.0 for the pitch form's proposed date/time. On a 360px-wide mobile screen, the stacked date+time pair wastes ~80px of vertical space — the user has to scroll past them to reach Submit. Plus the date picker takes the full width even though it's only ~120px wide.
+
+**Fix:** New `.form-row` CSS class:
+```css
+.form-row { display: flex; gap: 10px; }
+.form-row .form-group { flex: 1; min-width: 0; }
+```
+
+The `min-width: 0` is the magic property — without it, flex children default to `min-width: auto` which prevents them from shrinking, so date/time inputs would force horizontal overflow instead of side-by-side.
+
+**Applied to:**
+- Pitch form: Proposed Date + Proposed Time (v1.6.0 stacked → v1.6.1 side-by-side)
+- Submit event form: Date + Time (v1.5.4 stacked → v1.6.1 side-by-side)
+
+### Review page horizontal scroll
+
+**Problem:** v1.5.5 set the review page description to `white-space:pre; overflow:auto` for horizontal scroll on long single lines. v1.5.6 changed it to `white-space:pre-wrap; word-break:break-word` to fill available vertical space. The latter change broke the original intent: long lines now wrap to fit, so a long unbreakable token (URL, or a string with no spaces) gets cut off at the right edge of the box with no way to see the full content.
+
+The user reported: "the review page for submit event still doesn't have the horizontal scroll to view the full details."
+
+**Fix:** v1.6.1 keeps `flex:1; min-height:0; overflow:auto` (so it fills available space and scrolls vertically) but switches the description back to `white-space:pre` (no wrap). The `min-width:0; max-width:100%` on the flex child ensures the box itself doesn't overflow its parent.
+
+For the title and meta lines, switched from `overflow-wrap:break-word` (wraps long tokens) to `min-width:0; max-width:100%; overflow-x:auto; white-space:nowrap` (single line, horizontal scroll if too long). This matches the rest of the app's "horizontal scroll for long single-line content" pattern.
+
+### Why `min-width:0; max-width:100%` matters
+
+`max-width:100%` alone is NOT enough. In a flex child, the default `min-width: auto` means the child is allowed to be as wide as its content, ignoring `max-width:100%`. The `min-width:0` override unlocks the shrink-to-fit behavior so the box can be narrower than its content, which is what enables `overflow-x:auto` to actually kick in.
+
+This is a flexbox gotcha documented in the v1.5.5 release notes too.
+
+### Manual test checklist
+- [ ] Open pitch form: date and time are side-by-side, both fit on one row on 360px screen
+- [ ] Open submit event form step 2: date and time are side-by-side
+- [ ] On step 5 (review) with a long description: a long unbreakable line (e.g., a URL) overflows the box and the box becomes horizontally scrollable
+- [ ] On step 5 with a short description: text fills the box vertically, no scrolling needed
+- [ ] Review title and meta lines scroll horizontally if too long to fit
+
