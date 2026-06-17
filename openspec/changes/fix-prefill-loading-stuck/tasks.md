@@ -1,5 +1,7 @@
 ## 1. Refactor prefillOrganizer
 
+> **DEFERRED — proposal deprioritized to priority 1/5 on 2026-06-17.** Flag IS reset on the caught error path today (the `prefillLoading = false` line runs unconditionally after try/catch). The "stuck" scenario requires the `log()` call in the catch block to throw, which is essentially never. Re-prioritize to 3/5 if a user reports a stuck prefill.
+
 - [ ] 1.1 Wrap body in try/finally; move `prefillLoading = false` to finally
 - [ ] 1.2 Add entry log `prefillOrganizer: fetching /api/init`
 - [ ] 1.3 Add success log `prefillOrganizer: success user={u}`
@@ -7,6 +9,8 @@
 - [ ] 1.5 Add finally log `prefillOrganizer: flag released`
 
 ## 2. Refactor loadMySubmissions
+
+> **DEFERRED — same as above.**
 
 - [ ] 2.1 Wrap body in try/finally; move `myStuffLoading = false` to finally
 - [ ] 2.2 Add entry log `loadMySubmissions: seq={n}`

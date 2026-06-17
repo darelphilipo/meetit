@@ -13,7 +13,7 @@ import {
   type RsvpAttendee,
   type SubmitEventFormData,
 } from "../shared/api.ts";
-import { buildAttendees, createPendingEvent, isConfiguredModerator, isSubmissionOwner, normalizeUsername } from "../shared/meetit.ts";
+import { buildAttendees, createPendingEvent, csvEscape, isConfiguredModerator, isSubmissionOwner, normalizeUsername } from "../shared/meetit.ts";
 import { once } from "node:events";
 
 const MAX_SERVER_LOGS = 100;
@@ -673,10 +673,11 @@ async function onExportAttendees(req: IncomingMessage): Promise<ApiResponse> {
   const detailsHash = rsvpMembers.length > 0 ? await redis.hGetAll(`meetit:rsvp_details:${eventId}`) : {};
   const attendees = buildAttendees(results as any, detailsHash, true);
 
-  // Build CSV
-  const lines = ["Username,Email,Phone"];
+  // Build CSV with safe escaping (RFC 4180 + formula-injection guard).
+  const header = [csvEscape("Username"), csvEscape("Email"), csvEscape("Phone")].join(",");
+  const lines = [header];
   for (const a of attendees) {
-    lines.push(`${a.username},${(a.email || "").replace(/,/g, "")},${(a.phone || "").replace(/,/g, "")}`);
+    lines.push([csvEscape(a.username), csvEscape(a.email), csvEscape(a.phone)].join(","));
   }
   const csv = lines.join("\n");
   const filename = `attendees_${eventId}_${new Date().toISOString().split("T")[0]}.csv`;

@@ -2438,3 +2438,129 @@ This is a flexbox gotcha documented in the v1.5.5 release notes too.
 - [ ] On step 5 with a short description: text fills the box vertically, no scrolling needed
 - [ ] Review title and meta lines scroll horizontally if too long to fit
 
+## 47. iOS Blank-Webview After `navigateTo` (2026-06-17)
+
+**v1.6.2 fixes a known iOS platform bug where the webview is left blank after `navigateTo(url)` + user taps Back.**
+
+**Bug:** On iOS Safari and the iOS Reddit app, calling `navigateTo(url)` to push the user to a native Reddit page (share link, "View on Reddit" button, future DM compose), then tapping Back, often returns to a blank webview. The page chrome (header, tabs) is gone; only a white screen remains. The user has to force-quit the Reddit app and reopen the post to recover.
+
+**Fix:** A `visibilitychange` listener in `DOMContentLoaded` (`src/client/app.ts`) that re-renders the active surface when the page becomes visible again:
+
+```ts
+var lastVisAt = 0;
+var visReRenderInProgress = false;
+document.addEventListener("visibilitychange", function () {
+  var now = Date.now();
+  var state = document.visibilityState;
+  log("VISIBILITY state=" + state);
+  if (state !== "visible") return;
+  if (now - lastVisAt < 500) { log("VISIBILITY throttled (debounce)"); return; }
+  lastVisAt = now;
+  if (visReRenderInProgress) { log("VISIBILITY skipped: re-render in progress"); return; }
+  visReRenderInProgress = true;
+  log("VISIBILITY action=soft-render");
+  var modOverlay = document.getElementById("mod-screen");
+  var myStuffOverlay = document.getElementById("my-stuff-overlay");
+  try {
+    if (modOverlay && modOverlay.classList.contains("active")) loadModTab(modTab);
+    else if (myStuffOverlay && myStuffOverlay.classList.contains("active")) loadMySubmissions();
+    else loadHome();
+  } finally {
+    setTimeout(function () { visReRenderInProgress = false; log("VISIBILITY flag released"); }, 500);
+  }
+});
+```
+
+**Key design decisions:**
+
+1. **Soft-render, not hard re-init.** A full `init()` would wipe open overlays (e.g., a half-filled submit-event form) and any in-flight form state. Soft-render re-fetches home data and re-renders the current card. Open overlays stay open; the user doesn't lose what they were doing.
+2. **500ms throttle.** iOS sometimes fires `visibilitychange` twice in quick succession (once on transition, once on focus). The throttle coalesces these.
+3. **`visReRenderInProgress` guard.** If a re-render is already in flight, the next event is skipped. This prevents re-entrancy loops where the re-render itself triggers another visibility event.
+4. **500ms lock release via `setTimeout`.** The lock is released in a `setTimeout` regardless of whether the underlying re-render completed synchronously or async, so the next legitimate visibility event is never blocked for long.
+5. **Per-surface routing.** The handler routes to the right loader based on which overlay is active. `loadModTab(modTab)` for mod dashboard, `loadMySubmissions()` for My Stuff, `loadHome()` for the home page. Each of these has its own fetching guard, so re-entry is safe.
+
+**Why this matters now:** Once `e13-direct-message-organizer` lands, every mod and attendee DM button will trigger `navigateTo()`. Shipping e13 without this fix would surface the blank-webview bug to every user who ever messages an organizer. The fix is a prerequisite for e13.
+
+**Logging per §0.2:** All paths log via `log()` — `VISIBILITY state=visible/hidden`, `VISIBILITY throttled`, `VISIBILITY skipped`, `VISIBILITY action=soft-render`, `VISIBILITY refresh home/modTab=X/my-stuff`, `VISIBILITY flag released`. This makes the fix debuggable from the on-screen debug panel on a real device.
+
+**Out of scope (deferred):**
+- Hard re-init if user is away > 5 minutes (YAGNI for v1.6.2).
+- A "Reconnecting..." overlay during re-render (current re-render is fast enough that a loading state isn't needed; if latency becomes an issue, that's a separate change).
+- Android-specific quirks (the bug is documented as iOS-primary; Android usually works fine).
+
+**Manual test checklist:**
+- [ ] On iOS Safari, navigate to a Reddit URL via a `navigateTo()` call, tap Back, verify the app re-renders (home card visible, no blank screen)
+- [ ] On iOS Reddit app, same test
+- [ ] Open the debug panel, navigate away, navigate back, see `VISIBILITY state=visible action=soft-render` and `VISIBILITY refresh home`
+- [ ] With a mod overlay open, navigate away and back, see `VISIBILITY refresh modTab=pending` (or whatever tab was active)
+- [ ] With a my-stuff overlay open, navigate away and back, see `VISIBILITY refresh my-stuff`
+- [ ] Rapid double-toggle visibility: only one re-render fires (throttle works)
+
+## 48. CSV Export Safety: Formula Injection + RFC 4180 (2026-06-17)
+
+**v1.6.2 makes the attendee CSV export safe against formula injection and RFC 4180 violations.**
+
+**Bug:** `onExportAttendees` in `src/server/server.ts` built CSV with simple string concatenation:
+
+```ts
+const lines = ["Username,Email,Phone"];
+for (const a of attendees) {
+  lines.push(`${a.username},${(a.email || "").replace(/,/g, "")},${(a.phone || "").replace(/,/g, "")}`);
+}
+```
+
+Two problems:
+
+1. **CSV formula injection (security).** If a username starts with `=`, `+`, `-`, `@`, `\t`, or `\r`, Excel/LibreOffice/Google Sheets will interpret the cell as a formula and may execute arbitrary code on open. Example: a username of `=cmd|'/c calc'!A1` runs `calc.exe` when an organizer opens the CSV. The `.replace(/,/g, "")` strip does nothing to prevent this.
+2. **RFC 4180 violation (data corruption).** Any field containing `,`, `"`, or newline breaks the CSV. The current code mangles the data by silently stripping commas instead of escaping them. A username like `alice,bob` would export as `alicebob` — a real, silent data loss.
+
+**Fix:** A `csvEscape(value)` helper in `src/shared/meetit.ts` (exported for unit testing):
+
+```ts
+export function csvEscape(value: string | null | undefined): string {
+  if (value == null) return "";
+  let v = String(value);
+  if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;  // formula guard
+  return `"${v.replace(/"/g, '""')}"`;        // RFC 4180 quote+escape
+}
+```
+
+`onExportAttendees` now uses `csvEscape` for every field (header + data):
+
+```ts
+const header = [csvEscape("Username"), csvEscape("Email"), csvEscape("Phone")].join(",");
+const lines = [header];
+for (const a of attendees) {
+  lines.push([csvEscape(a.username), csvEscape(a.email), csvEscape(a.phone)].join(","));
+}
+```
+
+**Why the formula guard prepends `'`:** The single quote is the standard "force-text" prefix that tells Excel to treat the cell as a literal string instead of a formula. The `'` is not displayed in the cell; it just suppresses formula evaluation. This is the OWASP-recommended mitigation for CSV injection.
+
+**Why include `\t` and `\r` in the guard:** Some Excel versions treat leading tab/CR as formula triggers, especially in combination with other control characters. Including them is the conservative choice.
+
+**Why quote all fields, not just ones with special chars:** The previous behavior (no quotes) was technically broken for any field with `,` or `"`. Always-quoting is RFC 4180-compliant, simpler to reason about, and all spreadsheet apps handle it identically.
+
+**Why a single-quote `'` guard in addition to quoting:** Quoting alone does NOT prevent formula injection. The formula `=cmd|...` inside `"=cmd|..."` is still a formula. The single-quote guard must come first, then the value is wrapped in double quotes.
+
+**Test coverage (5 unit tests in `tools/meetit-behavior.test.ts`):**
+- `csvEscape` wraps plain strings in double quotes
+- `csvEscape` handles commas, quotes, and newlines per RFC 4180
+- `csvEscape` prevents formula injection for dangerous leading characters (`=`, `@`, `+`, `-`, `\t`, `\r`)
+- `csvEscape` returns empty quoted string for null/undefined
+- (implicit) `csvEscape("")` returns `""`
+
+**Logging per §0.2:** The existing `[EXPORT] ${eventId} | ${attendees.length} attendees | by ${context.username}` log remains. If any attendee field triggers the formula guard, the data is still exported — we don't log per-field, only the export request as a whole. The log is unchanged so we don't leak user data into server logs.
+
+**References:**
+- OWASP CSV Injection: https://owasp.org/www-community/attacks/CSV_Injection
+- RFC 4180: https://www.ietf.org/rfc/rfc4180.txt
+
+**Manual test checklist:**
+- [ ] Export an event's attendees; open the CSV in Excel, LibreOffice, and Google Sheets
+- [ ] All cells render as text (no formula evaluation)
+- [ ] A username containing `,` exports as `"alice,bob"` (quoted, not stripped)
+- [ ] A username containing `"` exports as `"alice""bob"` (doubled quote, RFC 4180)
+- [ ] A username starting with `=`, `+`, `-`, `@` is prefixed with `'` to suppress formula evaluation
+- [ ] Empty email/phone cells render as empty strings, not the literal text "undefined"
+

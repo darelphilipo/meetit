@@ -8,9 +8,11 @@ Two loading flags in `app.ts` can get stuck `true` if the async work they guard 
 
 Both bugs are silent — no UI feedback, no error visible to the user. The session just has a permanently broken feature.
 
-## Priority: 3/5
+## Priority: 1/5
 
-## Status: proposed
+## Category: edge-enhancement
+
+## Status: deprioritized (2026-06-17)
 
 ## What Changes
 
@@ -56,6 +58,27 @@ async function prefillOrganizer() {
 
 Same pattern for `loadMySubmissions`.
 
-## Why 3/5
+## Why 1/5 (deprioritized 2026-06-17)
 
-These bugs leave the user with a silently broken feature until they reload the app. The fix is a 5-line try/finally refactor. Important but not blocking major work.
+**The current code already resets the flag on the caught error path.** The "stuck flag" claim is half-true.
+
+Looking at the current `app.ts:1892` and `app.ts:461-483`, the structure is:
+
+```ts
+prefillLoading = true;
+try { ... fetch ... } catch (e) { log(...); }
+prefillLoading = false;  // runs unconditionally after try/catch
+```
+
+The `prefillLoading = false` line runs whether the try succeeded OR the catch caught an error. JS continues to the next statement after `catch` finishes. So the flag IS reset on the success path AND the caught error path today.
+
+**The flag stays stuck only if the catch block itself throws.** For `prefillOrganizer`, the catch only does `log(...)`. For `loadMySubmissions`, the catch does `log(...)` and `container.innerHTML = '...'`. For either of these to throw, the DOM API would have to malfunction (e.g., `log` would have to throw, or the static `error-state` HTML would have to be malformed).
+
+**This is a defensive refactor, not a bug fix.** The case for the change is consistency with the rest of the codebase's try/finally pattern (LEARNINGS §24.2, §47), not a confirmed bug. It's the right thing to do, but it's not fixing a reported user issue.
+
+**Re-prioritize to 3/5** if:
+- A user reports a stuck prefill or stuck My Stuff load
+- We add a real try/finally mismatch in a future refactor (e.g., adding a new error path inside the try)
+- We instrument the debug panel with a "stuck-flag" detector that flags this in real time
+
+**Defensive merit:** The fix is small and clean (~4 lines per function). It costs nothing to ship and prevents a class of bugs from forming.

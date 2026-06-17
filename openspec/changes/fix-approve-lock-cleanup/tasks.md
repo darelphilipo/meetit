@@ -1,5 +1,7 @@
 ## 1. Refactor onApproveEvent
 
+> **DEFERRED — proposal deprioritized to priority 1/5 on 2026-06-17.** TTL self-heals; no confirmed user impact. Re-prioritize to 3/5 if a ghost-lockout incident is reported.
+
 - [ ] 1.1 Wrap `hSet` + `hDel` in try/finally
 - [ ] 1.2 Add `redis.del(lockKey)` in finally (with inner try/catch for the del itself)
 - [ ] 1.3 Add `[APPROVE] lock-released id={id}` log on success

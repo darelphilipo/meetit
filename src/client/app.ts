@@ -2160,5 +2160,41 @@ document.addEventListener("DOMContentLoaded", function () {
   //   });
   // }
 
+  // iOS Safari / iOS Reddit app: after navigateTo + Back, the webview can
+  // be left blank. Soft-render the active tab on visibilitychange so the
+  // app recovers without a manual refresh. Throttled + idempotent.
+  var lastVisAt = 0;
+  var visReRenderInProgress = false;
+  document.addEventListener("visibilitychange", function () {
+    var now = Date.now();
+    var state = document.visibilityState;
+    log("VISIBILITY state=" + state);
+    if (state !== "visible") return;
+    if (now - lastVisAt < 500) { log("VISIBILITY throttled (debounce)"); return; }
+    lastVisAt = now;
+    if (visReRenderInProgress) { log("VISIBILITY skipped: re-render in progress"); return; }
+    visReRenderInProgress = true;
+    log("VISIBILITY action=soft-render");
+    // Determine which surface to refresh: overlay > home.
+    var modOverlay = document.getElementById("mod-screen");
+    var myStuffOverlay = document.getElementById("my-stuff-overlay");
+    try {
+      if (modOverlay && modOverlay.classList.contains("active")) {
+        log("VISIBILITY refresh modTab=" + modTab);
+        loadModTab(modTab);
+      } else if (myStuffOverlay && myStuffOverlay.classList.contains("active")) {
+        log("VISIBILITY refresh my-stuff");
+        loadMySubmissions();
+      } else {
+        log("VISIBILITY refresh home");
+        loadHome();
+      }
+    } finally {
+      // Allow the next visibility event in at least 500ms regardless of
+      // whether the re-render completed synchronously or async.
+      setTimeout(function () { visReRenderInProgress = false; log("VISIBILITY flag released"); }, 500);
+    }
+  });
+
   loadHome();
 });

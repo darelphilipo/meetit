@@ -92,3 +92,21 @@ function parseRsvpDetails(raw: string | undefined): { email: string; phone: stri
 export function normalizeUsername(username: string): string {
   return username.trim().toLowerCase().replace(/^u\//, "");
 }
+
+/**
+ * Escapes a value for safe CSV output.
+ *
+ * - Wraps the value in double quotes (RFC 4180).
+ * - Escapes any internal double quote by doubling it.
+ * - Prepends a single quote to values that start with `=`, `+`, `-`, `@`,
+ *   tab, or carriage return to prevent CSV formula injection
+ *   (https://owasp.org/www-community/attacks/CSV_Injection).
+ *
+ * Null/undefined values are returned as an empty quoted string `""`.
+ */
+export function csvEscape(value: string | null | undefined): string {
+  if (value == null) return "";
+  let v = String(value);
+  if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
+  return `"${v.replace(/"/g, '""')}"`;
+}
