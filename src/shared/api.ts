@@ -43,6 +43,8 @@ export type RsvpFormData = {
 export type PitchFormData = {
   title: string;
   description: string;
+  proposedDate?: string;  // YYYY-MM-DD, optional suggestion from the pitcher
+  proposedTime?: string;  // HH:MM, optional
 };
 
 export type SubmitEventFormData = {

@@ -2354,3 +2354,44 @@ Same fix applied to mod card "View Details →" (now "Details →"). My Stuff "U
 - [ ] Mod dashboard → Pending → Next: verify card updates without re-fade
 - [ ] My Stuff → RSVP empty state: verify smaller compact empty state renders
 
+## 45. Pitch Proposed Date/Time Field (2026-06-17)
+
+**v1.6.0 adds optional "proposed date" + "proposed time" fields to the pitch form.**
+
+### Why
+A pitch is an idea — but ideas usually come with a "when do you imagine this happening?" context. Without a date, mods reading the pitch have to guess at timing. The proposed fields are just suggestions; they're not commitments. The organizer of the resulting event will set the real date when submitting.
+
+### Scope (medium change, 4 files)
+1. **`public/app.html`** — 2 new form inputs (`<input type="date" id="pitch-date">`, `<input type="time" id="pitch-time">`) in the pitch overlay body
+2. **`src/shared/api.ts`** — extended `PitchFormData` with optional `proposedDate?: string; proposedTime?: string;`
+3. **`src/server/server.ts`** — `onPitchIdea` reads new fields, validates with regex, includes them in the saved JSON. Backward compatible: old pitches without these fields still work.
+4. **`src/client/app.ts`** — 3 places:
+   - `submitPitch()`: reads new fields, conditionally includes in payload (only if non-empty)
+   - `renderMyPitchCard()`: shows "💡 Proposed: DATE at TIME" in the header (or "📅 Pitched: ..." if no proposed date)
+   - `renderModCard()` pitches branch: shows "💡 Proposed: DATE at TIME" in the mod header (only if proposed date exists)
+
+### Server validation
+```ts
+if (proposedDate && !/^\d{4}-\d{2}-\d{2}$/.test(proposedDate)) return { error: "Invalid date format", status: 400 };
+if (proposedTime && !/^\d{2}:\d{2}$/.test(proposedTime)) return { error: "Invalid time format", status: 400 };
+```
+The regexes are tight enough to prevent Redis poisoning but loose enough to accept any plausible date/time from the HTML5 date/time inputs.
+
+### Backward compatibility
+- Old pitches (pre-v1.6.0) in Redis don't have `proposedDate` / `proposedTime` fields
+- Render code checks `if (item.proposedDate)` and skips the line if missing
+- New pitches with empty date/time fields also skip the line (both `proposedDate` and `proposedTime` are conditional in the render)
+- No migration needed for existing data
+
+### Why optional, not required
+The user said "should also have the field" — not "must require". Forcing the date would be friction for pitches that are abstract ("what if we did X sometime?"). The fields are there for users who want to propose timing; users who don't can leave them empty.
+
+### Manual test checklist
+- [ ] Open pitch overlay: 4 fields visible (title, description, proposed date, proposed time)
+- [ ] Submit without date/time: works, no error, no proposed line shown in My Stuff
+- [ ] Submit with date only: works, shows "💡 Proposed: 2026-06-28" in My Stuff and Mod Dashboard
+- [ ] Submit with date + time: works, shows "💡 Proposed: 2026-06-28 at 22:38" everywhere
+- [ ] Old pitches in My Stuff (no date): show "📅 Pitched: ..." instead
+- [ ] Old pitches in Mod Dashboard: no proposed line shown
+- [ ] Server validation: invalid date string returns "Invalid date format" error
+

@@ -538,7 +538,11 @@ function renderMyPitchCard(opts: { noFade?: boolean } = {}) {
   if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   myStuffDescPageIdx[key] = 0;
 
-  var headerHtml = '<h3 style="font-size:17px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(p.title) + '</h3>';
+  var headerHtml = '<h3 style="font-size:17px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(p.title) + '</h3>' +
+    (p.proposedDate
+      ? '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px;">💡 Proposed: ' + escapeHtml(p.proposedDate) + (p.proposedTime ? ' at ' + escapeHtml(p.proposedTime) : '') + '</div>'
+      : '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px;">📅 Pitched: ' + escapeHtml(new Date(p.submittedAt).toLocaleDateString()) + '</div>') +
+    '<div style="font-size:11px;color:var(--muted);font-weight:500;">Status: ' + escapeHtml(p.status || "pending") + '</div>';
 
   var bodyHtml = '<div id="my-stuff-desc-box-' + key + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
       '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
@@ -986,9 +990,15 @@ function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
   var headerHtml = '';
   if (item.emoji) { headerHtml += '<div style="font-size:28px;margin-bottom:4px;">' + item.emoji + '</div>'; }
   headerHtml += '<h3 style="font-size:18px;font-weight:700;margin:0 0 4px 0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(item.title) + '</h3>';
-  headerHtml += '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:4px;min-width:0;">';
-  if (tab === "pitches") { headerHtml += '👤 u/' + escapeHtml(item.submittedBy) + ' · ' + escapeHtml(new Date(item.submittedAt).toLocaleString()); }
-  else { headerHtml += '<span style="flex-shrink:0;">📅 ' + escapeHtml(item.date) + ' at ' + escapeHtml(item.time) + ' ·</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📍 ' + escapeHtml(item.location || "") + '</span>'; }
+  headerHtml += '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:6px;display:flex;flex-direction:column;gap:2px;">';
+  if (tab === "pitches") {
+    headerHtml += '<div>👤 u/' + escapeHtml(item.submittedBy) + ' · ' + escapeHtml(new Date(item.submittedAt).toLocaleString()) + '</div>';
+    if (item.proposedDate) {
+      headerHtml += '<div style="font-weight:700;color:var(--on-surface);">💡 Proposed: ' + escapeHtml(item.proposedDate) + (item.proposedTime ? ' at ' + escapeHtml(item.proposedTime) : '') + '</div>';
+    }
+  } else {
+    headerHtml += '<div style="display:flex;align-items:center;gap:4px;min-width:0;"><span style="flex-shrink:0;">📅 ' + escapeHtml(item.date) + ' at ' + escapeHtml(item.time) + ' ·</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📍 ' + escapeHtml(item.location || "") + '</span></div>';
+  }
   headerHtml += '</div>';
   log("renderModCard metadata location truncated tab=" + tab);
   if (tab !== "pitches" && item.category) { headerHtml += '<div style="margin-bottom:6px;">' + catBadge(item.category) + '</div>'; }
@@ -1742,14 +1752,40 @@ async function leaveEvent(id: string) { log("leaveEvent id=" + id); var title = 
         showHomePage();
       }
     } else { showToast("Failed", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } } catch (e) { showToast("Error", "error"); setBtnLoading('[data-action="leave-event"][data-id="' + id + '"]', false); } }
-async function submitPitch() { log("submitPitch"); if (isLocked("submit-pitch")) return; lock("submit-pitch"); var title = (document.getElementById("pitch-title") as HTMLInputElement).value.trim(); var desc = (document.getElementById("pitch-description") as HTMLTextAreaElement).value.trim(); if (!title || !desc) { showToast("Fill all fields", "error"); unlock("submit-pitch"); return; } setBtnLoading("#pitch-submit-btn", true, "⏳ Submitting...");   try { var res = await fetch(API_BASE + "/api/pitch-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, description: desc }) }); var data = await res.json();     if (data.type === "pitch-idea" && data.success) { showToast("Idea sent! ✅", "success"); setBtnLoading("#pitch-submit-btn", false); closeOverlay("pitch-overlay"); loadHome();       // Optimistically add to myPitches so it appears in My Stuff immediately
-      var newPitch = { id: "pitch_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7), title: title, description: desc, submittedBy: currentUsername || usernameCached || "user", submittedAt: new Date().toISOString() };
+async function submitPitch() {
+  log("submitPitch");
+  if (isLocked("submit-pitch")) return;
+  lock("submit-pitch");
+  var title = (document.getElementById("pitch-title") as HTMLInputElement).value.trim();
+  var desc = (document.getElementById("pitch-description") as HTMLTextAreaElement).value.trim();
+  var date = (document.getElementById("pitch-date") as HTMLInputElement).value.trim();
+  var time = (document.getElementById("pitch-time") as HTMLInputElement).value.trim();
+  if (!title || !desc) { showToast("Fill all fields", "error"); unlock("submit-pitch"); return; }
+  setBtnLoading("#pitch-submit-btn", true, "⏳ Submitting...");
+  var payload: { title: string; description: string; proposedDate?: string; proposedTime?: string } = { title: title, description: desc };
+  if (date) payload.proposedDate = date;
+  if (time) payload.proposedTime = time;
+  try {
+    var res = await fetch(API_BASE + "/api/pitch-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    var data = await res.json();
+    if (data.type === "pitch-idea" && data.success) {
+      showToast("Idea sent! ✅", "success");
+      setBtnLoading("#pitch-submit-btn", false);
+      closeOverlay("pitch-overlay");
+      loadHome();
+      // Optimistically add to myPitches so it appears in My Stuff immediately
+      var newPitch: any = { id: "pitch_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7), title: title, description: desc, submittedBy: currentUsername || usernameCached || "user", submittedAt: new Date().toISOString() };
+      if (date) newPitch.proposedDate = date;
+      if (time) newPitch.proposedTime = time;
       myPitches.push(newPitch);
-      log("optimistic pitch added: " + newPitch.id + " | myPitches count=" + myPitches.length);
+      log("optimistic pitch added: " + newPitch.id + " | myPitches count=" + myPitches.length + " | proposedDate=" + (date || "none") + " | proposedTime=" + (time || "none"));
       // If user is in My Stuff on pitches tab, re-render instantly
       var myStuffOverlay = document.getElementById("my-stuff-overlay");
       if (myStuffOverlay && myStuffOverlay.classList.contains("active") && myStuffTab === "pitches") { renderMyPitchCard(); }
-    } else { showToast(data.error || "Submit failed - retry", "error"); setBtnLoading("#pitch-submit-btn", false); } } catch (e) { showToast("Error", "error"); setBtnLoading("#pitch-submit-btn", false); } finally { unlock("submit-pitch"); } }
+    } else { showToast(data.error || "Submit failed - retry", "error"); setBtnLoading("#pitch-submit-btn", false); }
+  } catch (e) { showToast("Error", "error"); setBtnLoading("#pitch-submit-btn", false); }
+  finally { unlock("submit-pitch"); }
+}
 function resetEventForm() {
   eventStep = 1;
   ["event-step-1", "event-step-2", "event-step-3", "event-step-4", "event-step-5"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("hidden", i !== 0); });

@@ -390,14 +390,21 @@ async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
 }
 
 async function onPitchIdea(req: IncomingMessage): Promise<ApiResponse> {
-  const { title, description } = await readJSON<PitchFormData>(req);
+  const { title, description, proposedDate, proposedTime } = await readJSON<PitchFormData>(req);
   if (!title || title.length > 200) return { error: "Title too long", status: 400 };
   if (!description || description.length > 2000) return { error: "Description too long", status: 400 };
+  // proposedDate / proposedTime are optional; if provided, they should look like a date / time
+  if (proposedDate && !/^\d{4}-\d{2}-\d{2}$/.test(proposedDate)) return { error: "Invalid date format", status: 400 };
+  if (proposedTime && !/^\d{2}:\d{2}$/.test(proposedTime)) return { error: "Invalid time format", status: 400 };
   const username = context.username || "unknown";
-  console.log(`[PITCH] "${title}" by u/${username}`);
+  console.log(`[PITCH] "${title}" by u/${username}` + (proposedDate ? ` proposed=${proposedDate}@${proposedTime || "?"}` : ""));
 
   const ideaId = `idea_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-  const idea = { id: ideaId, title, description, submittedBy: username, submittedAt: new Date().toISOString() };
+  const idea: { id: string; title: string; description: string; submittedBy: string; submittedAt: string; proposedDate?: string; proposedTime?: string } = {
+    id: ideaId, title, description, submittedBy: username, submittedAt: new Date().toISOString()
+  };
+  if (proposedDate) idea.proposedDate = proposedDate;
+  if (proposedTime) idea.proposedTime = proposedTime;
   await redis.hSet("meetit:pitched_ideas", { [ideaId]: JSON.stringify(idea) });
 
   // Notification comment disabled - submitComment not available in Devvit Web
