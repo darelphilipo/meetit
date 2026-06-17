@@ -2263,3 +2263,45 @@ See `docs/archive/BUG_REGISTRY.md` §P2 for the original discovery.
 - ❌ Direct user DM → throws `ERR_INVALID_ARG_TYPE` → never arrives
 
 **Reference:** Original investigation in BUG_REGISTRY §P2 (2026-05-27).
+
+## 43. UI/UX Polish Patterns (2026-06-15)
+
+**v1.5.0 is a UI/UX-only release.** No new API endpoints, no behavior changes, no OpenSpec change creation. Existing 27 OpenSpec items remain as the future roadmap; this release polishes what is already shipped. All patterns preserve the app's current calling conventions (event delegation, per-tab fetch flags, optimistic updates, bounce guards, stale response guards).
+
+### Patterns learned during the polish pass
+
+1. **Typography tokens** — add `--text-xs/sm/base/md/lg/xl/2xl` to `:root` even if not all are used yet. Saves future `font-size: 14px;` inline overrides.
+2. **Motion tokens** — `--t-fast/base/slow` + `--ease` keep transition timing consistent across the app.
+3. **Hover lift on every interactive element** — `.btn`, `.icon-btn`, `.footer-btn`, `.close-btn` all get `transform: translate(-1px, -1px)` + slightly larger shadow on `:hover`. Pair with `:active` translate-down. This is the neo-brutalist "physical" feel.
+4. **`:focus-visible` ring** — separate from `:focus` (which fires on click). Pink ring (`var(--secondary)`) is the brand a11y color. Critical for keyboard / screen-reader users.
+5. **Reduced-motion media query** — `@media (prefers-reduced-motion: reduce)` must kill the infinite loading-emoji bounce and shorten all transitions. One block at the end of the style sheet.
+6. **`fade-in` only on first render, not on Prev/Next** — `buildCardShell({ noFade: true })` is passed from every Prev/Next handler. Re-fading on every navigation feels jittery.
+7. **Step dot pulse on advance** — `pulseDot(id)` helper adds `.just-pulsed` for 320ms; CSS `@keyframes stepPulse` scales the dot 1 → 1.6 → 1. Small, satisfying feedback for the multi-step details overlay.
+8. **Active tab accent** — `box-shadow: inset 0 -4px 0 var(--secondary)` on `.tab.active` gives a clear "you are here" indicator without changing the tab height (no layout shift).
+9. **`.empty-state.compact` modifier** — the standard 64px emoji + 40px padding is too big for in-overlay empty states. A `.compact` modifier drops to 36px emoji + 20px padding. Cleaner than inline overrides.
+10. **TypeScript closure null-check** — when a helper captures a `var el = getElementById(...)`, TS doesn't track the null check across the `setTimeout` boundary. Fix: `var dot = el;` to create a non-nullable local copy before the closure. See `pulseDot()`.
+11. **One-pass a11y setup** — at `DOMContentLoaded`, add `role` + `tabindex` + `aria-label` to all static `.close-btn` elements once. Dynamic elements (rendered into `innerHTML`) would need re-running after each render, but close buttons are static so one pass is enough.
+
+### What was deliberately NOT changed
+
+- API call patterns (per LEARNINGS §0.2, §40, §41, §42)
+- Data shapes (no new fields)
+- Optimistic update logic (works correctly, per `fix-bug7` future fix)
+- Bounce guards, stale response guards (correctly working)
+- `hDel([field])` array wrapping (correctly applied)
+- `zScore` undefined check (correctly applied)
+- 27 OpenSpec changes (still tracked, not implemented)
+- The `homeShareUrl` global (acknowledged low risk in v1.4.3)
+- `buildCardShell` signature (kept backward-compatible by adding `noFade` as an optional, defaulted-false parameter)
+
+### Manual test checklist (do on each release)
+
+- [ ] iOS Safari: tap every button, verify hover lift + active press
+- [ ] iOS Safari: `navigateTo` away and back, verify the visibility re-init (when fix-ios-blank ships)
+- [ ] iOS Settings → Accessibility → Reduce Motion → verify bouncing emoji stops
+- [ ] Keyboard-only navigation: Tab through all buttons, verify pink focus ring
+- [ ] VoiceOver: swipe through header, verify aria-labels read correctly
+- [ ] Home → Prev/Next: verify no re-fade, only step dot pulses
+- [ ] Mod dashboard → Pending → Next: verify card updates without re-fade
+- [ ] My Stuff → RSVP empty state: verify smaller compact empty state renders
+

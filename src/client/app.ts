@@ -192,11 +192,23 @@ function showToast(msg: string, type: "success" | "error") {
 function showCopyToast() { var t = document.createElement("div"); t.className = "toast-copied"; t.textContent = "📍 Copied!"; document.body.appendChild(t); setTimeout(function () { t.remove(); }, COPY_TOAST_DURATION); }
 function escapeHtml(s: string | undefined | null) { var d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
 function escapeAttr(s: string | undefined | null): string { return (s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function pulseDot(id: string) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  var dot = el;
+  dot.classList.remove("just-pulsed");
+  void dot.offsetWidth;
+  dot.classList.add("just-pulsed");
+  setTimeout(function () { dot.classList.remove("just-pulsed"); }, 320);
+}
 
 // ======= UNIFIED CARD SHELL =======
-function buildCardShell(opts: { color?: string; headerHtml: string; bodyHtml: string; actionsHtml?: string; footerHtml?: string; className?: string }): string {
-  log("buildCardShell" + (opts.className ? " class=" + opts.className : ""));
-  return '<div class="card-shell fade-in' + (opts.className ? ' ' + opts.className : '') + '"' + (opts.color ? ' style="background:' + opts.color + ';"' : '') + '>' +
+function buildCardShell(opts: { color?: string; headerHtml: string; bodyHtml: string; actionsHtml?: string; footerHtml?: string; className?: string; noFade?: boolean }): string {
+  log("buildCardShell" + (opts.className ? " class=" + opts.className : "") + (opts.noFade ? " noFade" : ""));
+  var cls = "card-shell";
+  if (!opts.noFade) cls += " fade-in";
+  if (opts.className) cls += " " + opts.className;
+  return '<div class="' + cls + '"' + (opts.color ? ' style="background:' + opts.color + ';"' : '') + '>' +
     '<div class="card-shell-header">' + opts.headerHtml + '</div>' +
     '<div class="card-shell-body">' + opts.bodyHtml + '</div>' +
     (opts.actionsHtml ? '<div class="card-shell-actions">' + opts.actionsHtml + '</div>' : '') +
@@ -284,7 +296,7 @@ function flattenHomeEvents(eventsByDate: Record<string, any[]>): any[] {
   return all;
 }
 
-function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boolean; settings: any }) {
+function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boolean; settings: any }, opts: { noFade?: boolean } = {}) {
   var dates = Object.keys(state.eventsByDate).sort();
   var c = document.getElementById("events-container")!;
 
@@ -342,15 +354,14 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
         '<button class="footer-btn footer-btn-next" id="home-next-btn" data-action="home-next">Next →</button>'
       : '';
 
-    c.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, footerHtml: footerHtml });
+    c.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, footerHtml: footerHtml, noFade: opts.noFade });
     updateCardDots("home", homeCardIdx, count);
     updateCardNav("home", homeCardIdx, count);
   }
   document.getElementById("mod-btn")!.classList.toggle("hidden", !state.isMod);
 }
-
-function homePrev() { var events = searchFilteredEvents || cachedHomeEvents; log("homePrev idx=" + homeCardIdx + " total=" + events.length); if (events.length > 1) { homeCardIdx = (homeCardIdx - 1 + events.length) % events.length; log("homePrev newIdx=" + homeCardIdx); renderHomeCard({ eventsByDate: groupByDate(events), isMod: cachedHomeIsMod, settings: {} }); } }
-function homeNext() { var events = searchFilteredEvents || cachedHomeEvents; log("homeNext idx=" + homeCardIdx + " total=" + events.length); if (events.length > 1) { homeCardIdx = (homeCardIdx + 1) % events.length; log("homeNext newIdx=" + homeCardIdx); renderHomeCard({ eventsByDate: groupByDate(events), isMod: cachedHomeIsMod, settings: {} }); } }
+function homePrev() { var events = searchFilteredEvents || cachedHomeEvents; log("homePrev idx=" + homeCardIdx + " total=" + events.length); if (events.length > 1) { homeCardIdx = (homeCardIdx - 1 + events.length) % events.length; log("homePrev newIdx=" + homeCardIdx); renderHomeCard({ eventsByDate: groupByDate(events), isMod: cachedHomeIsMod, settings: {} }, { noFade: true }); } }
+function homeNext() { var events = searchFilteredEvents || cachedHomeEvents; log("homeNext idx=" + homeCardIdx + " total=" + events.length); if (events.length > 1) { homeCardIdx = (homeCardIdx + 1) % events.length; log("homeNext newIdx=" + homeCardIdx); renderHomeCard({ eventsByDate: groupByDate(events), isMod: cachedHomeIsMod, settings: {} }, { noFade: true }); } }
 function groupByDate(events: any[]): Record<string, any[]> { var g: Record<string, any[]> = {}; for (var i = 0; i < events.length; i++) { var event = events[i]; if (!event) continue; var d = event._date || ""; if (!g[d]) g[d] = []; g[d]!.push(event); } return g; }
 
 // Search/filter events client-side
@@ -467,12 +478,12 @@ async function loadMySubmissions() {
   }
   myStuffLoading = false;
 }
-function renderMyRsvpCard() {
+function renderMyRsvpCard(opts: { noFade?: boolean } = {}) {
   log("renderMyRsvpCard idx=" + myRsvpIdx + " total=" + myRsvps.length);
   var el = document.getElementById("my-stuff-container")!;
   updateMyStuffFooter("rsvps");
   updateCardDots("my-stuff", myRsvpIdx, myRsvps.length);
-  if (myRsvps.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;"><span class="emoji" style="font-size:36px;">🎟️</span><h2 style="font-size:14px;">No RSVPs yet</h2><p style="font-size:12px;">Go to the Home tab to find events!</p><button class="btn btn-sm" data-action="close-overlay" style="margin-top:8px;padding:6px 12px;font-size:12px;background:#fff;">← Back to Home</button></div>'; return; }
+  if (myRsvps.length === 0) { el.innerHTML = '<div class="empty-state compact"><span class="emoji">🎟️</span><h2>No RSVPs yet</h2><p>Go to the Home tab to find events!</p><button class="btn btn-sm" data-action="close-overlay" style="margin-top:8px;padding:6px 12px;font-size:12px;background:#fff;">← Back to Home</button></div>'; return; }
   if (myRsvpIdx >= myRsvps.length) myRsvpIdx = 0;
   var e = myRsvps[myRsvpIdx];
   var key = "rsvp-" + e.id;
@@ -497,7 +508,7 @@ function renderMyRsvpCard() {
       '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="leave-event" style="flex:1;padding:8px 14px;font-size:13px;">❌ Leave</button>' +
     '</div>';
 
-  el.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml });
+  el.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, noFade: opts.noFade });
   if (desc.length > DESC_SHORT_LENGTH) {
     setTimeout(function () {
       var box = document.getElementById("my-stuff-desc-box-" + key);
@@ -510,12 +521,12 @@ function renderMyRsvpCard() {
     }, AUTO_PAGINATE_DELAY);
   }
 }
-function renderMyPitchCard() {
+function renderMyPitchCard(opts: { noFade?: boolean } = {}) {
   log("renderMyPitchCard idx=" + myPitchIdx + " total=" + myPitches.length);
   var el = document.getElementById("my-stuff-container")!;
   updateMyStuffFooter("pitches");
   updateCardDots("my-stuff", myPitchIdx, myPitches.length);
-  if (myPitches.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;"><span class="emoji" style="font-size:36px;">💡</span><h2 style="font-size:14px;">No pitches yet</h2><p style="font-size:12px;">Pitch an idea from the Create menu!</p><button class="btn btn-pink btn-sm" data-action="create-pitch" style="margin-top:8px;padding:6px 12px;font-size:12px;">💡 Pitch an Idea</button></div>'; return; }
+  if (myPitches.length === 0) { el.innerHTML = '<div class="empty-state compact"><span class="emoji">💡</span><h2>No pitches yet</h2><p>Pitch an idea from the Create menu!</p><button class="btn btn-pink btn-sm" data-action="create-pitch" style="margin-top:8px;padding:6px 12px;font-size:12px;">💡 Pitch an Idea</button></div>'; return; }
   if (myPitchIdx >= myPitches.length) myPitchIdx = 0;
   var p = myPitches[myPitchIdx];
   var key = "pitch-" + p.id;
@@ -534,7 +545,7 @@ function renderMyPitchCard() {
 
   var actionsHtml = '<button class="btn btn-white btn-sm" data-id="' + p.id + '" data-action="delete-pitch" style="width:100%;padding:8px 14px;font-size:13px;">🗑️ Delete</button>';
 
-  el.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml });
+  el.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, noFade: opts.noFade });
   if (desc.length > DESC_SHORT_LENGTH) {
     setTimeout(function () {
       var box = document.getElementById("my-stuff-desc-box-" + key);
@@ -547,12 +558,12 @@ function renderMyPitchCard() {
     }, AUTO_PAGINATE_DELAY);
   }
 }
-function renderMyEventCard() {
+function renderMyEventCard(opts: { noFade?: boolean } = {}) {
   log("renderMyEventCard idx=" + myEventIdx + " total=" + myEvents.length);
   var el = document.getElementById("my-stuff-container")!;
   updateMyStuffFooter("events");
   updateCardDots("my-stuff", myEventIdx, myEvents.length);
-  if (myEvents.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px;"><span class="emoji" style="font-size:36px;">📋</span><h2 style="font-size:14px;">No events yet</h2><p style="font-size:12px;">Submit an event from the Create menu!</p><button class="btn btn-sm" data-action="create-event" style="margin-top:8px;padding:6px 12px;font-size:12px;background:#fff;">📋 Submit Event</button></div>'; return; }
+  if (myEvents.length === 0) { el.innerHTML = '<div class="empty-state compact"><span class="emoji">📋</span><h2>No events yet</h2><p>Submit an event from the Create menu!</p><button class="btn btn-sm" data-action="create-event" style="margin-top:8px;padding:6px 12px;font-size:12px;background:#fff;">📋 Submit Event</button></div>'; return; }
   if (myEventIdx >= myEvents.length) myEventIdx = 0;
   var e = myEvents[myEventIdx];
   var status = e.status === "published" ? "✅ Published" : "⏳ Pending";
@@ -578,7 +589,7 @@ function renderMyEventCard() {
         '<button class="btn btn-white btn-sm" data-id="' + e.id + '" data-action="delete-my-event" style="width:100%;padding:8px 14px;font-size:13px;">🗑️ Delete</button>'
       );
 
-  el.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml });
+  el.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, noFade: opts.noFade });
   if (desc.length > DESC_SHORT_LENGTH) {
     setTimeout(function () {
       var box = document.getElementById("my-stuff-desc-box-" + key);
@@ -599,12 +610,12 @@ function updateMyStuffFooter(tab: string) {
   log("updateMyStuffFooter tab=" + tab + " idx=" + idx + " total=" + items.length);
   updateCardNav("my-stuff", idx, items.length);
 }
-function myRsvpNext() { log("myRsvpNext idx=" + myRsvpIdx + "→" + (myRsvpIdx + 1) + " total=" + myRsvps.length); myRsvpIdx++; if (myRsvpIdx >= myRsvps.length) myRsvpIdx = myRsvps.length - 1; renderMyRsvpCard(); }
-function myRsvpPrev() { log("myRsvpPrev idx=" + myRsvpIdx + "→" + (myRsvpIdx - 1)); myRsvpIdx--; if (myRsvpIdx < 0) myRsvpIdx = 0; renderMyRsvpCard(); }
-function myPitchNext() { log("myPitchNext idx=" + myPitchIdx + "→" + (myPitchIdx + 1) + " total=" + myPitches.length); myPitchIdx++; if (myPitchIdx >= myPitches.length) myPitchIdx = myPitches.length - 1; renderMyPitchCard(); }
-function myPitchPrev() { log("myPitchPrev idx=" + myPitchIdx + "→" + (myPitchIdx - 1)); myPitchIdx--; if (myPitchIdx < 0) myPitchIdx = 0; renderMyPitchCard(); }
-function myEventNext() { log("myEventNext idx=" + myEventIdx + "→" + (myEventIdx + 1) + " total=" + myEvents.length); myEventIdx++; if (myEventIdx >= myEvents.length) myEventIdx = myEvents.length - 1; renderMyEventCard(); }
-function myEventPrev() { log("myEventPrev idx=" + myEventIdx + "→" + (myEventIdx - 1)); myEventIdx--; if (myEventIdx < 0) myEventIdx = 0; renderMyEventCard(); }
+function myRsvpNext() { log("myRsvpNext idx=" + myRsvpIdx + "→" + (myRsvpIdx + 1) + " total=" + myRsvps.length); myRsvpIdx++; if (myRsvpIdx >= myRsvps.length) myRsvpIdx = myRsvps.length - 1; renderMyRsvpCard({ noFade: true }); }
+function myRsvpPrev() { log("myRsvpPrev idx=" + myRsvpIdx + "→" + (myRsvpIdx - 1)); myRsvpIdx--; if (myRsvpIdx < 0) myRsvpIdx = 0; renderMyRsvpCard({ noFade: true }); }
+function myPitchNext() { log("myPitchNext idx=" + myPitchIdx + "→" + (myPitchIdx + 1) + " total=" + myPitches.length); myPitchIdx++; if (myPitchIdx >= myPitches.length) myPitchIdx = myPitches.length - 1; renderMyPitchCard({ noFade: true }); }
+function myPitchPrev() { log("myPitchPrev idx=" + myPitchIdx + "→" + (myPitchIdx - 1)); myPitchIdx--; if (myPitchIdx < 0) myPitchIdx = 0; renderMyPitchCard({ noFade: true }); }
+function myEventNext() { log("myEventNext idx=" + myEventIdx + "→" + (myEventIdx + 1) + " total=" + myEvents.length); myEventIdx++; if (myEventIdx >= myEvents.length) myEventIdx = myEvents.length - 1; renderMyEventCard({ noFade: true }); }
+function myEventPrev() { log("myEventPrev idx=" + myEventIdx + "→" + (myEventIdx - 1)); myEventIdx--; if (myEventIdx < 0) myEventIdx = 0; renderMyEventCard({ noFade: true }); }
 
 // ======= MY STUFF DESC PAGINATION HELPERS =======
 function buildMyStuffDescPagesHTML(key: string, pages: string[]): string {
@@ -869,16 +880,19 @@ function detailNext() {
   log("detailNext from=" + detailStep);
   if (detailStep === 1) {
     document.getElementById("detail-dot-2")!.classList.add("done");
+    pulseDot("detail-dot-2");
     document.getElementById("detail-body")!.innerHTML = detailStep2;
     document.getElementById("detail-prev-btn")!.classList.remove("hidden");
      detailStep = 2;
   } else if (detailStep === 2) {
     document.getElementById("detail-dot-3")!.classList.add("done");
+    pulseDot("detail-dot-3");
     document.getElementById("detail-body")!.innerHTML = detailStep3;
     if (currentEventId) loadPublicAttendees(currentEventId);
      detailStep = 3;
   } else if (detailStep === 3) {
     document.getElementById("detail-dot-4")!.classList.add("done");
+    pulseDot("detail-dot-4");
     document.getElementById("detail-body")!.innerHTML = detailStep4;
     document.getElementById("detail-next-btn")!.classList.add("hidden");
     document.getElementById("detail-prev-btn")!.classList.remove("hidden");
@@ -889,16 +903,19 @@ function detailPrev() {
   log("detailPrev from=" + detailStep);
   if (detailStep === 2) {
     document.getElementById("detail-dot-2")!.classList.remove("done");
+    pulseDot("detail-dot-2");
     document.getElementById("detail-body")!.innerHTML = detailStep1;
     document.getElementById("detail-prev-btn")!.classList.add("hidden");
      detailStep = 1;
   } else if (detailStep === 3) {
     document.getElementById("detail-dot-3")!.classList.remove("done");
+    pulseDot("detail-dot-3");
     document.getElementById("detail-body")!.innerHTML = detailStep2;
     document.getElementById("detail-next-btn")!.classList.remove("hidden");
      detailStep = 2;
   } else if (detailStep === 4) {
     document.getElementById("detail-dot-4")!.classList.remove("done");
+    pulseDot("detail-dot-4");
     document.getElementById("detail-body")!.innerHTML = detailStep3;
     document.getElementById("detail-next-btn")!.classList.remove("hidden");
     if (currentEventId) loadPublicAttendees(currentEventId);
@@ -906,8 +923,8 @@ function detailPrev() {
   }
 }
 
-function modNext() { var tab = modTab; log("modNext tab=" + tab); var idx = (modCardIdx[tab] || 0) + 1; var items = modItems[tab] || []; if (idx >= items.length) idx = items.length - 1; modCardIdx[tab] = idx; renderModCard(tab); updateCardDots("mod", idx, items.length); updateCardNav("mod", idx, items.length); }
-function modPrev() { var tab = modTab; log("modPrev tab=" + tab); var idx = (modCardIdx[tab] || 0) - 1; if (idx < 0) idx = 0; modCardIdx[tab] = idx; renderModCard(tab); updateCardDots("mod", idx, (modItems[tab] || []).length); updateCardNav("mod", idx, (modItems[tab] || []).length); }
+function modNext() { var tab = modTab; log("modNext tab=" + tab); var idx = (modCardIdx[tab] || 0) + 1; var items = modItems[tab] || []; if (idx >= items.length) idx = items.length - 1; modCardIdx[tab] = idx; renderModCard(tab, { noFade: true }); updateCardDots("mod", idx, items.length); updateCardNav("mod", idx, items.length); }
+function modPrev() { var tab = modTab; log("modPrev tab=" + tab); var idx = (modCardIdx[tab] || 0) - 1; if (idx < 0) idx = 0; modCardIdx[tab] = idx; renderModCard(tab, { noFade: true }); updateCardDots("mod", idx, (modItems[tab] || []).length); updateCardNav("mod", idx, (modItems[tab] || []).length); }
 var modTab = "pending";
 function showModDashboard() { openOverlay("mod-screen"); delete modTabCache["published"]; delete modTabCache["pitches"]; loadModTab("pending"); }
 function switchModTab(tab: string) { if (tab === modTab) return; modTab = tab; document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) { t.classList.toggle("active", (t as HTMLElement).dataset.mtab === tab); }); delete modTabCache[tab]; loadModTab(tab); }
@@ -943,7 +960,7 @@ async function loadModTab(tab: string) {
   } catch (e) { log("error: loadModTab " + e); }
   finally { modFetching[tab] = false; setModLoading(false); }
 }
-function renderModCard(tab: string) {
+function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
   log("renderModCard tab=" + tab);
   var items = modItems[tab] || [];
   var idx = modCardIdx[tab] || 0;
@@ -1015,7 +1032,7 @@ function renderModCard(tab: string) {
     actionsHtml = '<button class="btn btn-white btn-dismiss-idea" data-id="' + item.id + '" data-action="dismiss-idea" style="width:100%;padding:10px 12px;font-size:13px;">🗑️ Dismiss</button>';
   }
 
-  c.innerHTML = buildCardShell({ color: color, headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml });
+  c.innerHTML = buildCardShell({ color: color, headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, noFade: opts.noFade });
   updateCardDots("mod", idx, total);
   updateCardNav("mod", idx, total);
 
@@ -1411,16 +1428,19 @@ function modDetailNext() {
   log("modDetailNext from=" + modDetailStep);
   if (modDetailStep === 1) {
     document.getElementById("mod-detail-dot-2")!.classList.add("done");
+    pulseDot("mod-detail-dot-2");
     document.getElementById("mod-detail-body")!.innerHTML = modDetailStep2;
     document.getElementById("mod-detail-prev-btn")!.classList.remove("hidden");
     modDetailStep = 2;
   } else if (modDetailStep === 2) {
     document.getElementById("mod-detail-dot-3")!.classList.add("done");
+    pulseDot("mod-detail-dot-3");
     document.getElementById("mod-detail-body")!.innerHTML = modDetailStep3;
     if (currentModEventId) loadModPublicAttendees(currentModEventId);
     modDetailStep = 3;
   } else if (modDetailStep === 3) {
     document.getElementById("mod-detail-dot-4")!.classList.add("done");
+    pulseDot("mod-detail-dot-4");
     document.getElementById("mod-detail-body")!.innerHTML = modDetailStep4;
     document.getElementById("mod-detail-next-btn")!.classList.add("hidden");
     document.getElementById("mod-detail-prev-btn")!.classList.remove("hidden");
@@ -1432,16 +1452,19 @@ function modDetailPrev() {
   log("modDetailPrev from=" + modDetailStep);
   if (modDetailStep === 2) {
     document.getElementById("mod-detail-dot-2")!.classList.remove("done");
+    pulseDot("mod-detail-dot-2");
     document.getElementById("mod-detail-body")!.innerHTML = modDetailStep1;
     document.getElementById("mod-detail-prev-btn")!.classList.add("hidden");
     modDetailStep = 1;
   } else if (modDetailStep === 3) {
     document.getElementById("mod-detail-dot-3")!.classList.remove("done");
+    pulseDot("mod-detail-dot-3");
     document.getElementById("mod-detail-body")!.innerHTML = modDetailStep2;
     document.getElementById("mod-detail-next-btn")!.classList.remove("hidden");
     modDetailStep = 2;
   } else if (modDetailStep === 4) {
     document.getElementById("mod-detail-dot-4")!.classList.remove("done");
+    pulseDot("mod-detail-dot-4");
     document.getElementById("mod-detail-body")!.innerHTML = modDetailStep3;
     document.getElementById("mod-detail-next-btn")!.classList.remove("hidden");
     if (currentModEventId) loadModPublicAttendees(currentModEventId);
@@ -1979,6 +2002,14 @@ function handleAction(action: string, id: string | null) {
 
 document.addEventListener("DOMContentLoaded", function () {
   log("APP INIT - DOM ready");
+
+  // A11y: every close button gets an aria-label. One pass at boot is enough
+  // since the close buttons are static (not dynamically created).
+  document.querySelectorAll(".close-btn").forEach(function (b) {
+    b.setAttribute("role", "button");
+    b.setAttribute("tabindex", "0");
+    if (!b.getAttribute("aria-label")) b.setAttribute("aria-label", "Close");
+  });
 
   // Animated loading screen: cycle wholesome emojis
   var wholesomeEmojis = ["✨", "🥰", "🌸", "🌟", "💫", "🦋", "🌈", "☀️", "🌻", "🍀", "🎈", "🌺", "💖", "🙌", "🎉"];
