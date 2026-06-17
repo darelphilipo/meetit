@@ -12,8 +12,10 @@
 
 ## 3. UX14: setBtnLoading in Mod Actions
 
+> **Audit (2026-06-17): 6 of 8 actions already use setBtnLoading.** The remaining 2 (approveEvent at app.ts:1224, deleteEvent at app.ts:1239) still use manual inline styling. Both are 5-minute fixes.
+
 - [ ] 3.1 Refactor `approveEvent()` to use `setBtnLoading(btn, true)` and `setBtnLoading(btn, false)` on success/failure
-- [ ] 3.2 Same for `deleteEvent()`
+- [ ] 3.2 Refactor `deleteEvent()` to use `setBtnLoading(btn, true)` and `setBtnLoading(btn, false)` on success/failure
 - [ ] 3.3 Verify rapid-tap doesn't leave buttons stuck
 
 ## 4. Logging & Polish

@@ -4,7 +4,18 @@
 
 ## Priority: 2/5
 
-## Status: proposed
+## Status: partial
+
+## Audit (2026-06-17)
+
+**Partially implemented — implicit block exists.** `onRsvp` calls `getActiveEvent(eventId)` (`server.ts:369`), which internally filters past dates at `server.ts:233` via `.filter((e) => new Date(e.date + "T00:00:00").getTime() >= today.getTime())`. If the event is past, `getActiveEvent` returns `undefined`, and the `if (!event)` guard at `server.ts:370` catches it and returns a 404 error.
+
+However, the proposal's explicit check (`if (event.date < today) return { error: "Cannot RSVP to past events" }` at the top of `onRsvp`) is **not implemented**. The blocking depends on `getActiveEvent`'s internal filter, which:
+1. Is indirect — a future code change to `getActiveEvent` could accidentally remove the filter
+2. Returns a generic 404 instead of a clear "Cannot RSVP to past events" message
+3. Doesn't log the specific `rsvp-past-event-blocked` log entry
+
+**Recommendation:** Still worth doing the explicit check for clarity + logging. ~15 minutes.
 
 ## What Changes
 

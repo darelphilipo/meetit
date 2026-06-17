@@ -14,7 +14,15 @@ Several UX polish items from the 2026-06-07 audit remain open. None are critical
 
 ## Priority: 2/5
 
-## Status: proposed (bundle)
+## Status: proposed (bundle) — partial
+
+## Audit (2026-06-17)
+
+**UX14 is partially done:** 6 of 8 mod actions use `setBtnLoading()` (`dismissIdea`, `cancelMyEvent`, `deleteMyEvent`, `deletePitch`, `leaveEvent`, `submitRsvp`). The remaining 2 — `approveEvent` (`app.ts:1224`) and `deleteEvent` (`app.ts:1239`) — still use manual inline styling (`btn.style.opacity = "0.3"; btn.style.pointerEvents = "none";`) instead of `setBtnLoading()`.
+
+**UX12 (debug toggle positioning)** and **UX13 (My Stuff loading spinner on tab switches)** are both entirely **missing** — not implemented. My Stuff only shows "⏳ Loading..." on the initial load (not on tab switches), and the debug toggle overlaps content on small screens.
+
+**Recommendation:** Shrink scope to UX12 + UX13 + remaining UX14 work. Items UX6/7/8/9 (list views) and UX11 (search/filter) already covered elsewhere.
 
 ## What Changes
 

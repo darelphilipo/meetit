@@ -1,5 +1,7 @@
 ## 1. Add Date Check
 
+> **Audit (2026-06-17): Implicit block exists via `getActiveEvent` date filter (server.ts:233). The explicit check described here is NOT implemented but is still worth adding for clarity + logging.**
+
 - [ ] 1.1 In `onRsvp`, after `getActiveEvent`, check `event.date < today`
 - [ ] 1.2 If so, return `{ success: false, error: "Cannot RSVP to past events" }` with HTTP 400
 - [ ] 1.3 Log `[FEATURE] rsvp-past-event-blocked eventId={id} eventDate={d}`

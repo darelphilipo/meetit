@@ -6,6 +6,12 @@ The `filterHomeEvents()` function in the client already implements search and ca
 
 ## Status: future (low priority until events list > ~10)
 
+## Audit (2026-06-17)
+
+**Code state confirmed.** `filterHomeEvents()` is defined and functional at `app.ts:372-396` — it filters `cachedHomeEvents` by title/location/date/time and stores results in `searchFilteredEvents`, which is read by `homePrev()`/`homeNext()`. However, the search input UI listener is **commented out** at `app.ts:2155-2161` (`"Search input listener (disabled — feature kept for future use)"`). No search bar, category pills, or toggle button exists in the HTML. All 42 tasks in tasks.md remain **not implemented** — they are the UI work. The filter function was already created as part of the original codebase, not these tasks.
+
+**No urgency change.** Community still has <20 events. Status stays "future" — implement when events > ~30.
+
 ## What Changes
 
 - Uncomment the search input and category filter UI in the home screen.

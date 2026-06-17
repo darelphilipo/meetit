@@ -4,7 +4,18 @@ When a user re-RSVPs to an event with a different email/phone, the RSVP sorted s
 
 ## Priority: 2/5
 
-## Status: proposed
+## Status: partial
+
+## Audit (2026-06-17)
+
+**Partially implemented.** Pre-filling of email/phone on re-RSVP EXISTS (`app.ts:1728-1729`): `showUpdateRsvpOverlay()` fetches existing data via `/api/my-rsvp`, then calls `showRsvpOverlay(id, email, phone)` which pre-fills the inputs. The overlay title changes to `"✏️ Update Contact"` when re-RSVPing.
+
+**Still missing:**
+1. **No "You're updating your RSVP" banner** — there's no explanatory text inside the overlay body beyond the title change.
+2. **Confirmation toast** on re-RSVP success — not implemented.
+3. Tasks 1.1, 1.2, 2.1 (pre-fill + endpoint) are **done**. Tasks 1.3 (banner), 3 (confirmation toast), 4 (test) remain.
+
+**Recommendation:** The remaining work is ~30 minutes. Narrow scope to just the banner + toast.
 
 ## What Changes
 

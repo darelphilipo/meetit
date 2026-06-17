@@ -1,13 +1,13 @@
 ## 1. Pre-fill Contact Info
 
-- [ ] 1.1 On RSVP form open, if user is already RSVP'd, fetch their stored contact info from `/api/my-rsvp?eventId={id}`
-- [ ] 1.2 Pre-fill email and phone fields
-- [ ] 1.3 Show "✏️ You're updating your RSVP" banner
+- [x] 1.1 On RSVP form open, if user is already RSVP'd, fetch their stored contact info from `/api/my-rsvp?eventId={id}` (`app.ts:1729`: `showUpdateRsvpOverlay`)
+- [x] 1.2 Pre-fill email and phone fields (`app.ts:1728`: `showRsvpOverlay(id, email, phone)`)
+- [ ] 1.3 Show "✏️ You're updating your RSVP" banner inside the overlay body
 
 ## 2. New Endpoint
 
-- [ ] 2.1 Add `/api/my-rsvp` that returns `{ email, phone }` for the current user + event
-- [ ] 2.2 Or extend `/api/init` to include the user's RSVP'd events + contact info
+- [x] 2.1 `/api/my-rsvp` exists and returns `{ email, phone }` for the current user + event
+- [ ] 2.2 (Optional) Extend `/api/init` to include the user's RSVP'd events + contact info
 
 ## 3. Confirmation Toast
 
