@@ -228,8 +228,8 @@ function updateCardDots(prefix: string, current: number, total: number) {
   }
   dots.innerHTML = html;
 }
-function updateCardNav(prefix: string, current: number, total: number) {
-  log("updateCardNav prefix=" + prefix + " current=" + current + " total=" + total);
+function updateCardNav(prefix: string, current: number, total: number, wrap: boolean = false) {
+  log("updateCardNav prefix=" + prefix + " current=" + current + " total=" + total + " wrap=" + wrap);
   var prevBtn = document.getElementById(prefix + "-prev-btn");
   var nextBtn = document.getElementById(prefix + "-next-btn");
   if (!prevBtn || !nextBtn) { log("updateCardNav buttons not found prefix=" + prefix); return; }
@@ -238,8 +238,15 @@ function updateCardNav(prefix: string, current: number, total: number) {
     nextBtn.classList.add("hidden");
     return;
   }
-  prevBtn.classList.toggle("hidden", current === 0);
-  nextBtn.classList.toggle("hidden", current >= total - 1);
+  if (wrap) {
+    // e19 D2: wrap-around mode — both buttons always visible when total > 1
+    prevBtn.classList.remove("hidden");
+    nextBtn.classList.remove("hidden");
+  } else {
+    // Default: hide buttons at boundaries (clamps, used by my-stuff / mod-dashboard)
+    prevBtn.classList.toggle("hidden", current === 0);
+    nextBtn.classList.toggle("hidden", current >= total - 1);
+  }
 }
 
 // ======= HOME - Single card navigation =======
@@ -293,6 +300,26 @@ function flattenHomeEvents(eventsByDate: Record<string, any[]>): any[] {
     var evts = eventsByDate[dates[i] || ""] || [];
     for (var j = 0; j < evts.length; j++) all.push({ ...evts[j], _date: dates[i] });
   }
+  // e19 D1: sort by (date, time) so the home card always displays events in
+  // chronological order, regardless of server state. Defensive — the server
+  // already sorts in getActiveEvents / getAllApprovedEvents, but this guards
+  // against any future change that breaks the contract.
+  all.sort(function (a, b) {
+    var dc = (a._date || "").localeCompare(b._date || "");
+    if (dc !== 0) return dc;
+    return (a.time || "").localeCompare(b.time || "");
+  });
+  // e20 D1: filter out events that have already started. The home view should
+  // only show upcoming events. An event that started earlier today would
+  // otherwise sort first (because it has an earlier start time) and push the
+  // real next event off the first slot.
+  var now = Date.now();
+  all = all.filter(function (event) {
+    if (!event._date || !event.time) return true; // keep events with missing data
+    var eventStart = new Date(event._date + "T" + event.time + ":00").getTime();
+    return eventStart >= now;
+  });
+  log("flattenHomeEvents sorted " + all.length + " future events by (date, time) firstDate=" + (all[0]?._date || "n/a") + " firstTime=" + (all[0]?.time || "n/a"));
   return all;
 }
 
@@ -317,6 +344,25 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
     log("renderHomeCard index=" + homeCardIdx + " total=" + count + " id=" + event.id);
     log("renderHomeCard layout=full-viewport-flex shell=card-shell");
 
+    // e18 home card blinking countdown (D9): for events in the next 24h, show
+    // a blinking red badge in the top-right instead of the regular date text.
+    var hoursToGo: number | null = null;
+    if (event._date && event.time) {
+      var eventStart = new Date(event._date + "T" + event.time + ":00").getTime();
+      var diffH = (eventStart - Date.now()) / 3600000;
+      if (diffH > 0 && diffH <= 24) hoursToGo = diffH;
+    }
+    if (hoursToGo !== null) log("renderHomeCard countdown hoursToGo=" + hoursToGo);
+    var rightHtml = '';
+    if (hoursToGo !== null) {
+      var hoursLabel = hoursToGo < 1
+        ? "⏰ <1 hr to go"
+        : (hoursToGo < 10 ? "⏰ " + Math.ceil(hoursToGo) + " hrs to go" : "⏰ " + Math.round(hoursToGo) + " hrs to go");
+      rightHtml = '<span class="countdown-blink" style="font-size:11px;font-weight:700;color:#ff4444;text-align:right;flex-shrink:0;background:#fff3f3;padding:3px 7px;border:1px solid #ff4444;">' + hoursLabel + '</span>';
+    } else {
+      rightHtml = '<span style="font-size:11px;font-weight:700;color:var(--muted);text-align:right;flex-shrink:0;">' + escapeHtml(relDate) + (relDate === "Today" || relDate === "Tomorrow" ? "<br>" + dateStr : "") + '</span>';
+    }
+
     var headerHtml =
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">' +
       '<div style="display:flex;align-items:center;gap:6px;min-width:0;">' +
@@ -325,7 +371,7 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
       '<h3 style="font-size:18px;font-weight:700;margin:0;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;">' + escapeHtml(event.title) + '</h3>' +
       '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-top:2px;">by ' + escapeHtml(event.organizer || "Anonymous") + '</div>' +
       '</div></div>' +
-      '<span style="font-size:11px;font-weight:700;color:var(--muted);text-align:right;flex-shrink:0;">' + escapeHtml(relDate) + (relDate === "Today" || relDate === "Tomorrow" ? "<br>" + dateStr : "") + '</span>' +
+      rightHtml +
       '</div>' +
       '<div class="event-meta" style="margin-bottom:8px;">' +
       '<span class="event-tag" style="font-size:12px;padding:3px 8px;">⏰ ' + formatTimeWithTz(event.time, appTimezone) + '</span>' +
@@ -359,7 +405,7 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
 
     c.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, footerHtml: footerHtml, noFade: opts.noFade });
     updateCardDots("home", homeCardIdx, count);
-    updateCardNav("home", homeCardIdx, count);
+    updateCardNav("home", homeCardIdx, count, true);
   }
   document.getElementById("mod-btn")!.classList.toggle("hidden", !state.isMod);
 }
@@ -691,6 +737,10 @@ async function loadPublicAttendees(eventId: string) {
   } catch (e) { log("error: loadPublicAttendees " + e); }
 }
 
+// Who's Going pager (ATTENDEES_PER_PAGE = 5). The pager is HIDDEN when total
+// pages <= 1 (i.e. 0-5 attendees) — by design, since a single-page list has
+// no need for prev/next buttons. The pager becomes visible once an event has
+// 6+ attendees. Verified in e18 task 9; no code change required.
 function buildAttNav(eventId: string): string {
   var total = Math.ceil((attListStore[eventId] || []).length / ATTENDEES_PER_PAGE);
   if (total <= 1) return '';
@@ -933,7 +983,17 @@ function detailPrev() {
 function modNext() { var tab = modTab; log("modNext tab=" + tab); var idx = (modCardIdx[tab] || 0) + 1; var items = modItems[tab] || []; if (idx >= items.length) idx = items.length - 1; modCardIdx[tab] = idx; renderModCard(tab, { noFade: true }); updateCardDots("mod", idx, items.length); updateCardNav("mod", idx, items.length); }
 function modPrev() { var tab = modTab; log("modPrev tab=" + tab); var idx = (modCardIdx[tab] || 0) - 1; if (idx < 0) idx = 0; modCardIdx[tab] = idx; renderModCard(tab, { noFade: true }); updateCardDots("mod", idx, (modItems[tab] || []).length); updateCardNav("mod", idx, (modItems[tab] || []).length); }
 var modTab = "pending";
-function showModDashboard() { openOverlay("mod-screen"); delete modTabCache["published"]; delete modTabCache["pitches"]; loadModTab("pending"); }
+function showModDashboard() {
+  log("showModDashboard resetting active class to pending (was " + modTab + ")");
+  openOverlay("mod-screen");
+  modTab = "pending";
+  document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) {
+    t.classList.toggle("active", (t as HTMLElement).dataset.mtab === "pending");
+  });
+  delete modTabCache["published"];
+  delete modTabCache["pitches"];
+  loadModTab("pending");
+}
 function switchModTab(tab: string) { if (tab === modTab) return; modTab = tab; document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) { t.classList.toggle("active", (t as HTMLElement).dataset.mtab === tab); }); delete modTabCache[tab]; loadModTab(tab); }
 function setModLoading(l: boolean) { var c = document.getElementById("pending-events-container"); if (c) c.style.opacity = l ? "0.4" : "1"; var t = document.getElementById("mod-tabs"); if (t) t.style.pointerEvents = l ? "none" : "auto"; }
 async function loadModTab(tab: string) {
@@ -980,8 +1040,9 @@ function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
   var dcKey = tab + "-" + idx;
   var color = tab === "pending" ? "#ff69b4" : (tab === "pitches" ? "#ffeaa7" : "#fff");
 
-  // modDesc* state is no longer used by the in-card body (it's a scrollable snippet now),
-  // but the keys are preserved so the mod detail overlay (which uses them) stays consistent.
+  // Pre-populate modDesc* state. The pitches long-desc pager (below) reads
+  // from keys "pitches-" + item.id, not this dcKey. Kept for compatibility
+  // with existing state shape and any future pager.
   modDescFullText[dcKey] = desc;
   if (!modDescTotal[dcKey]) modDescTotal[dcKey] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   modDescPageIdx[dcKey] = 0;
@@ -1001,41 +1062,102 @@ function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
   }
   headerHtml += '</div>';
   log("renderModCard metadata location truncated tab=" + tab);
-  if (tab !== "pitches" && item.category) { headerHtml += '<div style="margin-bottom:6px;">' + catBadge(item.category) + '</div>'; }
-  // RSVP count badge for published events
+  // Flatten badge row (e18 design D5/D6): build a single `badges` string and
+  // wrap it in one flex container so category + days-pending/RSVP + past-event
+  // all sit on one line with 6px gaps, wrapping to multiple lines on narrow viewports.
+  var badges = '';
+  if (tab !== "pitches" && item.category) badges += catBadge(item.category);
+  if (tab === "pending" && item.submittedAt) {
+    var daysOld = Math.floor((Date.now() - new Date(item.submittedAt).getTime()) / 86400000);
+    if (daysOld >= 1) {
+      var daysBg = daysOld === 1 ? "#ffaa00" : "#ff4444";
+      var daysLabel = "⏰ " + daysOld + " day" + (daysOld !== 1 ? "s" : "") + " pending";
+      badges += '<div style="font-size:11px;font-weight:700;color:#fff;background:' + daysBg + ';border:var(--border);padding:2px 8px;display:inline-block;">' + daysLabel + '</div>';
+    }
+  }
   if (tab === "published") {
     var rc = item.rsvpCount || 0;
     var badgeColor = rc === 0 ? "#ff4444" : (rc < 5 ? "#ffaa00" : "#00ff88");
     var badgeText = rc === 0 ? "🔴 No RSVPs" : (rc < 5 ? "🟡 " + rc + " going" : "🟢 " + rc + " going");
-    headerHtml += '<div style="font-size:11px;font-weight:700;color:#fff;background:' + badgeColor + ';border:var(--border);padding:2px 8px;margin-bottom:6px;display:inline-block;">' + badgeText + '</div>';
+    badges += '<div style="font-size:11px;font-weight:700;color:#fff;background:' + badgeColor + ';border:var(--border);padding:2px 8px;display:inline-block;">' + badgeText + '</div>';
   }
-  // Past event badge for mods
   if (tab !== "pitches") {
     var today2 = new Date().toISOString().split("T")[0] || "";
-    if (item.date < today2) {
-      headerHtml += '<div style="font-size:11px;font-weight:700;color:#fff;background:#999;border:var(--border);padding:2px 8px;margin-bottom:6px;display:inline-block;">⏰ Past Event</div>';
-    }
+    if (item.date < today2) badges += '<div style="font-size:11px;font-weight:700;color:#fff;background:#999;border:var(--border);padding:2px 8px;display:inline-block;">⏰ Past Event</div>';
   }
+  if (badges) headerHtml += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;align-items:center;">' + badges + '</div>';
   log("renderModCard header complete tab=" + tab);
 
-  // Body - scrollable description snippet (matches home card pattern).
-  // No pagination: short text just scrolls inside the box. Saves vertical space
-  // and lets the actions sit at the bottom of the card without overflow.
-  // Progress dots are pinned to the bottom of the body (above the actions)
-  // so they stay at a consistent y-position regardless of header/badge heights.
-  var descSnippet = desc.substring(0, DESC_PREVIEW_LENGTH) + (desc.length > DESC_PREVIEW_LENGTH ? '...' : '');
-  var bodyHtml = '<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 10px;background:#fff;border:var(--border);font-size:14px;line-height:1.45;word-break:break-word;">' +
-    (descSnippet ? escapeHtml(descSnippet) : '<span style="color:var(--muted);font-style:italic;">No description</span>') +
-    '</div>' +
-    '<div class="card-progress mod-dots" style="flex-shrink:0;margin-top:6px;"></div>';
-  log("renderModCard body tab=" + tab + " hasDesc=" + (desc.length > 0) + " snippetLen=" + descSnippet.length);
+  // Body — pitches tab uses the paginated in-card body for long descs (e18 design D7);
+  // all other tabs use the simple scrollable snippet.
+  var bodyHtml = '';
+  if (tab === "pitches" && desc.length > DESC_SHORT_LENGTH) {
+    // Paginated in-card body for long pitches. The state-key uses the stable
+    // item.id (not tab+idx) so navigating between cards doesn't reset pagination.
+    // This is a separate state space from the mod-detail overlay, which uses
+    // the bare `id` for its mod-desc-track-* element.
+    var bodyDcKey = "pitches-" + item.id;
+    modDescFullText[bodyDcKey] = desc;
+    modDescTotal[bodyDcKey] = 1;
+    modDescPageIdx[bodyDcKey] = 0;
+    bodyHtml = '<div id="mod-desc-box-' + bodyDcKey + '" style="flex:1;min-height:0;position:relative;overflow:hidden;">' +
+      buildModDescPagesHTML(bodyDcKey, [desc]) +
+      '</div>' +
+      '<div id="mod-desc-nav-' + bodyDcKey + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:6px 0 0 0;min-height:28px;">' +
+      buildModDescNavHTML(bodyDcKey) +
+      '</div>' +
+      '<div class="card-progress mod-dots" style="flex-shrink:0;margin-top:6px;"></div>';
+    log("renderModCard in-card desc paginated tab=" + tab + " key=" + bodyDcKey);
+    // Re-paginate after DOM insert once the box has measurable dimensions.
+    setTimeout(function () {
+      var box = document.getElementById("mod-desc-box-" + bodyDcKey);
+      if (!box) return;
+      if (box.clientWidth === 0 || box.clientHeight === 0) {
+        setTimeout(function () {
+          var retryBox = document.getElementById("mod-desc-box-" + bodyDcKey);
+          if (!retryBox || retryBox.clientWidth === 0 || retryBox.clientHeight === 0) return;
+          var retryPages = splitTextToPages(modDescFullText[bodyDcKey] || "", retryBox.clientWidth, retryBox.clientHeight);
+          if (retryPages.length > 50) { retryPages = [modDescFullText[bodyDcKey] || ""]; }
+          modDescTotal[bodyDcKey] = retryPages.length;
+          modDescPageIdx[bodyDcKey] = 0;
+          var retryTrack = document.getElementById("mod-desc-track-" + bodyDcKey);
+          if (retryTrack) retryTrack.outerHTML = buildModDescPagesHTML(bodyDcKey, retryPages);
+          var retryNav = document.getElementById("mod-desc-nav-" + bodyDcKey);
+          if (retryNav) retryNav.innerHTML = buildModDescNavHTML(bodyDcKey);
+          log("renderModCard in-card desc re-paginated retry tab=" + tab + " key=" + bodyDcKey + " pages=" + retryPages.length);
+        }, 300);
+        return;
+      }
+      var pages = splitTextToPages(modDescFullText[bodyDcKey] || "", box.clientWidth, box.clientHeight);
+      if (pages.length > 50) { pages = [modDescFullText[bodyDcKey] || ""]; }
+      modDescTotal[bodyDcKey] = pages.length;
+      modDescPageIdx[bodyDcKey] = 0;
+      var track = document.getElementById("mod-desc-track-" + bodyDcKey);
+      if (track) track.outerHTML = buildModDescPagesHTML(bodyDcKey, pages);
+      var nav = document.getElementById("mod-desc-nav-" + bodyDcKey);
+      if (nav) nav.innerHTML = buildModDescNavHTML(bodyDcKey);
+      log("renderModCard in-card desc paginated tab=" + tab + " pages=" + pages.length + " key=" + bodyDcKey);
+    }, AUTO_PAGINATE_DELAY);
+  } else {
+    // Simple scrollable snippet (matches home card pattern). Short text just
+    // scrolls inside the box. Progress dots pinned to the bottom of the body.
+    var descSnippet = desc.substring(0, DESC_PREVIEW_LENGTH) + (desc.length > DESC_PREVIEW_LENGTH ? '...' : '');
+    bodyHtml = '<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 10px;background:#fff;border:var(--border);font-size:14px;line-height:1.45;word-break:break-word;">' +
+      (descSnippet ? escapeHtml(descSnippet) : '<span style="color:var(--muted);font-style:italic;">No description</span>') +
+      '</div>' +
+      '<div class="card-progress mod-dots" style="flex-shrink:0;margin-top:6px;"></div>';
+  }
+  log("renderModCard body tab=" + tab + " hasDesc=" + (desc.length > 0));
 
   // Actions
   var actionsHtml = '';
   if (tab === "pending") {
-    actionsHtml = '<div style="display:flex;gap:8px;">' +
-      '<button class="btn btn-green btn-action btn-approve-event" data-id="' + item.id + '" data-action="approve-event">✅ Approve</button>' +
-      '<button class="btn btn-white btn-action btn-decline-event" data-id="' + item.id + '" data-action="decline-event">🗑️ Decline</button>' +
+    // 3 buttons: Details | Approve | Decline. flex-wrap so the row collapses
+    // gracefully to two rows on narrow viewports (e18 design D4).
+    actionsHtml = '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button class="btn btn-white btn-action btn-view-mod-details" data-id="' + item.id + '" data-action="view-mod-details" style="flex:1;">👁️ Details</button>' +
+      '<button class="btn btn-green btn-action btn-approve-event" data-id="' + item.id + '" data-action="approve-event" style="flex:1;">✅ Approve</button>' +
+      '<button class="btn btn-white btn-action btn-decline-event" data-id="' + item.id + '" data-action="decline-event" style="flex:1;">🗑️ Decline</button>' +
       '</div>';
   } else if (tab === "published") {
     // Single row, like the home card: Details | Attendees count | Delete icon
@@ -1052,8 +1174,8 @@ function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
   updateCardDots("mod", idx, total);
   updateCardNav("mod", idx, total);
 
-  // Mod card body is now a simple scrollable snippet (matches home card pattern).
-  // No auto-paginate needed — the body element handles overflow naturally.
+  // Pitches with long descs have already been auto-paginated in the setTimeout
+  // above. Other tabs use the simple scrollable snippet (matches home card pattern).
 }
 
 function buildModDescPagesHTML(key: string, pages: string[]): string {
@@ -1315,8 +1437,12 @@ var currentModEventId: string | null = null;
 async function showModEventDetails(id: string) {
   log("showModEventDetails id=" + id);
   currentModEventId = id;
-  var item = modItems["published"]?.find(function(e: any) { return e.id === id; });
-  if (!item) return;
+  // e18 fix (D4): try pending first, then published — so the new Details button
+  // on pending events can open this overlay too. (Previously looked up only in
+  // "published", which silently no-op'd for pending events.)
+  var item = modItems["pending"]?.find(function(e: any) { return e.id === id; }) || modItems["published"]?.find(function(e: any) { return e.id === id; });
+  if (!item) { log("showModEventDetails item not found id=" + id); return; }
+  log("showModEventDetails found item id=" + id + " status=" + (item.status || "unknown"));
   document.getElementById("mod-detail-title")!.textContent = item.title;
   var date = new Date(item.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   var rc = item.rsvpCount || 0;
@@ -1366,7 +1492,9 @@ async function showModEventDetails(id: string) {
     '<div style="font-size:14px;color:var(--muted);margin-bottom:8px;">Manage this event</div>' +
     '<div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:280px;">' +
     '<button class="btn btn-white" data-id="' + id + '" data-action="export-csv">📋 Copy CSV</button>' +
-    '<button class="btn btn-white" data-id="' + id + '" data-action="delete-published">🗑️ Delete Event</button>' +
+    (item.status === "pending"
+      ? '<button class="btn btn-white" data-id="' + id + '" data-action="decline-event">🗑️ Decline</button>'
+      : '<button class="btn btn-white" data-id="' + id + '" data-action="delete-published">🗑️ Delete Event</button>') +
     '</div>' +
     '</div>';
 
@@ -1788,11 +1916,11 @@ async function submitPitch() {
 }
 function resetEventForm() {
   eventStep = 1;
-  ["event-step-1", "event-step-2", "event-step-3", "event-step-4", "event-step-5"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("hidden", i !== 0); });
+  ["event-step-1", "event-step-2", "event-step-3", "event-step-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("hidden", i !== 0); });
   document.getElementById("event-next-btn")!.classList.remove("hidden");
   document.getElementById("event-submit-btn")!.classList.add("hidden");
   document.getElementById("event-prev-btn")!.classList.add("hidden");
-  ["event-dot-1", "event-dot-2", "event-dot-3", "event-dot-4", "event-dot-5"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });
+  ["event-dot-1", "event-dot-2", "event-dot-3", "event-dot-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });
   ["event-title", "event-organizer", "event-date", "event-time", "event-location", "event-map-url", "event-desc", "event-category"].forEach(function (id) { var el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null; if (el) el.value = ""; });
   setBtnLoading("#event-submit-btn", false);
 }
@@ -1813,14 +1941,9 @@ function eventPrev() {
     document.getElementById("event-dot-4")!.classList.remove("done");
     document.getElementById("event-step-4")!.classList.add("hidden");
     document.getElementById("event-step-3")!.classList.remove("hidden");
-    eventStep = 3;
-  } else if (eventStep === 5) {
-    document.getElementById("event-dot-5")!.classList.remove("done");
-    document.getElementById("event-step-5")!.classList.add("hidden");
-    document.getElementById("event-step-4")!.classList.remove("hidden");
     document.getElementById("event-next-btn")!.classList.remove("hidden");
     document.getElementById("event-submit-btn")!.classList.add("hidden");
-    eventStep = 4;
+    eventStep = 3;
   }
 }
 function eventNext() {
@@ -1840,21 +1963,15 @@ function eventNext() {
   } else if (eventStep === 2) {
     var date = (document.getElementById("event-date") as HTMLInputElement).value.trim();
     var time = (document.getElementById("event-time") as HTMLInputElement).value.trim();
+    var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim();
     if (!date || !time) { showToast("Fill all fields", "error"); return; }
+    if (!loc) { showToast("Location required", "error"); return; }
     document.getElementById("event-dot-3")!.classList.add("done");
     pulseDot("event-dot-3");
     document.getElementById("event-step-2")!.classList.add("hidden");
     document.getElementById("event-step-3")!.classList.remove("hidden");
     eventStep = 3;
   } else if (eventStep === 3) {
-    var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim();
-    if (!loc) { showToast("Location required", "error"); return; }
-    document.getElementById("event-dot-4")!.classList.add("done");
-    pulseDot("event-dot-4");
-    document.getElementById("event-step-3")!.classList.add("hidden");
-    document.getElementById("event-step-4")!.classList.remove("hidden");
-    eventStep = 4;
-  } else if (eventStep === 4) {
     // Description -> Review step. Validate desc, populate review, advance.
     var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim();
     if (!desc) { showToast("Add a description", "error"); return; }
@@ -1867,14 +1984,61 @@ function eventNext() {
     (document.getElementById("event-review-title-preview") as HTMLElement).textContent = titleEl;
     (document.getElementById("event-review-meta-preview") as HTMLElement).textContent =
       "📅 " + dateEl + " at " + timeEl + " · 📍 " + locEl + (catLabel ? " · 🏷️ " + catLabel : "");
-    (document.getElementById("event-review-desc-preview") as HTMLElement).textContent = desc;
-    document.getElementById("event-dot-5")!.classList.add("done");
-    pulseDot("event-dot-5");
-    document.getElementById("event-step-4")!.classList.add("hidden");
-    document.getElementById("event-step-5")!.classList.remove("hidden");
+    var descPreviewEl = document.getElementById("event-review-desc-preview") as HTMLElement;
+    if (desc.length > DESC_SHORT_LENGTH) {
+      // Long desc: render pager with explicit Previous/Next buttons (e18 design D3)
+      var dcKey = "review-" + Date.now();
+      modDescFullText[dcKey] = desc;
+      modDescTotal[dcKey] = 1;
+      modDescPageIdx[dcKey] = 0;
+      var placeholderPages = [desc];
+      descPreviewEl.innerHTML =
+        '<div id="mod-desc-box-' + dcKey + '" style="flex:1;min-height:0;position:relative;overflow:hidden;">' +
+        buildModDescPagesHTML(dcKey, placeholderPages) +
+        '</div>' +
+        '<div id="mod-desc-nav-' + dcKey + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:6px 0 0 0;min-height:28px;">' +
+        buildModDescNavHTML(dcKey) +
+        '</div>';
+      // Re-paginate once the box has measurable dimensions
+      setTimeout(function () {
+        var box = document.getElementById("mod-desc-box-" + dcKey);
+        if (!box) return;
+        if (box.clientWidth === 0 || box.clientHeight === 0) {
+          setTimeout(function () {
+            var retryBox = document.getElementById("mod-desc-box-" + dcKey);
+            if (!retryBox || retryBox.clientWidth === 0 || retryBox.clientHeight === 0) return;
+            var retryPages = splitTextToPages(modDescFullText[dcKey] || "", retryBox.clientWidth, retryBox.clientHeight);
+            if (retryPages.length > 50) { retryPages = [modDescFullText[dcKey] || ""]; }
+            modDescTotal[dcKey] = retryPages.length;
+            modDescPageIdx[dcKey] = 0;
+            var retryTrack = document.getElementById("mod-desc-track-" + dcKey);
+            if (retryTrack) retryTrack.outerHTML = buildModDescPagesHTML(dcKey, retryPages);
+            var retryNav = document.getElementById("mod-desc-nav-" + dcKey);
+            if (retryNav) retryNav.innerHTML = buildModDescNavHTML(dcKey);
+            log("eventNext review desc re-paginated retry key=" + dcKey + " pages=" + retryPages.length);
+          }, 300);
+          return;
+        }
+        var pages = splitTextToPages(modDescFullText[dcKey] || "", box.clientWidth, box.clientHeight);
+        if (pages.length > 50) { pages = [modDescFullText[dcKey] || ""]; }
+        modDescTotal[dcKey] = pages.length;
+        modDescPageIdx[dcKey] = 0;
+        var track = document.getElementById("mod-desc-track-" + dcKey);
+        if (track) track.outerHTML = buildModDescPagesHTML(dcKey, pages);
+        var nav = document.getElementById("mod-desc-nav-" + dcKey);
+        if (nav) nav.innerHTML = buildModDescNavHTML(dcKey);
+        log("eventNext review desc paginated key=" + dcKey + " pages=" + pages.length);
+      }, AUTO_PAGINATE_DELAY);
+    } else {
+      descPreviewEl.textContent = desc;
+    }
+    document.getElementById("event-dot-4")!.classList.add("done");
+    pulseDot("event-dot-4");
+    document.getElementById("event-step-3")!.classList.add("hidden");
+    document.getElementById("event-step-4")!.classList.remove("hidden");
     document.getElementById("event-next-btn")!.classList.add("hidden");
     document.getElementById("event-submit-btn")!.classList.remove("hidden");
-    eventStep = 5;
+    eventStep = 4;
   }
 }
 async function submitEvent() { log("submitEvent"); if (isLocked("submit-event")) return; lock("submit-event"); var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var organizer = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); var mapUrl = (document.getElementById("event-map-url") as HTMLInputElement).value.trim(); var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim(); var category = (document.getElementById("event-category") as HTMLSelectElement).value; log("submitEvent values: title=" + title + " category=" + category);   if (!title || !organizer || !date || !time || !loc || !desc) { showToast("Fill all fields", "error"); unlock("submit-event"); return; }

@@ -119,6 +119,14 @@
       40% { transform: scale(1.6); }
       100% { transform: scale(1); }
     }
+    @keyframes blinkPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.55; }
+    }
+    .countdown-blink { animation: blinkPulse 1.2s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) {
+      .countdown-blink { animation: none !important; }
+    }
     .fade-in { animation: fadeInUp 0.35s ease-out forwards; will-change: opacity, transform; }
     .tab-fade { transition: opacity 0.18s ease-out; }
     .tab-fade.out { opacity: 0; }
@@ -367,7 +375,7 @@
       </div>
     </div>
 
-    <!-- SUBMIT EVENT OVERLAY (5 steps: title/cat/org, date/time, location/maps, description, review) -->
+    <!-- SUBMIT EVENT OVERLAY (4 steps: title/cat/org, date/time/location/maps, description, review) -->
     <div class="overlay" id="event-overlay">
       <div class="overlay-header"><h2>📋 Submit Event</h2><div class="close-btn close-overlay" data-action="close-overlay">✕</div></div>
       <div class="overlay-progress">
@@ -375,7 +383,6 @@
         <div class="step-dot" id="event-dot-2"></div>
         <div class="step-dot" id="event-dot-3"></div>
         <div class="step-dot" id="event-dot-4"></div>
-        <div class="step-dot" id="event-dot-5"></div>
       </div>
       <div class="overlay-body" id="event-step-1">
         <div class="form-group"><label>Event Title</label><input type="text" id="event-title" placeholder="e.g. Monthly Dev Meetup"></div>
@@ -403,18 +410,16 @@
           <div class="form-group"><label>Date</label><input type="date" id="event-date"></div>
           <div class="form-group"><label>Time</label><input type="time" id="event-time"></div>
         </div>
-      </div>
-      <div class="overlay-body hidden" id="event-step-3">
         <div class="form-group"><label>Location</label><input type="text" id="event-location" placeholder="e.g. Cubbon Park, Bangalore"></div>
         <div class="form-group"><label>Google Maps Link (optional)</label><input type="text" id="event-map-url" placeholder="https://maps.google.com/..."></div>
       </div>
-      <div class="overlay-body hidden" id="event-step-4">
+      <div class="overlay-body hidden" id="event-step-3" style="display:flex;flex-direction:column;">
         <div class="form-group" style="margin-bottom:0;display:flex;flex-direction:column;flex:1;min-height:0;">
           <label>Description <span style="color:var(--muted);font-weight:500;font-size:11px;">(longer is fine — full page)</span></label>
-          <textarea id="event-desc" placeholder="What's the plan? What to bring? Who's it for?" style="flex:1;min-height:200px;resize:none;"></textarea>
+          <textarea id="event-desc" placeholder="What's the plan? What to bring? Who's it for?" style="flex:1;min-height:280px;resize:none;"></textarea>
         </div>
       </div>
-      <div class="overlay-body hidden" id="event-step-5" style="padding:14px 16px;display:flex;flex-direction:column;">
+      <div class="overlay-body hidden" id="event-step-4" style="padding:14px 16px;display:flex;flex-direction:column;">
         <div style="background:var(--surface);border:var(--border);padding:14px;display:flex;flex-direction:column;flex:1;min-height:0;">
           <div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--muted);margin-bottom:8px;flex-shrink:0;">📋 Review your event</div>
           <div id="event-review-title-preview" style="font-size:17px;font-weight:700;line-height:1.3;margin-bottom:6px;min-width:0;max-width:100%;overflow-x:auto;white-space:nowrap;"></div>
