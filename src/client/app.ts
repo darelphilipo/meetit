@@ -331,13 +331,16 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
       '<span class="event-tag" style="font-size:12px;padding:3px 8px;">⏰ ' + formatTimeWithTz(event.time, appTimezone) + '</span>' +
       '<span class="event-tag" style="font-size:12px;padding:3px 8px;background:var(--primary);">👥 ' + (event.rsvpCount || 0) + '</span>' +
       (event.category ? catBadge(event.category) : '') +
-      '</div>' +
-      '<div class="card-progress" id="home-dots"></div>';
+      '</div>';
 
+    // Body: description scrolls, with progress dots pinned to the bottom of the body
+    // (above the actions). The dots are at a fixed visual position regardless of
+    // title height or description length.
     var bodyHtml =
       '<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:4px 2px;">' +
       '<div style="font-size:15px;color:var(--on-surface);line-height:1.55;word-break:break-word;">' + escapeHtml((event.description || "").substring(0, DESC_PREVIEW_LENGTH)) + ((event.description || "").length > DESC_PREVIEW_LENGTH ? "..." : "") + '</div>' +
-      '</div>';
+      '</div>' +
+      '<div class="card-progress" id="home-dots" style="flex-shrink:0;margin-top:6px;"></div>';
 
     var actionsHtml =
       '<div style="display:flex;gap:6px;align-items:center;">' +
@@ -501,7 +504,7 @@ function renderMyRsvpCard(opts: { noFade?: boolean } = {}) {
       '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
         '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
       '</div></div>' +
-    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
+    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;margin-top:10px;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
 
   var actionsHtml = '<div style="display:flex;gap:8px;">' +
       '<button class="btn btn-white btn-action" data-id="' + e.id + '" data-action="update-rsvp">✏️ Update</button>' +
@@ -541,7 +544,7 @@ function renderMyPitchCard(opts: { noFade?: boolean } = {}) {
       '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
         '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
       '</div></div>' +
-    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
+    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;margin-top:10px;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
 
   var actionsHtml = '<button class="btn btn-white btn-action-full" data-id="' + p.id + '" data-action="delete-pitch">🗑️ Delete</button>';
 
@@ -582,7 +585,7 @@ function renderMyEventCard(opts: { noFade?: boolean } = {}) {
       '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
         '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
       '</div></div>' +
-    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
+    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;margin-top:10px;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
 
   var actionsHtml = (e.status === "pending" ?
         '<button class="btn btn-white btn-action-full" data-id="' + e.id + '" data-action="cancel-my-event">❌ Cancel</button>' :
@@ -1003,17 +1006,18 @@ function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
       headerHtml += '<div style="font-size:11px;font-weight:700;color:#fff;background:#999;border:var(--border);padding:2px 8px;margin-bottom:6px;display:inline-block;">⏰ Past Event</div>';
     }
   }
-  // Progress dots embedded at bottom of header (matches event details overlay pattern)
-  headerHtml += '<div class="card-progress mod-dots"></div>';
-  log("renderModCard header dots embedded tab=" + tab);
+  log("renderModCard header complete tab=" + tab);
 
   // Body - scrollable description snippet (matches home card pattern).
   // No pagination: short text just scrolls inside the box. Saves vertical space
   // and lets the actions sit at the bottom of the card without overflow.
+  // Progress dots are pinned to the bottom of the body (above the actions)
+  // so they stay at a consistent y-position regardless of header/badge heights.
   var descSnippet = desc.substring(0, DESC_PREVIEW_LENGTH) + (desc.length > DESC_PREVIEW_LENGTH ? '...' : '');
   var bodyHtml = '<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 10px;background:#fff;border:var(--border);font-size:14px;line-height:1.45;word-break:break-word;">' +
     (descSnippet ? escapeHtml(descSnippet) : '<span style="color:var(--muted);font-style:italic;">No description</span>') +
-    '</div>';
+    '</div>' +
+    '<div class="card-progress mod-dots" style="flex-shrink:0;margin-top:6px;"></div>';
   log("renderModCard body tab=" + tab + " hasDesc=" + (desc.length > 0) + " snippetLen=" + descSnippet.length);
 
   // Actions
