@@ -1750,9 +1750,97 @@ async function submitPitch() { log("submitPitch"); if (isLocked("submit-pitch"))
       var myStuffOverlay = document.getElementById("my-stuff-overlay");
       if (myStuffOverlay && myStuffOverlay.classList.contains("active") && myStuffTab === "pitches") { renderMyPitchCard(); }
     } else { showToast(data.error || "Submit failed - retry", "error"); setBtnLoading("#pitch-submit-btn", false); } } catch (e) { showToast("Error", "error"); setBtnLoading("#pitch-submit-btn", false); } finally { unlock("submit-pitch"); } }
-function resetEventForm() { eventStep = 1; ["event-step-1", "event-step-2", "event-step-3", "event-step-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("hidden", i !== 0); }); document.getElementById("event-next-btn")!.classList.remove("hidden"); document.getElementById("event-submit-btn")!.classList.add("hidden"); document.getElementById("event-prev-btn")!.classList.add("hidden"); ["event-dot-1", "event-dot-2", "event-dot-3", "event-dot-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });   ["event-title", "event-organizer", "event-date", "event-time", "event-location", "event-map-url", "event-desc", "event-category"].forEach(function (id) { var el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null; if (el) el.value = ""; }); setBtnLoading("#event-submit-btn", false); }
-function eventPrev() { if (eventStep === 2) { document.getElementById("event-dot-2")!.classList.remove("done"); document.getElementById("event-step-2")!.classList.add("hidden"); document.getElementById("event-step-1")!.classList.remove("hidden"); document.getElementById("event-prev-btn")!.classList.add("hidden"); eventStep = 1; } else if (eventStep === 3) { document.getElementById("event-dot-3")!.classList.remove("done"); document.getElementById("event-step-3")!.classList.add("hidden"); document.getElementById("event-step-2")!.classList.remove("hidden"); eventStep = 2; } else if (eventStep === 4) { document.getElementById("event-dot-4")!.classList.remove("done"); document.getElementById("event-step-4")!.classList.add("hidden"); document.getElementById("event-step-3")!.classList.remove("hidden"); document.getElementById("event-next-btn")!.classList.remove("hidden"); document.getElementById("event-submit-btn")!.classList.add("hidden"); eventStep = 3; } }
-function eventNext() { log("eventNext step=" + eventStep); if (eventStep === 1) { var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var org = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var cat = (document.getElementById("event-category") as HTMLSelectElement).value; if (!title || !org) { showToast("Fill all fields", "error"); return; } if (!cat) { showToast("Select a category", "error"); return; } document.getElementById("event-dot-2")!.classList.add("done"); document.getElementById("event-step-1")!.classList.add("hidden"); document.getElementById("event-step-2")!.classList.remove("hidden"); document.getElementById("event-prev-btn")!.classList.remove("hidden"); eventStep = 2; } else if (eventStep === 2) { var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); if (!date || !time) { showToast("Fill all fields", "error"); return; } document.getElementById("event-dot-3")!.classList.add("done"); document.getElementById("event-step-2")!.classList.add("hidden"); document.getElementById("event-step-3")!.classList.remove("hidden"); eventStep = 3; } else if (eventStep === 3) { var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); if (!loc) { showToast("Location required", "error"); return; } document.getElementById("event-dot-4")!.classList.add("done"); document.getElementById("event-step-3")!.classList.add("hidden"); document.getElementById("event-step-4")!.classList.remove("hidden"); document.getElementById("event-next-btn")!.classList.add("hidden"); document.getElementById("event-submit-btn")!.classList.remove("hidden"); document.getElementById("event-review-title-preview")!.textContent = (document.getElementById("event-title") as HTMLInputElement).value; document.getElementById("event-review-meta-preview")!.textContent = (document.getElementById("event-date") as HTMLInputElement).value + " at " + (document.getElementById("event-time") as HTMLInputElement).value + " · " + loc; eventStep = 4; } }
+function resetEventForm() {
+  eventStep = 1;
+  ["event-step-1", "event-step-2", "event-step-3", "event-step-4", "event-step-5"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("hidden", i !== 0); });
+  document.getElementById("event-next-btn")!.classList.remove("hidden");
+  document.getElementById("event-submit-btn")!.classList.add("hidden");
+  document.getElementById("event-prev-btn")!.classList.add("hidden");
+  ["event-dot-1", "event-dot-2", "event-dot-3", "event-dot-4", "event-dot-5"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });
+  ["event-title", "event-organizer", "event-date", "event-time", "event-location", "event-map-url", "event-desc", "event-category"].forEach(function (id) { var el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null; if (el) el.value = ""; });
+  setBtnLoading("#event-submit-btn", false);
+}
+function eventPrev() {
+  log("eventPrev step=" + eventStep);
+  if (eventStep === 2) {
+    document.getElementById("event-dot-2")!.classList.remove("done");
+    document.getElementById("event-step-2")!.classList.add("hidden");
+    document.getElementById("event-step-1")!.classList.remove("hidden");
+    document.getElementById("event-prev-btn")!.classList.add("hidden");
+    eventStep = 1;
+  } else if (eventStep === 3) {
+    document.getElementById("event-dot-3")!.classList.remove("done");
+    document.getElementById("event-step-3")!.classList.add("hidden");
+    document.getElementById("event-step-2")!.classList.remove("hidden");
+    eventStep = 2;
+  } else if (eventStep === 4) {
+    document.getElementById("event-dot-4")!.classList.remove("done");
+    document.getElementById("event-step-4")!.classList.add("hidden");
+    document.getElementById("event-step-3")!.classList.remove("hidden");
+    eventStep = 3;
+  } else if (eventStep === 5) {
+    document.getElementById("event-dot-5")!.classList.remove("done");
+    document.getElementById("event-step-5")!.classList.add("hidden");
+    document.getElementById("event-step-4")!.classList.remove("hidden");
+    document.getElementById("event-next-btn")!.classList.remove("hidden");
+    document.getElementById("event-submit-btn")!.classList.add("hidden");
+    eventStep = 4;
+  }
+}
+function eventNext() {
+  log("eventNext step=" + eventStep);
+  if (eventStep === 1) {
+    var title = (document.getElementById("event-title") as HTMLInputElement).value.trim();
+    var org = (document.getElementById("event-organizer") as HTMLInputElement).value.trim();
+    var cat = (document.getElementById("event-category") as HTMLSelectElement).value;
+    if (!title || !org) { showToast("Fill all fields", "error"); return; }
+    if (!cat) { showToast("Select a category", "error"); return; }
+    document.getElementById("event-dot-2")!.classList.add("done");
+    pulseDot("event-dot-2");
+    document.getElementById("event-step-1")!.classList.add("hidden");
+    document.getElementById("event-step-2")!.classList.remove("hidden");
+    document.getElementById("event-prev-btn")!.classList.remove("hidden");
+    eventStep = 2;
+  } else if (eventStep === 2) {
+    var date = (document.getElementById("event-date") as HTMLInputElement).value.trim();
+    var time = (document.getElementById("event-time") as HTMLInputElement).value.trim();
+    if (!date || !time) { showToast("Fill all fields", "error"); return; }
+    document.getElementById("event-dot-3")!.classList.add("done");
+    pulseDot("event-dot-3");
+    document.getElementById("event-step-2")!.classList.add("hidden");
+    document.getElementById("event-step-3")!.classList.remove("hidden");
+    eventStep = 3;
+  } else if (eventStep === 3) {
+    var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim();
+    if (!loc) { showToast("Location required", "error"); return; }
+    document.getElementById("event-dot-4")!.classList.add("done");
+    pulseDot("event-dot-4");
+    document.getElementById("event-step-3")!.classList.add("hidden");
+    document.getElementById("event-step-4")!.classList.remove("hidden");
+    eventStep = 4;
+  } else if (eventStep === 4) {
+    // Description -> Review step. Validate desc, populate review, advance.
+    var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim();
+    if (!desc) { showToast("Add a description", "error"); return; }
+    var titleEl = (document.getElementById("event-title") as HTMLInputElement).value;
+    var dateEl = (document.getElementById("event-date") as HTMLInputElement).value;
+    var timeEl = (document.getElementById("event-time") as HTMLInputElement).value;
+    var locEl = (document.getElementById("event-location") as HTMLInputElement).value;
+    var catEl = (document.getElementById("event-category") as HTMLSelectElement).value;
+    var catLabel = catEl ? (catEl.charAt(0).toUpperCase() + catEl.slice(1)) : "";
+    (document.getElementById("event-review-title-preview") as HTMLElement).textContent = titleEl;
+    (document.getElementById("event-review-meta-preview") as HTMLElement).textContent =
+      "📅 " + dateEl + " at " + timeEl + " · 📍 " + locEl + (catLabel ? " · 🏷️ " + catLabel : "");
+    (document.getElementById("event-review-desc-preview") as HTMLElement).textContent = desc;
+    document.getElementById("event-dot-5")!.classList.add("done");
+    pulseDot("event-dot-5");
+    document.getElementById("event-step-4")!.classList.add("hidden");
+    document.getElementById("event-step-5")!.classList.remove("hidden");
+    document.getElementById("event-next-btn")!.classList.add("hidden");
+    document.getElementById("event-submit-btn")!.classList.remove("hidden");
+    eventStep = 5;
+  }
+}
 async function submitEvent() { log("submitEvent"); if (isLocked("submit-event")) return; lock("submit-event"); var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var organizer = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); var mapUrl = (document.getElementById("event-map-url") as HTMLInputElement).value.trim(); var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim(); var category = (document.getElementById("event-category") as HTMLSelectElement).value; log("submitEvent values: title=" + title + " category=" + category);   if (!title || !organizer || !date || !time || !loc || !desc) { showToast("Fill all fields", "error"); unlock("submit-event"); return; }
   var today = new Date().toISOString().split("T")[0] || "";
   if (date < today) { showToast("Event date must be today or in the future", "error"); unlock("submit-event"); return; }
