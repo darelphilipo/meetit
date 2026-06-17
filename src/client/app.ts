@@ -973,6 +973,8 @@ function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
   var dcKey = tab + "-" + idx;
   var color = tab === "pending" ? "#ff69b4" : (tab === "pitches" ? "#ffeaa7" : "#fff");
 
+  // modDesc* state is no longer used by the in-card body (it's a scrollable snippet now),
+  // but the keys are preserved so the mod detail overlay (which uses them) stays consistent.
   modDescFullText[dcKey] = desc;
   if (!modDescTotal[dcKey]) modDescTotal[dcKey] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   modDescPageIdx[dcKey] = 0;
@@ -1005,13 +1007,14 @@ function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
   headerHtml += '<div class="card-progress mod-dots"></div>';
   log("renderModCard header dots embedded tab=" + tab);
 
-  // Body - same scrollable description box for all tabs so actions/footer stay anchored
-  var bodyHtml = '<div id="mod-desc-box-' + dcKey + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
-    '<div id="mod-desc-track-' + dcKey + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
-    '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
-    '</div></div>' +
-    '<div id="mod-desc-nav-' + dcKey + '" style="flex-shrink:0;min-height:0;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
-  log("renderModCard description box tab=" + tab + " hasDesc=" + (desc.length > 0));
+  // Body - scrollable description snippet (matches home card pattern).
+  // No pagination: short text just scrolls inside the box. Saves vertical space
+  // and lets the actions sit at the bottom of the card without overflow.
+  var descSnippet = desc.substring(0, DESC_PREVIEW_LENGTH) + (desc.length > DESC_PREVIEW_LENGTH ? '...' : '');
+  var bodyHtml = '<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 10px;background:#fff;border:var(--border);font-size:14px;line-height:1.45;word-break:break-word;">' +
+    (descSnippet ? escapeHtml(descSnippet) : '<span style="color:var(--muted);font-style:italic;">No description</span>') +
+    '</div>';
+  log("renderModCard body tab=" + tab + " hasDesc=" + (desc.length > 0) + " snippetLen=" + descSnippet.length);
 
   // Actions
   var actionsHtml = '';
@@ -1021,12 +1024,11 @@ function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
       '<button class="btn btn-white btn-action btn-decline-event" data-id="' + item.id + '" data-action="decline-event">🗑️ Decline</button>' +
       '</div>';
   } else if (tab === "published") {
-    actionsHtml = '<div style="display:flex;gap:8px;">' +
-      '<button class="btn btn-white btn-action btn-view-mod-details" data-id="' + item.id + '" data-action="view-mod-details">Details →</button>' +
-      '<button class="btn btn-white btn-action btn-view-attendees" data-id="' + item.id + '" data-action="view-attendees-mod">👥 ' + (item.rsvpCount || 0) + '</button>' +
-      '</div>' +
-      '<div style="display:flex;gap:8px;">' +
-      '<button class="btn btn-white btn-action-full btn-delete-published" data-id="' + item.id + '" data-action="delete-published">🗑️ Delete Event</button>' +
+    // Single row, like the home card: Details | Attendees count | Delete icon
+    actionsHtml = '<div style="display:flex;gap:6px;align-items:center;">' +
+      '<button class="btn btn-white btn-action btn-view-mod-details" data-id="' + item.id + '" data-action="view-mod-details" style="flex:1;">Details →</button>' +
+      '<button class="btn btn-white btn-action btn-view-attendees" data-id="' + item.id + '" data-action="view-attendees-mod" style="flex:1;">👥 ' + (item.rsvpCount || 0) + '</button>' +
+      '<button class="btn btn-white btn-icon btn-delete-published" data-id="' + item.id + '" data-action="delete-published" title="Delete event" aria-label="Delete event">🗑️</button>' +
       '</div>';
   } else {
     actionsHtml = '<button class="btn btn-white btn-action-full btn-dismiss-idea" data-id="' + item.id + '" data-action="dismiss-idea">🗑️ Dismiss</button>';
@@ -1036,35 +1038,8 @@ function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
   updateCardDots("mod", idx, total);
   updateCardNav("mod", idx, total);
 
-  // Auto-paginate description after DOM settles
-  var dcKey2 = dcKey;
-  if (desc.length > DESC_SHORT_LENGTH) {
-    setTimeout(function () {
-      var box = document.getElementById("mod-desc-box-" + dcKey2);
-      if (!box) return;
-      // Guard: if box has no dimensions, layout hasn't settled yet — retry later
-      if (box.clientWidth === 0 || box.clientHeight === 0) {
-        log("mod pagination retry: box dimensions 0, waiting for layout");
-        setTimeout(function() {
-          var retryBox = document.getElementById("mod-desc-box-" + dcKey2);
-          if (!retryBox || retryBox.clientWidth === 0 || retryBox.clientHeight === 0) return;
-          var pages = splitTextToPages(modDescFullText[dcKey2] || "", retryBox.clientWidth, retryBox.clientHeight);
-          if (pages.length > 50) { log("mod pagination aborted: " + pages.length + " pages (text too long for card)"); pages = [modDescFullText[dcKey2] || ""]; }
-          modDescTotal[dcKey2] = pages.length;
-          modDescPageIdx[dcKey2] = 0;
-          document.getElementById("mod-desc-track-" + dcKey2)!.outerHTML = buildModDescPagesHTML(dcKey2, pages);
-          document.getElementById("mod-desc-nav-" + dcKey2)!.innerHTML = buildModDescNavHTML(dcKey2);
-        }, 300);
-        return;
-      }
-      var pages = splitTextToPages(modDescFullText[dcKey2] || "", box.clientWidth, box.clientHeight);
-      if (pages.length > 50) { log("mod pagination aborted: " + pages.length + " pages (text too long for card)"); pages = [modDescFullText[dcKey2] || ""]; }
-      modDescTotal[dcKey2] = pages.length;
-      modDescPageIdx[dcKey2] = 0;
-      document.getElementById("mod-desc-track-" + dcKey2)!.outerHTML = buildModDescPagesHTML(dcKey2, pages);
-      document.getElementById("mod-desc-nav-" + dcKey2)!.innerHTML = buildModDescNavHTML(dcKey2);
-    }, AUTO_PAGINATE_DELAY);
-  }
+  // Mod card body is now a simple scrollable snippet (matches home card pattern).
+  // No auto-paginate needed — the body element handles overflow naturally.
 }
 
 function buildModDescPagesHTML(key: string, pages: string[]): string {
