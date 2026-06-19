@@ -6,6 +6,25 @@ The CRON reminder fires when `hoursUntilEvent <= reminderHours && hoursUntilEven
 
 ## Status: proposed
 
+## Audit (2026-06-19)
+
+**Bug is still present.** Current code at `server.ts:771`:
+```ts
+if (hoursUntilEvent > reminderHours || hoursUntilEvent < 0) continue;       // line 771 — skips past events, no retry window
+const remindedKey = `meetit:reminded:${eventId}`;
+if (await redis.get(remindedKey)) continue;                                    // line 773
+await redis.set(remindedKey, "true");                                          // line 774 — flag set BEFORE post attempt
+await redis.expire(remindedKey, 86400);                                        // line 775
+await reddit.submitCustomPost({...});                                          // line 778 — if this fails, flag already set
+```
+
+Two issues remain:
+1. No retry window: `hoursUntilEvent < 0` skips past events entirely
+2. `remindedKey` set before `submitCustomPost` — a failed post never retries
+
+**Recommendation:** ~30 minutes. See tasks for details.
+Tasks: 0/19 — all still pending.
+
 ## What Changes
 
 - Extend the CRON reminder window to allow retry within 1 hour after the event start time.

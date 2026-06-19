@@ -1,6 +1,6 @@
 ## 1. Add Date Check
 
-> **Audit (2026-06-17): Implicit block exists via `getActiveEvent` date filter (server.ts:233). The explicit check described here is NOT implemented but is still worth adding for clarity + logging.**
+> **Audit (2026-06-19): No implicit block exists. `getActiveEvent` (server.ts:242) is a direct `hGet` with no date filter. The explicit check is necessary, not optional.**
 
 - [ ] 1.1 In `onRsvp`, after `getActiveEvent`, check `event.date < today`
 - [ ] 1.2 If so, return `{ success: false, error: "Cannot RSVP to past events" }` with HTTP 400

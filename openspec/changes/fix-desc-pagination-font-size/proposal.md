@@ -12,6 +12,24 @@ When the measurement div uses 15px but the actual render uses 14px or 13px, the 
 
 ## Status: proposed
 
+## Audit (2026-06-19)
+
+**Bug is still present.** Current code at `app.ts:759-778`:
+```ts
+function splitTextToPages(text: string, width: number, maxHeight: number): string[] {
+  if (!_measureDiv) {
+    _measureDiv = document.createElement("div");
+    _measureDiv.style.cssText = "position:absolute;left:-9999px;top:0;font-size:15px;...";  // hardcoded 15px
+    document.body.appendChild(_measureDiv);
+  }
+  // ... no fontSize parameter
+}
+```
+
+All 5 call sites still pass 3 arguments with no fontSize parameter. Font size mismatch causes minor overflow at page bottoms in mod card (14px) and My Stuff card (13px) contexts.
+
+**Recommendation:** ~15 minutes. Add fontSize param + update 5 call sites. Tasks: 0/31 — all still pending.
+
 ## What Changes
 
 - Add a `fontSize` parameter to `splitTextToPages(text, width, maxHeight, fontSize)`.

@@ -628,13 +628,16 @@ async function onMySubmissions(): Promise<ApiResponse> {
   const activeEntries = Object.entries(activeJson);
   const rsvpScores = await Promise.all(
     activeEntries.map(([eventId, eventJson]) =>
-      redis.zScore(`meetit:rsvps:${eventId}`, normUser).then((score) => ({ eventJson, score }))
+      Promise.all([
+        redis.zScore(`meetit:rsvps:${eventId}`, normUser),
+        redis.zCard(`meetit:rsvps:${eventId}`),
+      ]).then(([score, count]) => ({ eventJson, score, count }))
     )
   );
-  for (const { eventJson, score } of rsvpScores) {
+  for (const { eventJson, score, count } of rsvpScores) {
     if (score != null) {
       const event = JSON.parse(eventJson);
-      rsvpEvents.push({ ...event, status: "rsvpd", rsvpScore: score });
+      rsvpEvents.push({ ...event, status: "rsvpd", rsvpScore: score, rsvpCount: count });
     }
   }
   console.log(`[MY-SUBMISSIONS] pitches=${pitches.length} myEvents=${myEvents.length} rsvps=${rsvpEvents.length}`);

@@ -6,6 +6,17 @@
 
 ## Status: proposed
 
+## Audit (2026-06-19)
+
+**Bug is still present.** Current code at `server.ts:477`:
+```ts
+const realEvents = events.filter(e => e.id !== "default-bangalore-tech-chai");
+```
+
+Hardcoded magic string unchanged. If the default event ID format changes or another default event is added, the filter silently breaks.
+
+**Recommendation:** ~5 minutes. Single line change: `!e.id.startsWith("default-")`. Tasks: 0/7 — all still pending.
+
 ## What Changes
 
 - Replace the exact-string check with a prefix check: `!e.id.startsWith("default-")`

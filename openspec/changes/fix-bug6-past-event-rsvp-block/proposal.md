@@ -4,18 +4,25 @@
 
 ## Priority: 2/5
 
-## Status: partial
+## Status: proposed
 
-## Audit (2026-06-17)
+## Audit (2026-06-19)
 
-**Partially implemented — implicit block exists.** `onRsvp` calls `getActiveEvent(eventId)` (`server.ts:369`), which internally filters past dates at `server.ts:233` via `.filter((e) => new Date(e.date + "T00:00:00").getTime() >= today.getTime())`. If the event is past, `getActiveEvent` returns `undefined`, and the `if (!event)` guard at `server.ts:370` catches it and returns a 404 error.
+**Bug is fully open — no implicit block exists.** The original audit (2026-06-17) incorrectly stated that `getActiveEvent()` filters past dates. It does not:
 
-However, the proposal's explicit check (`if (event.date < today) return { error: "Cannot RSVP to past events" }` at the top of `onRsvp`) is **not implemented**. The blocking depends on `getActiveEvent`'s internal filter, which:
-1. Is indirect — a future code change to `getActiveEvent` could accidentally remove the filter
-2. Returns a generic 404 instead of a clear "Cannot RSVP to past events" message
-3. Doesn't log the specific `rsvp-past-event-blocked` log entry
+```ts
+// server.ts:242-245
+async function getActiveEvent(eventId: string): Promise<MeetitEvent | undefined> {
+  const eventJson = await redis.hGet("meetit:active_events", eventId);
+  return eventJson ? safeJSONParse(eventJson) : undefined;
+}
+```
 
-**Recommendation:** Still worth doing the explicit check for clarity + logging. ~15 minutes.
+`getActiveEvent` is a direct `hGet` on `meetit:active_events` — no date filter at all. Only `getActiveEvents()` (plural, line 226) has the date filter, but `onRsvp` calls the singular `getActiveEvent`.
+
+**Impact:** If a past event is still in `meetit:active_events` (no cleanup), `getActiveEvent` returns it and RSVP proceeds without any date check. The `if (!event)` guard never triggers. The explicit date check in the proposal is necessary, not optional.
+
+**Recommendation:** ~15 minutes to add the explicit check + logging.
 
 ## What Changes
 

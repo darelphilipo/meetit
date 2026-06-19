@@ -1,3 +1,7 @@
+// Devvit webview host-injected globals (type-only declarations; the runtime
+// functions are provided by the Devvit webview host).
+declare function navigateTo(url: string): void;
+
 var API_BASE = "";
 var currentEventId: string | null = null;
 var currentUsername: string | null = null;
@@ -22,6 +26,9 @@ var modDescTotal: Record<string, number> = {};
 var modDescFullText: Record<string, string> = {};
 var myPitchIdx = 0, myEventIdx = 0;
 var myPitches: any[] = [], myEvents: any[] = [];
+// e23: session-tracked set of event IDs that were just RSVP'd in this browser session,
+// used to fire the one-shot bounce animation on the home card RSVP button.
+var justRsvpedIds: Record<string, boolean> = {};
 // My Stuff description pagination
 var myStuffDescPageIdx: Record<string, number> = {};
 var myStuffDescPageTotal: Record<string, number> = {};
@@ -39,7 +46,7 @@ var TOAST_DURATION = 3000;
 var COPY_TOAST_DURATION = 1500;
 var DEBOUNCE_DELAY = 300;
 var RENDER_DELAY = 200;
-var DESC_PREVIEW_LENGTH = 120;
+var DESC_PREVIEW_LENGTH = 240;
 var ATTENDEES_PER_PAGE = 5;
 var DESC_SHORT_LENGTH = 100;
 
@@ -186,10 +193,12 @@ function fallbackCopyLogs(text: string) {
 
 function showToast(msg: string, type: "success" | "error") {
   var t = document.createElement("div");
+  t.className = "toast-anim";
   t.style.cssText = "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:" + (type === "success" ? "#00ff88" : "#ff4444") + ";color:#1c1c0f;padding:14px 24px;font-weight:700;z-index:2000;font-family:'Space Grotesk',sans-serif;border:4px solid #1c1c0f;box-shadow:6px 6px 0 #1c1c0f;";
   t.textContent = msg; document.body.appendChild(t); setTimeout(function () { t.remove(); }, TOAST_DURATION);
+  log("showToast type=" + type);
 }
-function showCopyToast() { var t = document.createElement("div"); t.className = "toast-copied"; t.textContent = "📍 Copied!"; document.body.appendChild(t); setTimeout(function () { t.remove(); }, COPY_TOAST_DURATION); }
+function showCopyToast() { var t = document.createElement("div"); t.className = "toast-copied toast-anim"; t.textContent = "📍 Copied!"; document.body.appendChild(t); setTimeout(function () { t.remove(); }, COPY_TOAST_DURATION); }
 function escapeHtml(s: string | undefined | null) { var d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
 function escapeAttr(s: string | undefined | null): string { return (s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 function pulseDot(id: string) {
@@ -203,12 +212,16 @@ function pulseDot(id: string) {
 }
 
 // ======= UNIFIED CARD SHELL =======
-function buildCardShell(opts: { color?: string; headerHtml: string; bodyHtml: string; actionsHtml?: string; footerHtml?: string; className?: string; noFade?: boolean }): string {
-  log("buildCardShell" + (opts.className ? " class=" + opts.className : "") + (opts.noFade ? " noFade" : ""));
+function buildCardShell(opts: { color?: string; headerHtml: string; bodyHtml: string; actionsHtml?: string; footerHtml?: string; className?: string; noFade?: boolean; accentColor?: string }): string {
+  log("buildCardShell" + (opts.className ? " class=" + opts.className : "") + (opts.noFade ? " noFade" : "") + (opts.accentColor ? " accent=" + opts.accentColor : ""));
   var cls = "card-shell";
   if (!opts.noFade) cls += " fade-in";
   if (opts.className) cls += " " + opts.className;
-  return '<div class="' + cls + '"' + (opts.color ? ' style="background:' + opts.color + ';"' : '') + '>' +
+  var styleParts: string[] = [];
+  if (opts.color) styleParts.push("background:" + opts.color);
+  if (opts.accentColor) styleParts.push("border-left:6px solid " + opts.accentColor);
+  var styleStr = styleParts.length > 0 ? ' style="' + styleParts.join(";") + ';"' : '';
+  return '<div class="' + cls + '"' + styleStr + '>' +
     '<div class="card-shell-header">' + opts.headerHtml + '</div>' +
     '<div class="card-shell-body">' + opts.bodyHtml + '</div>' +
     (opts.actionsHtml ? '<div class="card-shell-actions">' + opts.actionsHtml + '</div>' : '') +
@@ -288,7 +301,12 @@ async function loadHome() {
           if (loadSeq === homeLoadSeq) renderHomeCard(data.data);
         }, RENDER_DELAY);
       }
-    } catch (e) { log("error: loadHome " + e); if (msg) msg.textContent = "Could not load."; }
+    } catch (e) {
+      log("error: loadHome " + e);
+      if (msg) msg.textContent = "Couldn't load events";
+      var evC = document.getElementById("events-container");
+      if (evC) evC.innerHTML = renderErrorState({ message: "Couldn't load events", retryAction: "refresh-home" });
+    }
     finally { homeFetchInProgress = false; }
   }, DEBOUNCE_DELAY);
 }
@@ -323,13 +341,21 @@ function flattenHomeEvents(eventsByDate: Record<string, any[]>): any[] {
   return all;
 }
 
-function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boolean; settings: any }, opts: { noFade?: boolean } = {}) {
+function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boolean; settings: any }, opts: { noFade?: boolean; cardSwap?: "prev" | "next" } = {}) {
   var dates = Object.keys(state.eventsByDate).sort();
   var c = document.getElementById("events-container")!;
 
   if (dates.length === 0) {
     log("renderHomeCard empty state");
-    c.innerHTML = '<div class="empty-state" style="height:100%;"><span class="emoji">🐱</span><h2>Wow, so empty!</h2><p>No events yet — be the first to create one!</p><div style="display:flex;gap:8px;justify-content:center;margin-top:12px;"><button class="btn btn-pink btn-empty" data-action="create-pitch">💡 Pitch Idea</button><button class="btn btn-white btn-empty" data-action="create-event">📋 Submit Event</button></div></div>';
+    c.innerHTML = renderEmptyState({
+      emoji: "🐱", title: "Wow, so empty!",
+      body: "No events yet — be the first spark ✨",
+      ctas: [
+        { label: "💡 Pitch Idea", action: "create-pitch", variant: "pink" },
+        { label: "📋 Submit Event", action: "create-event", variant: "white" },
+      ],
+      context: "home",
+    });
   } else {
     // Flatten all events
     var all = flattenHomeEvents(state.eventsByDate);
@@ -353,12 +379,23 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
       if (diffH > 0 && diffH <= 24) hoursToGo = diffH;
     }
     if (hoursToGo !== null) log("renderHomeCard countdown hoursToGo=" + hoursToGo);
+    // e20: LIVE NOW for events in the next 30 minutes (precedes the 24h countdown)
+    var liveNow = false;
+    var minutesToGo = 0;
+    if (event._date && event.time) {
+      var eventStart2 = new Date(event._date + "T" + event.time + ":00").getTime();
+      minutesToGo = (eventStart2 - Date.now()) / 60000;
+      if (minutesToGo > 0 && minutesToGo <= 30) liveNow = true;
+    }
+    if (liveNow) log("renderHomeCard liveNow=true minutesToGo=" + minutesToGo);
     var rightHtml = '';
-    if (hoursToGo !== null) {
+    if (liveNow) {
+      rightHtml = '<span class="countdown-blink" style="display:inline-block;font-size:11px;font-weight:700;color:var(--danger);text-align:right;flex-shrink:0;background:var(--danger-bg);padding:3px 7px;border:3px solid var(--danger);">🔴 LIVE NOW</span>';
+    } else if (hoursToGo !== null) {
       var hoursLabel = hoursToGo < 1
         ? "⏰ <1 hr to go"
         : (hoursToGo < 10 ? "⏰ " + Math.ceil(hoursToGo) + " hrs to go" : "⏰ " + Math.round(hoursToGo) + " hrs to go");
-      rightHtml = '<span class="countdown-blink" style="font-size:11px;font-weight:700;color:#ff4444;text-align:right;flex-shrink:0;background:#fff3f3;padding:3px 7px;border:1px solid #ff4444;">' + hoursLabel + '</span>';
+      rightHtml = '<span class="countdown-blink" style="display:inline-block;font-size:11px;font-weight:700;color:var(--danger);text-align:right;flex-shrink:0;background:var(--danger-bg);padding:3px 7px;border:3px solid var(--danger);">' + hoursLabel + '</span>';
     } else {
       rightHtml = '<span style="font-size:11px;font-weight:700;color:var(--muted);text-align:right;flex-shrink:0;">' + escapeHtml(relDate) + (relDate === "Today" || relDate === "Tomorrow" ? "<br>" + dateStr : "") + '</span>';
     }
@@ -366,17 +403,17 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
     var headerHtml =
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">' +
       '<div style="display:flex;align-items:center;gap:6px;min-width:0;">' +
-      (event.emoji ? '<div style="width:40px;height:40px;background:var(--primary);border:var(--border);display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:var(--shadow-sm);flex-shrink:0;">' + event.emoji + '</div>' : '<div style="width:40px;height:40px;background:var(--surface);border:var(--border);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;box-shadow:var(--shadow-sm);flex-shrink:0;">📅</div>') +
+      (event.emoji ? '<div class="emoji-tile">' + event.emoji + '</div>' : '<div class="emoji-tile emoji-tile--fallback">📅</div>') +
       '<div style="min-width:0;">' +
-      '<h3 style="font-size:18px;font-weight:700;margin:0;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;">' + escapeHtml(event.title) + '</h3>' +
-      '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-top:2px;">by ' + escapeHtml(event.organizer || "Anonymous") + '</div>' +
+      '<h3 class="card-title-hero" style="overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(event.title) + '</h3>' +
+      '<div style="font-size:13px;color:var(--muted);font-weight:600;margin-top:2px;">by ' + escapeHtml(event.organizer || "Anonymous") + '</div>' +
       '</div></div>' +
       rightHtml +
       '</div>' +
       '<div class="event-meta" style="margin-bottom:8px;">' +
-      '<span class="event-tag" style="font-size:12px;padding:3px 8px;">⏰ ' + formatTimeWithTz(event.time, appTimezone) + '</span>' +
-      '<span class="event-tag" style="font-size:12px;padding:3px 8px;background:var(--primary);">👥 ' + (event.rsvpCount || 0) + '</span>' +
-      (event.category ? catBadge(event.category) : '') +
+      '<span class="event-tag" style="--i:0;font-size:12px;padding:3px 8px;">⏰ ' + formatTimeWithTz(event.time, appTimezone) + '</span>' +
+      '<span class="event-tag" style="--i:1;font-size:12px;padding:3px 8px;background:var(--primary);">👥 ' + (event.rsvpCount || 0) + '</span>' +
+      (event.category ? '<span style="--i:2;display:inline-flex;">' + catBadge(event.category) + '</span>' : '') +
       '</div>';
 
     // Body: description scrolls, with progress dots pinned to the bottom of the body
@@ -389,28 +426,46 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
       '<div class="card-progress" id="home-dots" style="flex-shrink:0;margin-top:6px;"></div>';
 
     var actionsHtml =
-      '<div style="display:flex;gap:6px;align-items:center;">' +
-      '<button class="btn btn-white btn-action btn-view-details" data-id="' + event.id + '" data-action="view-details">Details →</button>' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+      '<button class="btn btn-white btn-action btn-view-details" data-id="' + event.id + '" data-action="view-details" style="flex:1;min-width:0;">Details →</button>' +
       (event.hasRsvped
-        ? '<button class="btn btn-green btn-action btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card">✅ Going</button>'
-        : '<button class="btn btn-pink btn-action btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card">🎟️ RSVP</button>') +
+        ? '<button class="btn btn-green btn-action btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:2;min-width:0;">✅ Going</button>'
+        : '<button class="btn btn-pink btn-action btn-rsvp-card" data-id="' + event.id + '" data-action="rsvp-card" style="flex:2;min-width:0;">🎟️ RSVP</button>') +
       (homeShareUrl ? '<button class="btn btn-white btn-icon btn-share-event" data-action="share-event" title="Copy share link" aria-label="Copy share link">📤</button>' : '') +
       '</div>';
 
     var footerHtml = count > 1
       ? '<button class="footer-btn footer-btn-prev" id="home-prev-btn" data-action="home-prev">← Prev</button>' +
-        '<span style="font-size:12px;font-weight:700;">' + (homeCardIdx + 1) + '/' + count + '</span>' +
+        '<span class="footer-counter">' + (homeCardIdx + 1) + '/' + count + '</span>' +
         '<button class="footer-btn footer-btn-next" id="home-next-btn" data-action="home-next">Next →</button>'
       : '';
 
-    c.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, footerHtml: footerHtml, noFade: opts.noFade });
+    var catColor = (event.category && CAT_MAP[event.category]) ? CAT_MAP[event.category].color : "";
+    c.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, footerHtml: footerHtml, noFade: opts.noFade, accentColor: catColor });
+    // e23: one-shot bounce on the RSVP button when the user JUST RSVP'd in this session
+    if (event.hasRsvped && justRsvpedIds[event.id]) {
+      var rsvpBtn = c.querySelector(".btn-rsvp-card");
+      if (rsvpBtn) {
+        rsvpBtn.classList.add("rsvp-bounce");
+        setTimeout(function() { rsvpBtn.classList.remove("rsvp-bounce"); justRsvpedIds[event.id] = false; log("rsvp-bounce done for " + event.id); }, 450);
+        log("rsvp-bounce triggered for " + event.id);
+      }
+    }
+    if (opts.cardSwap) {
+      var shell = c.querySelector(".card-shell") as HTMLElement | null;
+      if (shell) {
+        shell.classList.add(opts.cardSwap === "prev" ? "card-swap-prev" : "card-swap-next");
+        setTimeout(function () { shell.classList.remove("card-swap-prev", "card-swap-next"); }, 250);
+        log("renderHomeCard cardSwap=" + opts.cardSwap);
+      }
+    }
     updateCardDots("home", homeCardIdx, count);
     updateCardNav("home", homeCardIdx, count, true);
   }
   document.getElementById("mod-btn")!.classList.toggle("hidden", !state.isMod);
 }
-function homePrev() { var events = searchFilteredEvents || cachedHomeEvents; log("homePrev idx=" + homeCardIdx + " total=" + events.length); if (events.length > 1) { homeCardIdx = (homeCardIdx - 1 + events.length) % events.length; log("homePrev newIdx=" + homeCardIdx); renderHomeCard({ eventsByDate: groupByDate(events), isMod: cachedHomeIsMod, settings: {} }, { noFade: true }); } }
-function homeNext() { var events = searchFilteredEvents || cachedHomeEvents; log("homeNext idx=" + homeCardIdx + " total=" + events.length); if (events.length > 1) { homeCardIdx = (homeCardIdx + 1) % events.length; log("homeNext newIdx=" + homeCardIdx); renderHomeCard({ eventsByDate: groupByDate(events), isMod: cachedHomeIsMod, settings: {} }, { noFade: true }); } }
+function homePrev() { var events = searchFilteredEvents || cachedHomeEvents; log("homePrev idx=" + homeCardIdx + " total=" + events.length); if (events.length > 1) { homeCardIdx = (homeCardIdx - 1 + events.length) % events.length; log("homePrev newIdx=" + homeCardIdx); renderHomeCard({ eventsByDate: groupByDate(events), isMod: cachedHomeIsMod, settings: {} }, { noFade: true, cardSwap: "prev" }); } }
+function homeNext() { var events = searchFilteredEvents || cachedHomeEvents; log("homeNext idx=" + homeCardIdx + " total=" + events.length); if (events.length > 1) { homeCardIdx = (homeCardIdx + 1) % events.length; log("homeNext newIdx=" + homeCardIdx); renderHomeCard({ eventsByDate: groupByDate(events), isMod: cachedHomeIsMod, settings: {} }, { noFade: true, cardSwap: "next" }); } }
 function groupByDate(events: any[]): Record<string, any[]> { var g: Record<string, any[]> = {}; for (var i = 0; i < events.length; i++) { var event = events[i]; if (!event) continue; var d = event._date || ""; if (!g[d]) g[d] = []; g[d]!.push(event); } return g; }
 
 // Search/filter events client-side
@@ -435,7 +490,11 @@ function filterHomeEvents(query: string) {
   homeCardIdx = 0;
   if (filtered.length === 0) {
     var c = document.getElementById("events-container")!;
-    c.innerHTML = '<div class="empty-state"><span class="emoji">🔍</span><h2>No events found</h2><p>No events match "' + escapeHtml(query) + '"</p></div>';
+    c.innerHTML = renderEmptyState({
+      emoji: "🔍", title: "Nothing matches that vibe",
+      body: "No events match \"" + query + "\". Try a different filter.",
+      context: "filter",
+    });
   } else {
     renderHomeCard({ eventsByDate: groupByDate(filtered), isMod: cachedHomeIsMod, settings: {} });
   }
@@ -509,7 +568,7 @@ async function loadMySubmissions() {
   var loadSeq = ++myStuffLoadSeq;
   var capturedTab = myStuffTab;
   var container = document.getElementById("my-stuff-container")!;
-  container.innerHTML = '<div class="empty-state"><span class="emoji">⏳</span><h2>Loading...</h2></div>';
+  container.innerHTML = renderSkeleton({ bars: 4 });
   try {
     var res = await fetch(API_BASE + "/api/my-submissions");
     var data = await res.json();
@@ -523,7 +582,7 @@ async function loadMySubmissions() {
     }
   } catch (e) {
     log("error: loadMySubmissions " + e);
-    container.innerHTML = '<div class="empty-state"><span class="emoji">❌</span><h2>Could not load</h2></div>';
+    container.innerHTML = renderErrorState({ message: "Couldn't load My Stuff", retryAction: "open-my-stuff" });
   }
   myStuffLoading = false;
 }
@@ -532,7 +591,15 @@ function renderMyRsvpCard(opts: { noFade?: boolean } = {}) {
   var el = document.getElementById("my-stuff-container")!;
   updateMyStuffFooter("rsvps");
   updateCardDots("my-stuff", myRsvpIdx, myRsvps.length);
-  if (myRsvps.length === 0) { el.innerHTML = '<div class="empty-state compact"><span class="emoji">🎟️</span><h2>No RSVPs yet</h2><p>Go to the Home tab to find events!</p><button class="btn btn-white btn-empty" data-action="close-overlay">← Back to Home</button></div>'; return; }
+  if (myRsvps.length === 0) {
+    el.innerHTML = renderEmptyState({
+      emoji: "🎟️", title: "No RSVPs yet",
+      body: "Browse the Home tab to find your people ✨",
+      ctas: [{ label: "← Back to Home", action: "close-overlay", variant: "white" }],
+      compact: true, context: "my-stuff-rsvps",
+    });
+    return;
+  }
   if (myRsvpIdx >= myRsvps.length) myRsvpIdx = 0;
   var e = myRsvps[myRsvpIdx];
   var key = "rsvp-" + e.id;
@@ -541,9 +608,10 @@ function renderMyRsvpCard(opts: { noFade?: boolean } = {}) {
   if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   myStuffDescPageIdx[key] = 0;
 
-  var headerHtml = '<h3 style="font-size:17px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
+  var headerHtml = '<h3 class="card-title-md" style="margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
     '<div style="font-size:12px;color:var(--muted);font-weight:600;">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div>' +
     '<div style="font-size:12px;color:var(--muted);">📍 ' + escapeHtml(e.location || "") + '</div>' +
+    '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-top:4px;">👥 ' + (e.rsvpCount || 0) + ' going</div>' +
     (e.category ? '<div style="margin:4px 0;">' + catBadge(e.category) + '</div>' : '');
 
   var bodyHtml = '<div id="my-stuff-desc-box-' + key + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
@@ -575,7 +643,15 @@ function renderMyPitchCard(opts: { noFade?: boolean } = {}) {
   var el = document.getElementById("my-stuff-container")!;
   updateMyStuffFooter("pitches");
   updateCardDots("my-stuff", myPitchIdx, myPitches.length);
-  if (myPitches.length === 0) { el.innerHTML = '<div class="empty-state compact"><span class="emoji">💡</span><h2>No pitches yet</h2><p>Pitch an idea from the Create menu!</p><button class="btn btn-pink btn-empty" data-action="create-pitch">💡 Pitch an Idea</button></div>'; return; }
+  if (myPitches.length === 0) {
+    el.innerHTML = renderEmptyState({
+      emoji: "💡", title: "No pitches yet",
+      body: "Got an idea? Pitch it from the Create menu.",
+      ctas: [{ label: "💡 Pitch an Idea", action: "create-pitch", variant: "pink" }],
+      compact: true, context: "my-stuff-pitches",
+    });
+    return;
+  }
   if (myPitchIdx >= myPitches.length) myPitchIdx = 0;
   var p = myPitches[myPitchIdx];
   var key = "pitch-" + p.id;
@@ -584,7 +660,7 @@ function renderMyPitchCard(opts: { noFade?: boolean } = {}) {
   if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   myStuffDescPageIdx[key] = 0;
 
-  var headerHtml = '<h3 style="font-size:17px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(p.title) + '</h3>' +
+  var headerHtml = '<h3 class="card-title-md" style="margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(p.title) + '</h3>' +
     (p.proposedDate
       ? '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px;">💡 Proposed: ' + escapeHtml(p.proposedDate) + (p.proposedTime ? ' at ' + escapeHtml(p.proposedTime) : '') + '</div>'
       : '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px;">📅 Pitched: ' + escapeHtml(new Date(p.submittedAt).toLocaleDateString()) + '</div>') +
@@ -616,7 +692,15 @@ function renderMyEventCard(opts: { noFade?: boolean } = {}) {
   var el = document.getElementById("my-stuff-container")!;
   updateMyStuffFooter("events");
   updateCardDots("my-stuff", myEventIdx, myEvents.length);
-  if (myEvents.length === 0) { el.innerHTML = '<div class="empty-state compact"><span class="emoji">📋</span><h2>No events yet</h2><p>Submit an event from the Create menu!</p><button class="btn btn-white btn-empty" data-action="create-event">📋 Submit Event</button></div>'; return; }
+  if (myEvents.length === 0) {
+    el.innerHTML = renderEmptyState({
+      emoji: "📋", title: "No events yet",
+      body: "Submit an event from the Create menu!",
+      ctas: [{ label: "📋 Submit Event", action: "create-event", variant: "white" }],
+      compact: true, context: "my-stuff-events",
+    });
+    return;
+  }
   if (myEventIdx >= myEvents.length) myEventIdx = 0;
   var e = myEvents[myEventIdx];
   var status = e.status === "published" ? "✅ Published" : "⏳ Pending";
@@ -626,7 +710,7 @@ function renderMyEventCard(opts: { noFade?: boolean } = {}) {
   if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   myStuffDescPageIdx[key] = 0;
 
-  var headerHtml = '<h3 style="font-size:17px;font-weight:700;margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
+  var headerHtml = '<h3 class="card-title-md" style="margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
     '<div style="font-size:12px;color:var(--muted);font-weight:600;">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div>' +
     '<div style="font-size:12px;font-weight:600;">' + status + '</div>' +
     (e.category ? '<div style="margin:4px 0;">' + catBadge(e.category) + '</div>' : '');
@@ -639,7 +723,14 @@ function renderMyEventCard(opts: { noFade?: boolean } = {}) {
 
   var actionsHtml = (e.status === "pending" ?
         '<button class="btn btn-white btn-action-full" data-id="' + e.id + '" data-action="cancel-my-event">❌ Cancel</button>' :
-        '<button class="btn btn-white btn-action-full" data-id="' + e.id + '" data-action="delete-my-event">🗑️ Delete</button>'
+        (function() {
+          var rc = e.rsvpCount || 0;
+          log("my-event attendees-button id=" + e.id + " rsvpCount=" + rc);
+          return '<div style="display:flex;gap:8px;">' +
+            '<button class="btn btn-white btn-action" data-id="' + e.id + '" data-action="delete-my-event">🗑️ Delete</button>' +
+            '<button class="btn btn-white btn-action" data-id="' + escapeAttr(e.id) + '" data-action="view-attendees-organizer">👥 ' + rc + ' Attendee' + (rc === 1 ? '' : 's') + '</button>' +
+            '</div>';
+        })()
       );
 
   el.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, noFade: opts.noFade });
@@ -698,7 +789,13 @@ function renderAttendees(eventId: string, att: any[]) {
   var el = document.getElementById("rsvps-public-" + eventId);
   if (!el) return;
   attListStore[eventId] = att;
-  if (att.length === 0) { el.innerHTML = '<div style="text-align:center;padding:20px;font-size:14px;color:var(--muted);">No one yet — be the first!</div>'; return; }
+  if (att.length === 0) {
+    el.innerHTML = renderEmptyState({
+      emoji: "👥", title: "No one yet — be the first!",
+      compact: true, context: "rsvp-list",
+    });
+    return;
+  }
   var perPage = ATTENDEES_PER_PAGE, totalPages = Math.ceil(att.length / perPage);
   attPageIdx[eventId] = 0;
   var pages = '';
@@ -734,7 +831,7 @@ async function loadPublicAttendees(eventId: string) {
         log("loadPublicAttendees STALE RESPONSE REJECTED — overlay closed or different event");
       }
     }
-  } catch (e) { log("error: loadPublicAttendees " + e); }
+  } catch (e) { log("error: loadPublicAttendees " + e); showToast("Couldn't load", "error"); }
 }
 
 // Who's Going pager (ATTENDEES_PER_PAGE = 5). The pager is HIDDEN when total
@@ -856,8 +953,17 @@ async function showEventDetails(id: string) {
       return;
     }
     log("showEventDetails stale response " + id + " current=" + currentEventId);
-  } catch (e) { log("showEventDetails fetch error " + id); }
-  if (!cachedEvent) openDetailsOverlay({ event: { id: id, title: "Event", date: "", time: "", location: "", description: "", organizer: "", mapUrl: "" }, rsvpCount: 0, hasRsvped: false, settings: {} });
+  } catch (e) {
+    log("showEventDetails fetch error " + id);
+    showToast("Couldn't load", "error");
+    if (!cachedEvent) {
+      var body3 = document.getElementById("detail-body");
+      if (body3) body3.innerHTML = renderErrorState({ message: "Couldn't load event", retryAction: "close-overlay" });
+      document.getElementById("detail-prev-btn")?.classList.add("hidden");
+      document.getElementById("detail-next-btn")?.classList.add("hidden");
+      openOverlay("details-overlay");
+    }
+  }
   detailLoading = false;
 }
 function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boolean; settings: any }) {
@@ -867,14 +973,48 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   document.getElementById("details-overlay-title")!.textContent = e.title;
   var date = new Date(e.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
-  // Card 1: Quick Info
-  var s1 = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;justify-content:center;gap:12px;padding:16px;">' +
-    (e.emoji ? '<div style="text-align:center;font-size:48px;margin-bottom:4px;">' + e.emoji + '</div>' : '') +
-    '<div style="text-align:center;"><div style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">📅 Date</div><div style="font-size:18px;font-weight:700;">' + date + '</div></div>' +
-    '<div style="text-align:center;"><div style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">⏰ Time</div><div style="font-size:18px;font-weight:700;">' + escapeHtml(e.time) + '</div></div>' +
-    '<div style="text-align:center;"><div style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">📍 Location</div><div style="font-size:16px;font-weight:700;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;max-height:42px;">' + escapeHtml(e.location) + '</div></div>' +
-    (e.category ? '<div style="text-align:center;margin-top:4px;">' + catBadge(e.category) + '</div>' : '') +
-    '<div style="background:var(--surface);border:var(--border);padding:10px;text-align:center;font-weight:700;font-size:14px;margin-top:2px;">👥 ' + d.rsvpCount + ' people going</div>' +
+  // Card 1: Quick Info (redesigned — compact 2-col grid)
+  var emojiTile = e.emoji
+    ? '<div style="width:48px;height:48px;background:var(--primary);border:var(--border);display:flex;align-items:center;justify-content:center;font-size:28px;box-shadow:var(--shadow-sm);flex-shrink:0;">' + e.emoji + '</div>'
+    : '<div style="width:48px;height:48px;background:var(--surface);border:var(--border);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;box-shadow:var(--shadow-sm);flex-shrink:0;">📅</div>';
+  var dateLabel = '<div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">📅 Date</div><div style="font-size:15px;font-weight:700;line-height:1.2;">' + date + '</div>';
+  var timeLabel = '<div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">⏰ Time</div><div style="font-size:15px;font-weight:700;line-height:1.2;">' + escapeHtml(e.time) + '</div>';
+  var locationLabel = '<div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">📍 Location</div><div style="font-size:14px;font-weight:700;line-height:1.25;word-break:break-word;overflow-wrap:break-word;">' + escapeHtml(e.location || "TBD") + '</div>';
+  var goingCount = d.rsvpCount + ' going' + (d.rsvpCount !== 1 ? '' : '');
+  var s1 = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:8px;padding:14px;">' +
+    // Row 1: emoji + title header (compact)
+    '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">' +
+      emojiTile +
+      '<div style="flex:1;min-width:0;">' +
+        '<div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Event</div>' +
+        '<div style="font-size:13px;font-weight:700;line-height:1.2;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">' + escapeHtml(e.title) + '</div>' +
+      '</div>' +
+    '</div>' +
+    // Row 2: 2-col grid for date and time
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;flex-shrink:0;">' +
+      '<div style="background:var(--surface);border:var(--border);padding:8px 10px;min-width:0;">' + dateLabel + '</div>' +
+      '<div style="background:var(--surface);border:var(--border);padding:8px 10px;min-width:0;">' + timeLabel + '</div>' +
+    '</div>' +
+    // Row 3: location (full width)
+    '<div style="background:var(--surface);border:var(--border);padding:8px 10px;flex-shrink:0;">' + locationLabel + '</div>' +
+    // Row 4: organizer + category + going count (2-col, organizer takes more)
+    '<div style="display:grid;grid-template-columns:1fr auto;gap:8px;flex-shrink:0;align-items:stretch;">' +
+      (e.organizer
+        ? '<div style="background:var(--surface);border:var(--border);padding:8px 10px;display:flex;align-items:center;gap:8px;min-width:0;">' +
+            '<div style="flex:1;min-width:0;">' +
+              '<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">👤 Organizer</div>' +
+              '<div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(e.organizer) + '</div>' +
+            '</div>' +
+            '<button class="btn-copy btn-copy-link" data-id="' + escapeAttr(e.organizer) + '" data-action="copy-link" title="Copy organizer username" aria-label="Copy organizer username" style="flex-shrink:0;">📋</button>' +
+          '</div>'
+        : '<div></div>') +
+      '<div style="background:var(--surface);border:var(--border);padding:8px 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-width:90px;">' +
+        '<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:0.05em;">👥 Going</div>' +
+        '<div style="font-weight:700;font-size:18px;line-height:1;">' + d.rsvpCount + '</div>' +
+      '</div>' +
+    '</div>' +
+    // Row 5: category badge (if present)
+    (e.category ? '<div style="flex-shrink:0;text-align:center;">' + catBadge(e.category) + '</div>' : '') +
     '</div>';
 
   // Card 2: Organizer + Description
@@ -882,7 +1022,7 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   descFullText[e.id] = descFull;
   if (!isOpen) { descPageIdx[e.id] = 0; descPageTotal[e.id] = hasMore ? 99 : 1; }
   var s2 = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:6px;padding:8px 0;">';
-  if (e.organizer) { var initial = e.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><div style="width:36px;height:36px;border:var(--border);background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(e.organizer) + '</div></div></div>'; }
+  if (e.organizer) { var initial = e.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><div class="avatar-circle">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(e.organizer) + '</div></div></div>'; }
   s2 += '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);position:relative;" id="desc-box-' + e.id + '">' +
     '<div id="desc-track-' + e.id + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
     '<div id="desc-page-initial-' + e.id + '" style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;font-size:15px;line-height:1.5;word-break:break-word;">' +
@@ -906,7 +1046,7 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   // Card 4: RSVP / Leave
   var s4 = d.hasRsvped
     ? '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;padding:20px;text-align:center;padding-top:32px;">' +
-      '<div style="font-size:56px;">🎉</div>' +
+      '<svg class="rsvp-checkmark" viewBox="0 0 52 52" width="56" height="56" style="margin:0 auto;"><circle class="rsvp-checkmark-circle" cx="26" cy="26" r="24" fill="none" stroke="#1c1c0f" stroke-width="4"/><path class="rsvp-checkmark-path" fill="none" stroke="#00ff88" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" d="M14 27l7 7 16-16"/></svg>' +
       '<div style="font-size:18px;font-weight:700;">You\'re on the list!</div>' +
       '<div style="font-size:14px;color:var(--muted);">See you there</div>' +
       '<div style="display:flex;gap:8px;margin-top:8px;width:100%;max-width:260px;">' +
@@ -1024,7 +1164,12 @@ async function loadModTab(tab: string) {
       var d2 = await res2.json();
       if (d2.type === "pitched-ideas") { modTabCache[tab] = { data: d2.ideas, timestamp: Date.now() }; renderModPitches(d2.ideas); }
     }
-  } catch (e) { log("error: loadModTab " + e); }
+  } catch (e) {
+    log("error: loadModTab " + e);
+    document.getElementById("pending-events-container")!.innerHTML = renderErrorState({
+      message: "Couldn't load mod queue", retryAction: "show-mod"
+    });
+  }
   finally { modFetching[tab] = false; setModLoading(false); }
 }
 function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
@@ -1038,7 +1183,7 @@ function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
   var c = document.getElementById("pending-events-container")!;
   var desc = item.description || "";
   var dcKey = tab + "-" + idx;
-  var color = tab === "pending" ? "#ff69b4" : (tab === "pitches" ? "#ffeaa7" : "#fff");
+  var color = tab === "pending" ? "var(--pending-bg)" : (tab === "pitches" ? "var(--pitch-bg)" : "#fff");
 
   // Pre-populate modDesc* state. The pitches long-desc pager (below) reads
   // from keys "pitches-" + item.id, not this dcKey. Kept for compatibility
@@ -1050,7 +1195,7 @@ function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
   // Header
   var headerHtml = '';
   if (item.emoji) { headerHtml += '<div style="font-size:28px;margin-bottom:4px;">' + item.emoji + '</div>'; }
-  headerHtml += '<h3 style="font-size:18px;font-weight:700;margin:0 0 4px 0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(item.title) + '</h3>';
+  headerHtml += '<h3 class="card-title-lg" style="margin:0 0 4px 0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(item.title) + '</h3>';
   headerHtml += '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:6px;display:flex;flex-direction:column;gap:2px;">';
   if (tab === "pitches") {
     headerHtml += '<div>👤 u/' + escapeHtml(item.submittedBy) + ' · ' + escapeHtml(new Date(item.submittedAt).toLocaleString()) + '</div>';
@@ -1070,20 +1215,20 @@ function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
   if (tab === "pending" && item.submittedAt) {
     var daysOld = Math.floor((Date.now() - new Date(item.submittedAt).getTime()) / 86400000);
     if (daysOld >= 1) {
-      var daysBg = daysOld === 1 ? "#ffaa00" : "#ff4444";
+      var daysBg = daysOld === 1 ? "var(--warn)" : "var(--danger)";
       var daysLabel = "⏰ " + daysOld + " day" + (daysOld !== 1 ? "s" : "") + " pending";
       badges += '<div style="font-size:11px;font-weight:700;color:#fff;background:' + daysBg + ';border:var(--border);padding:2px 8px;display:inline-block;">' + daysLabel + '</div>';
     }
   }
   if (tab === "published") {
     var rc = item.rsvpCount || 0;
-    var badgeColor = rc === 0 ? "#ff4444" : (rc < 5 ? "#ffaa00" : "#00ff88");
+    var badgeColor = rc === 0 ? "var(--danger)" : (rc < 5 ? "var(--warn)" : "var(--success)");
     var badgeText = rc === 0 ? "🔴 No RSVPs" : (rc < 5 ? "🟡 " + rc + " going" : "🟢 " + rc + " going");
     badges += '<div style="font-size:11px;font-weight:700;color:#fff;background:' + badgeColor + ';border:var(--border);padding:2px 8px;display:inline-block;">' + badgeText + '</div>';
   }
   if (tab !== "pitches") {
     var today2 = new Date().toISOString().split("T")[0] || "";
-    if (item.date < today2) badges += '<div style="font-size:11px;font-weight:700;color:#fff;background:#999;border:var(--border);padding:2px 8px;display:inline-block;">⏰ Past Event</div>';
+    if (item.date < today2) badges += '<div style="font-size:11px;font-weight:700;color:#fff;background:var(--neutral);border:var(--border);padding:2px 8px;display:inline-block;">⏰ Past Event</div>';
   }
   if (badges) headerHtml += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;align-items:center;">' + badges + '</div>';
   log("renderModCard header complete tab=" + tab);
@@ -1202,7 +1347,11 @@ function renderModPending(events: any[]) {
   modItems["pending"] = events;
   modCardIdx["pending"] = 0;
   if (events.length === 0) {
-    document.getElementById("pending-events-container")!.innerHTML = '<div class="empty-state"><span class="emoji">📋</span><h2>No pending events</h2></div>';
+    document.getElementById("pending-events-container")!.innerHTML = renderEmptyState({
+      emoji: "📋", title: "No pending events",
+      body: "Nothing to review right now.",
+      context: "mod-pending",
+    });
     updateCardDots("mod", 0, 0);
     updateCardNav("mod", 0, 0);
     return;
@@ -1216,7 +1365,11 @@ function renderModPublished(events: any[]) {
   modItems["published"] = events;
   modCardIdx["published"] = 0;
   if (events.length === 0) {
-    document.getElementById("pending-events-container")!.innerHTML = '<div class="empty-state"><span class="emoji">✅</span><h2>No published events</h2></div>';
+    document.getElementById("pending-events-container")!.innerHTML = renderEmptyState({
+      emoji: "✅", title: "No published events",
+      body: "Approved events will appear here.",
+      context: "mod-published",
+    });
     updateCardDots("mod", 0, 0);
     updateCardNav("mod", 0, 0);
     return;
@@ -1228,7 +1381,11 @@ function renderModPitches(ideas: any[]) {
   modItems["pitches"] = ideas;
   modCardIdx["pitches"] = 0;
   if (ideas.length === 0) {
-    document.getElementById("pending-events-container")!.innerHTML = '<div class="empty-state"><span class="emoji">💡</span><h2>No pitched ideas</h2></div>';
+    document.getElementById("pending-events-container")!.innerHTML = renderEmptyState({
+      emoji: "💡", title: "No pitched ideas",
+      body: "Community pitches will appear here.",
+      context: "mod-pitches",
+    });
     updateCardDots("mod", 0, 0);
     updateCardNav("mod", 0, 0);
     return;
@@ -1259,6 +1416,67 @@ function setBtnLoading(selector: string, loading: boolean, text?: string) {
     btn.style.opacity = "1";
     btn.style.pointerEvents = "auto";
   }
+}
+
+// ======= EMPTY / ERROR / SKELETON HELPERS (e22) =======
+function renderEmptyState(opts: {
+  emoji: string; title: string; body?: string;
+  ctas?: Array<{ label: string; action: string; variant: "pink" | "white" | "green" }>;
+  compact?: boolean; context?: string;
+}): string {
+  log("renderEmptyState context=" + (opts.context || "custom") + " emoji=" + opts.emoji);
+  var cls = opts.compact ? "empty-state compact" : "empty-state";
+  var html = '<div class="' + cls + '"><span class="emoji">' + opts.emoji + '</span>' +
+    '<h2>' + escapeHtml(opts.title) + '</h2>' +
+    (opts.body ? '<p>' + escapeHtml(opts.body) + '</p>' : '');
+  if (opts.ctas && opts.ctas.length > 0) {
+    html += '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px;">';
+    for (var i = 0; i < opts.ctas.length; i++) {
+      var cta = opts.ctas[i]!;
+      var bg = cta.variant === "pink" ? "btn-pink" : (cta.variant === "green" ? "btn-green" : "btn-white");
+      html += '<button class="btn ' + bg + ' btn-empty" data-action="' + escapeAttr(cta.action) + '">' + cta.label + '</button>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderErrorState(opts: { message: string; retryAction?: string; compact?: boolean }): string {
+  log("renderErrorState message=" + opts.message + (opts.retryAction ? " retry=" + opts.retryAction : " no-retry"));
+  var cls = opts.compact ? "empty-state compact" : "empty-state";
+  return '<div class="' + cls + '"><span class="emoji">😿</span>' +
+    '<h2>' + escapeHtml(opts.message) + '</h2>' +
+    (opts.retryAction ? '<button class="btn btn-white btn-empty" data-action="' + escapeAttr(opts.retryAction) + '">🔄 Tap to retry</button>' : '') +
+    '</div>';
+}
+
+function renderSkeleton(opts: { bars?: number; compact?: boolean } = {}): string {
+  var n = opts.bars || 3;
+  log("renderSkeleton bars=" + n + (opts.compact ? " compact" : ""));
+  var cls = opts.compact ? "empty-state compact" : "empty-state";
+  var html = '<div class="' + cls + '" style="padding-top:24px;">';
+  for (var i = 0; i < n; i++) {
+    var w = 100 - (i * 15);
+    html += '<div class="skeleton-bar" style="width:' + w + '%;"></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function validateField(el: HTMLElement, message: string): boolean {
+  var group = el.closest(".form-group");
+  if (!group) return true;
+  var existing = group.querySelector(".form-error");
+  if (existing) existing.remove();
+  group.classList.remove("has-error");
+  if (!message) return true;
+  group.classList.add("has-error");
+  var err = document.createElement("div");
+  err.className = "form-error";
+  err.textContent = message;
+  el.insertAdjacentElement("afterend", err);
+  return false;
 }
 
 // ======= CONFIRM HELPER =======
@@ -1358,7 +1576,7 @@ async function approveEvent(id: string) { log("approveEvent id=" + id); var k = 
       }
       delete modTabCache["pending"]; delete modTabCache["published"];
     } else { await tryShowServerError(res, "Approve failed"); } } catch (e) { showToast("Network error", "error"); } finally { if (btn && (res && !res.ok || !res)) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; btn.textContent = btn.dataset.originalText || "✅ Approve & Publish"; delete btn.dataset.originalText; } unlock(k); } }
-async function deleteEvent(id: string, type: string) { log("deleteEvent id=" + id + " type=" + type); var k = type + "-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) { unlock(k); return; } var sel = type === "pending" ? ".btn-decline-event" : ".btn-delete-published"; var btn = document.querySelector('[data-id="' + id + '"]' + sel) as HTMLElement; if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; } var parent = btn ? btn.closest(".pending-card,.event-card") as HTMLElement : null; if (parent) parent.style.opacity = "0.3"; var endpoint = type === "pending" ? "/api/delete-pending" : "/api/delete-published"; var res; try { res = await fetch(API_BASE + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });     if (res.ok) { showToast("Deleted", "success"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; }       // Optimistically remove from modItems
+async function deleteEvent(id: string, type: string) { log("deleteEvent id=" + id + " type=" + type); var k = type + "-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) { unlock(k); return; } var sel = type === "pending" ? ".btn-decline-event" : ".btn-delete-published"; var btn = document.querySelector('[data-id="' + id + '"]' + sel) as HTMLElement; if (btn) { btn.style.opacity = "0.3"; btn.style.pointerEvents = "none"; }   var parent = btn ? btn.closest(".pending-card,.event-card") as HTMLElement : null; if (parent) parent.style.opacity = "0.3"; var endpoint = type === "pending" ? "/api/delete-pending" : "/api/delete-published"; var res; try { res = await fetch(API_BASE + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });     if (res.ok) { showToast("Deleted", "success"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; }       // Optimistically remove from modItems
       var tabName = type === "pending" ? "pending" : "published";
       var tabItems = modItems[tabName] || [];
       var delIdx2 = tabItems.findIndex(function(e: any) { return e.id === id; });
@@ -1464,7 +1682,7 @@ async function showModEventDetails(id: string) {
   descPageIdx[id] = 0;
   descPageTotal[id] = descFull.length > DESC_SHORT_LENGTH ? 99 : 1;
   var s2 = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:6px;padding:8px 0;">';
-  if (item.organizer) { var initial = item.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><div style="width:36px;height:36px;border:var(--border);background:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(item.organizer) + '</div></div></div>'; }
+  if (item.organizer) { var initial = item.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><div class="avatar-circle">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(item.organizer) + '</div></div></div>'; }
   s2 += '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);position:relative;" id="mod-desc-box-' + id + '">' +
     '<div id="mod-desc-track-' + id + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
     '<div id="mod-desc-page-initial-' + id + '" style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;font-size:15px;line-height:1.5;word-break:break-word;">' +
@@ -1597,7 +1815,7 @@ function loadModPublicAttendees(eventId: string) {
     return;
   }
   var container = document.getElementById("mod-rsvps-public-" + eventId);
-  if (container) container.innerHTML = '<div style="text-align:center;padding:20px;">⏳ Loading...</div>';
+  if (container) container.innerHTML = renderSkeleton({ bars: 3, compact: true });
   fetch(API_BASE + "/api/rsvp-list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: eventId, includeContactDetails: true }) })
     .then(function(res) { return res.json(); })
     .then(function(data) {
@@ -1613,7 +1831,7 @@ function loadModPublicAttendees(eventId: string) {
         }
       }
     })
-    .catch(function(e) { log("error: loadModPublicAttendees " + e); });
+    .catch(function(e) { log("error: loadModPublicAttendees " + e); showToast("Couldn't load", "error"); });
 }
 
 function renderModAttendees(eventId: string, att: any[]) {
@@ -1621,7 +1839,10 @@ function renderModAttendees(eventId: string, att: any[]) {
   var container = document.getElementById("mod-rsvps-public-" + eventId);
   if (!container) { log("renderModAttendees container not found id=" + eventId); return; }
   if (att.length === 0) {
-    container.innerHTML = '<div style="text-align:center;padding:20px;font-size:14px;color:var(--muted);">No RSVPs yet</div>';
+    container.innerHTML = renderEmptyState({
+      emoji: "🎟️", title: "No RSVPs yet",
+      compact: true, context: "rsvp-list",
+    });
     document.getElementById("mod-att-nav-" + eventId)!.innerHTML = '';
     return;
   }
@@ -1665,10 +1886,11 @@ var MOD_ATT_PER_PAGE = 5;
 async function showModAttendees(id: string) {
   log("showModAttendees id=" + id);
   var item = modItems["published"]?.find(function(e: any) { return e.id === id; });
-  if (!item) return;
+  if (!item) item = myEvents.find(function(e: any) { return e.id === id; });
+  if (!item) { log("showModAttendees FAILED: event not found in modItems or myEvents id=" + id); return; }
   document.getElementById("mod-attendees-title")!.textContent = "👥 Attendees — " + item.title;
   var body = document.getElementById("mod-attendees-body")!;
-  body.innerHTML = '<div style="text-align:center;padding:20px;">⏳ Loading attendees...</div>';
+  body.innerHTML = renderSkeleton({ bars: 3, compact: true });
   openOverlay("mod-attendees-overlay");
   try {
     var res = await fetch(API_BASE + "/api/rsvp-list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id, includeContactDetails: true }) });
@@ -1682,7 +1904,10 @@ async function showModAttendees(id: string) {
         return;
       }
       if (att.length === 0) {
-        body.innerHTML = '<div class="empty-state"><span class="emoji">👥</span><h2>No RSVPs yet</h2></div>';
+        body.innerHTML = renderEmptyState({
+          emoji: "👥", title: "No RSVPs yet",
+          compact: true, context: "attendees",
+        });
       } else {
         var groups: any[][] = [];
         for (var i = 0; i < att.length; i += MOD_ATT_PER_PAGE) {
@@ -1720,7 +1945,10 @@ async function showModAttendees(id: string) {
         updateModAttNav();
       }
     }
-  } catch (e) { body.innerHTML = '<div style="text-align:center;padding:20px;color:#ff4444;">Failed to load attendees</div>'; }
+  } catch (e) {
+    log("error: showModAttendees " + e);
+    body.innerHTML = renderErrorState({ message: "Couldn't load attendees", retryAction: "view-attendees-mod" });
+  }
 }
 
 function updateModAttNav() {
@@ -1770,7 +1998,7 @@ async function viewRsvps(eventId: string) { log("viewRsvps id=" + eventId);
       }
       el.classList.remove("hidden");
     }
-  } catch (e) { log("error: viewRsvps " + e); }
+  } catch (e) { log("error: viewRsvps " + e); showToast("Couldn't load", "error"); }
   setBtnLoading('[data-action="view-rsvps"][data-id="' + eventId + '"]', false);
 }
 
@@ -1795,6 +2023,11 @@ async function submitRsvp() {
       setBtnLoading(".btn-submit-rsvp", false);
       delete detailCache[currentEventId];
       delete attendeeCache[currentEventId];
+      // e23: mark this event as just-RSVP'd so the home card bounces on next render
+      if (currentEventId && !isUpdate) {
+        justRsvpedIds[currentEventId] = true;
+        log("submitRsvp success, justRsvped=" + currentEventId);
+      }
       // Optimistically update home cache so button turns green immediately
       var homeEvt = cachedHomeEvents.find(function(e) { return e.id === currentEventId; });
       if (homeEvt) {
@@ -1816,7 +2049,7 @@ async function submitRsvp() {
         var confirmEmoji = isUpdate ? "✅" : "🎉";
         var confirmHeading = isUpdate ? "Contact info updated" : "You\'re on the list!";
         var confirmHTML = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;padding:20px;text-align:center;padding-top:32px;">' +
-          '<div style="font-size:56px;">' + confirmEmoji + '</div>' +
+          (isUpdate ? '<div style="font-size:56px;">' + confirmEmoji + '</div>' : '<svg class="rsvp-checkmark" viewBox="0 0 52 52" width="56" height="56" style="margin:0 auto;"><circle class="rsvp-checkmark-circle" cx="26" cy="26" r="24" fill="none" stroke="#1c1c0f" stroke-width="4"/><path class="rsvp-checkmark-path" fill="none" stroke="#00ff88" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" d="M14 27l7 7 16-16"/></svg>') +
           '<div style="font-size:18px;font-weight:700;">' + confirmHeading + '</div>' +
           '<div style="font-size:14px;color:var(--muted);max-width:260px;">' + escapeHtml(evt.title) + '</div>' +
           '<div style="font-size:13px;color:var(--muted);">📅 ' + escapeHtml(relativeDate(evt.date)) + ' at ' + formatTimeWithTz(evt.time, appTimezone) + '</div>' +
@@ -1952,8 +2185,13 @@ function eventNext() {
     var title = (document.getElementById("event-title") as HTMLInputElement).value.trim();
     var org = (document.getElementById("event-organizer") as HTMLInputElement).value.trim();
     var cat = (document.getElementById("event-category") as HTMLSelectElement).value;
-    if (!title || !org) { showToast("Fill all fields", "error"); return; }
-    if (!cat) { showToast("Select a category", "error"); return; }
+    var titleEl = document.getElementById("event-title")!;
+    var orgEl = document.getElementById("event-organizer")!;
+    var catEl = document.getElementById("event-category")!;
+    var titleOk = validateField(titleEl, title ? "" : "Title is required");
+    var orgOk = validateField(orgEl, org ? "" : "Organizer is required");
+    var catOk = validateField(catEl, cat ? "" : "Pick a category");
+    if (!titleOk || !orgOk || !catOk) { showToast("Fix the highlighted fields", "error"); return; }
     document.getElementById("event-dot-2")!.classList.add("done");
     pulseDot("event-dot-2");
     document.getElementById("event-step-1")!.classList.add("hidden");
@@ -1964,8 +2202,13 @@ function eventNext() {
     var date = (document.getElementById("event-date") as HTMLInputElement).value.trim();
     var time = (document.getElementById("event-time") as HTMLInputElement).value.trim();
     var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim();
-    if (!date || !time) { showToast("Fill all fields", "error"); return; }
-    if (!loc) { showToast("Location required", "error"); return; }
+    var dateEl = document.getElementById("event-date")!;
+    var timeEl = document.getElementById("event-time")!;
+    var locEl = document.getElementById("event-location")!;
+    var dateOk = validateField(dateEl, date ? "" : "Date is required");
+    var timeOk = validateField(timeEl, time ? "" : "Time is required");
+    var locOk = validateField(locEl, loc ? "" : "Location is required");
+    if (!dateOk || !timeOk || !locOk) { showToast("Fix the highlighted fields", "error"); return; }
     document.getElementById("event-dot-3")!.classList.add("done");
     pulseDot("event-dot-3");
     document.getElementById("event-step-2")!.classList.add("hidden");
@@ -2041,7 +2284,18 @@ function eventNext() {
     eventStep = 4;
   }
 }
-async function submitEvent() { log("submitEvent"); if (isLocked("submit-event")) return; lock("submit-event"); var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var organizer = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); var mapUrl = (document.getElementById("event-map-url") as HTMLInputElement).value.trim(); var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim(); var category = (document.getElementById("event-category") as HTMLSelectElement).value; log("submitEvent values: title=" + title + " category=" + category);   if (!title || !organizer || !date || !time || !loc || !desc) { showToast("Fill all fields", "error"); unlock("submit-event"); return; }
+async function submitEvent() { log("submitEvent"); if (isLocked("submit-event")) return; lock("submit-event"); var title = (document.getElementById("event-title") as HTMLInputElement).value.trim(); var organizer = (document.getElementById("event-organizer") as HTMLInputElement).value.trim(); var date = (document.getElementById("event-date") as HTMLInputElement).value.trim(); var time = (document.getElementById("event-time") as HTMLInputElement).value.trim(); var loc = (document.getElementById("event-location") as HTMLInputElement).value.trim(); var mapUrl = (document.getElementById("event-map-url") as HTMLInputElement).value.trim(); var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim(); var category = (document.getElementById("event-category") as HTMLSelectElement).value; log("submitEvent values: title=" + title + " category=" + category);
+  if (!title || !organizer || !date || !time || !loc || !desc) {
+    validateField(document.getElementById("event-title")!, title ? "" : "Title is required");
+    validateField(document.getElementById("event-organizer")!, organizer ? "" : "Organizer is required");
+    validateField(document.getElementById("event-date")!, date ? "" : "Date is required");
+    validateField(document.getElementById("event-time")!, time ? "" : "Time is required");
+    validateField(document.getElementById("event-location")!, loc ? "" : "Location is required");
+    validateField(document.getElementById("event-desc")!, desc ? "" : "Description is required");
+    showToast("Fix the highlighted fields", "error");
+    unlock("submit-event");
+    return;
+  }
   var today = new Date().toISOString().split("T")[0] || "";
   if (date < today) { showToast("Event date must be today or in the future", "error"); unlock("submit-event"); return; }
   setBtnLoading("#event-submit-btn", true, "⏳ Submitting..."); try { var res = await fetch(API_BASE + "/api/submit-event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title, organizer: organizer, date: date, time: time, location: loc, mapUrl: mapUrl, desc: desc, category: category }) }); var data = await res.json();     if (data.type === "submit-event" && data.success) { showToast("Event submitted! ✅", "success"); setBtnLoading("#event-submit-btn", false); closeOverlay("event-overlay"); loadHome();       // Optimistically add to myEvents so it appears in My Stuff immediately
@@ -2134,6 +2388,12 @@ function handleAction(action: string, id: string | null) {
     case "view-rsvps": if (id) viewRsvps(id); break;
     case "view-mod-details": if (id) showModEventDetails(id); break;
     case "view-attendees-mod": if (id) showModAttendees(id); break;
+    case "view-attendees-organizer": {
+      if (!id) { log("view-attendees-organizer WARNING: empty id"); break; }
+      var n = (myEvents.find(function(e: any) { return e.id === id; }) || {}).rsvpCount || 0;
+      log("view-attendees-organizer eventId=" + id + " rsvpCount=" + n);
+      showModAttendees(id);
+    } break;
     case "close-mod-details": closeOverlay("mod-event-details-overlay"); break;
     case "close-mod-attendees": closeOverlay("mod-attendees-overlay"); break;
     case "mod-detail-next": modDetailNext(); break;
@@ -2314,6 +2574,18 @@ document.addEventListener("DOMContentLoaded", function () {
     var action = btn.getAttribute("data-action");
     var id = btn.getAttribute("data-id") || btn.getAttribute("data-key") || btn.getAttribute("data-tab") || btn.getAttribute("data-mtab");
     if (action) handleAction(action, id);
+  });
+
+  // e22: Clear inline form errors as the user types in any form field.
+  // Delegated so newly inserted fields (after openOverlay) also get cleared.
+  document.body.addEventListener("input", function(e) {
+    var t = e.target as HTMLElement;
+    if (!t) return;
+    var group = t.closest(".form-group");
+    if (!group) return;
+    if (group.classList.contains("has-error")) {
+      validateField(t as HTMLElement, "");
+    }
   });
 
   // Search input listener (disabled — feature kept for future use)

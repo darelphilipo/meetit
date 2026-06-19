@@ -6,16 +6,21 @@ When a user re-RSVPs to an event with a different email/phone, the RSVP sorted s
 
 ## Status: partial
 
-## Audit (2026-06-17)
+## Audit (2026-06-19)
 
-**Partially implemented.** Pre-filling of email/phone on re-RSVP EXISTS (`app.ts:1728-1729`): `showUpdateRsvpOverlay()` fetches existing data via `/api/my-rsvp`, then calls `showRsvpOverlay(id, email, phone)` which pre-fills the inputs. The overlay title changes to `"✏️ Update Contact"` when re-RSVPing.
+**Partially implemented — toast done, banner still missing.** Progress since last audit:
 
-**Still missing:**
-1. **No "You're updating your RSVP" banner** — there's no explanatory text inside the overlay body beyond the title change.
-2. **Confirmation toast** on re-RSVP success — not implemented.
-3. Tasks 1.1, 1.2, 2.1 (pre-fill + endpoint) are **done**. Tasks 1.3 (banner), 3 (confirmation toast), 4 (test) remain.
+| Area | Status | Location |
+|------|--------|----------|
+| Pre-fill fetch | ✅ Done | `app.ts:1857` `showUpdateRsvpOverlay()` |
+| Pre-fill fields | ✅ Done | `app.ts:1856` `showRsvpOverlay(id, email, phone)` |
+| Endpoint `/api/my-rsvp` | ✅ Done | `server.ts` |
+| Confirmation toast | ✅ Done | `app.ts:1794` `showToast(isUpdate ? "Contact info updated ✅" : ...)` |
+| Internal logging | ❌ Missing | No `rsvp-updated` log per spec |
+| Overlay body banner | ❌ Missing | No "✏️ You're updating your RSVP" text in overlay body |
+| Manual test | ❌ Not done | No recorded test |
 
-**Recommendation:** The remaining work is ~30 minutes. Narrow scope to just the banner + toast.
+**What's left:** ~15 minutes — add the overlay body banner text. Toast is already implemented.
 
 ## What Changes
 

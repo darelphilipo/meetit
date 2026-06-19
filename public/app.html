@@ -8,31 +8,40 @@
   <style>
     :root {
       --bg: #fdfae4; --surface: #f2efd9; --primary: #ffff00; --secondary: #ff69b4;
-      --on-surface: #1c1c0f; --muted: #484831; --outline-v: #cac8aa;
-      --border: 4px solid #1c1c0f; --shadow-sm: 4px 4px 0 #1c1c0f;
-      --shadow-md: 6px 6px 0 #1c1c0f; --font: 'Space Grotesk', sans-serif;
+      --on-surface: #1c1c0f; --muted: #484831; --border-color: #1c1c0f; --outline-v: #cac8aa;
+      --border: 4px solid var(--border-color); --shadow-sm: 4px 4px 0 var(--border-color);
+      --shadow-md: 6px 6px 0 var(--border-color); --font: 'Space Grotesk', sans-serif;
       /* Typography scale (neo-brutalist tight + bold) */
       --text-xs: 11px; --text-sm: 12px; --text-base: 14px; --text-md: 15px;
       --text-lg: 17px; --text-xl: 18px; --text-2xl: 22px;
       /* Motion */
       --t-fast: 0.12s; --t-base: 0.18s; --t-slow: 0.35s;
       --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+      /* Status colors (e21) */
+      --danger: #ff4444; --danger-bg: #fff3f3;
+      --warn: #ffaa00; --warn-bg: #fff7e0;
+      --success: #00ff88; --success-bg: #d4ffe8;
+      --neutral: #999;
+      /* Semantic text-on-color (e21) */
+      --on-primary: #1c1c0f; --on-secondary: #1c1c0f;
+      /* Card-shell variants (e21) */
+      --pitch-bg: #ffeaa7; --pending-bg: #ff69b4;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: var(--font); background: var(--bg); color: var(--on-surface); padding: 16px; -webkit-font-smoothing: antialiased; overflow-y: auto; -webkit-overflow-scrolling: touch; min-height: 100vh; position: relative; }
+    body { font-family: var(--font); background: var(--bg); color: var(--on-surface); padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); -webkit-font-smoothing: antialiased; overflow-y: auto; -webkit-overflow-scrolling: touch; min-height: 100vh; position: relative; }
     body::before {
       content: "💖 🥰 🙌 🎉 💖 🥰 🙌 🎉 💖 🥰 🙌 🎉 💖 🥰 🙌 🎉";
       position: fixed; top: 0; left: 0; width: 100%; height: 100%;
       display: flex; flex-wrap: wrap; align-content: flex-start;
       font-size: 60px; line-height: 80px; letter-spacing: 20px;
-      opacity: 0.04; pointer-events: none; z-index: 0;
-      white-space: normal; word-break: break-all;
+      opacity: 0.08; pointer-events: none; z-index: 0;
+      overflow: hidden;
     }
     .container { display: flex; flex-direction: column; min-height: calc(100vh - 32px); max-width: 600px; margin: 0 auto; position: relative; z-index: 1; }
 
-    .header { background: var(--primary); border: var(--border); padding: 10px 14px; margin-bottom: 12px; box-shadow: var(--shadow-sm); }
-    .header h1 { font-size: 22px; font-weight: 700; line-height: 1.2; }
-    .header .sub { font-size: 12px; font-weight: 500; color: #626200; }
+    .header { background: var(--primary); border: var(--border); padding: 8px 12px; margin-bottom: 10px; box-shadow: var(--shadow-sm); }
+    .header h1 { font-size: 20px; font-weight: 700; line-height: 1.2; }
+    .header .sub { font-size: 11px; font-weight: 500; color: #626200; }
 
     .tabs { display: flex; margin-bottom: 16px; border: var(--border); background: #fff; }
     .tab { flex: 1; text-align: center; padding: 12px 8px; font-size: 14px; font-weight: 700; cursor: pointer; border-right: 4px solid #1c1c0f; background: #fff; font-family: var(--font); position: relative; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
@@ -57,7 +66,7 @@
 
     .btn { display: block; width: 100%; background: var(--primary); border: var(--border); border-radius: 0; padding: 10px 16px; font-size: 14px; font-weight: 700; font-family: var(--font); cursor: pointer; margin-top: 10px; color: var(--on-surface); box-shadow: var(--shadow-sm); transition: box-shadow var(--t-fast) var(--ease), transform var(--t-fast) var(--ease); }
     .btn:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 #1c1c0f; }
-    .btn:active { box-shadow: 0px 0px 0 #1c1c0f; transform: translate(4px,4px); }
+    .btn:active { box-shadow: 0px 0px 0 var(--border-color); transform: translate(4px,4px) scale(0.97); transition-duration: 80ms; }
     .btn:focus-visible { outline: 3px solid var(--secondary); outline-offset: 2px; }
     .btn-pink { background: var(--secondary); }
     .btn-green { background: #00ff88; }
@@ -74,19 +83,29 @@
     /* Action row buttons (Home/Mod/My-Stuff card action area).
        Single-line, equal-height, equal-flex, ellipsis on overflow. */
     .card-shell-actions .btn,
-    .btn-action { flex: 1; min-width: 0; margin-top: 0; padding: 8px 6px; font-size: 12px; line-height: 1.1; min-height: 38px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: var(--shadow-sm); }
+    .btn-action { flex: 1; min-width: 0; margin-top: 0; padding: 8px 6px; font-size: 12px; line-height: 1.1; min-height: 44px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: var(--shadow-sm); }
     .card-shell-actions .btn:hover, .btn-action:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 #1c1c0f; }
     /* Square icon-only button in an action row (e.g. Share) */
-    .btn-icon { flex: 0 0 auto; margin-top: 0; padding: 8px 10px; font-size: 14px; min-height: 38px; min-width: 38px; line-height: 1; box-shadow: var(--shadow-sm); }
+    .btn-icon { flex: 0 0 auto; margin-top: 0; padding: 8px 10px; font-size: 14px; min-height: 44px; min-width: 44px; line-height: 1; box-shadow: var(--shadow-sm); }
     .btn-icon:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 #1c1c0f; }
     /* Full-width single-button action row (mod delete/dismiss) */
     .btn-action-full { width: 100%; margin-top: 0; padding: 10px 8px; font-size: 13px; min-height: 40px; box-shadow: var(--shadow-sm); }
     /* Pager buttons (pagination prev/next in desc/att nav strips) */
-    .btn-pager { margin-top: 0; padding: 4px 10px; font-size: 11px; min-height: 24px; line-height: 1.1; }
+    .btn-pager { margin-top: 0; padding: 4px 10px; font-size: 11px; min-height: 28px; line-height: 1.1; }
     /* Compact buttons inside overlay footers (RSVP overlay, mod attendees overlay, confirm) */
     .btn-compact { width: auto; display: inline-block; margin-top: 0; padding: 10px 14px; font-size: 13px; }
     /* Buttons inside empty states (smaller, compact) */
-    .btn-empty { margin-top: 8px; padding: 6px 12px; font-size: 12px; min-height: 30px; }
+    .btn-empty { margin-top: 8px; padding: 6px 12px; font-size: 12px; min-height: 36px; }
+    /* Semantic card-title classes (e21) */
+    .card-title-lg { font-size: 18px; font-weight: 700; line-height: 1.25; margin: 0; word-break: break-word; }
+    .card-title-md { font-size: 17px; font-weight: 700; line-height: 1.3; margin: 0; word-break: break-word; }
+    .card-title-sm { font-size: 15px; font-weight: 700; line-height: 1.3; margin: 0; word-break: break-word; }
+    /* Shared avatar circle (e21) */
+    .avatar-circle { width: 36px; height: 36px; border: var(--border); background: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; flex-shrink: 0; }
+    /* e20 home card 2.0 */
+    .card-title-hero { font-size: 22px; font-weight: 700; line-height: 1.25; margin: 0; word-break: break-word; }
+    .emoji-tile { width: 56px; height: 56px; background: var(--primary); border: var(--border); display: flex; align-items: center; justify-content: center; font-size: 32px; box-shadow: var(--shadow-sm); flex-shrink: 0; }
+    .emoji-tile--fallback { background: var(--surface); font-size: 22px; font-weight: 700; }
     /* Inline copy button (next to Google Maps link, etc.) */
     .btn-copy { width: auto; display: inline-block; margin-top: 0; padding: 6px 14px; font-size: 12px; }
 
@@ -102,11 +121,11 @@
 
     .overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg); z-index: 1000; flex-direction: column; overflow: hidden; }
     .overlay.active { display: flex; }
-    .overlay-header { display: flex; align-items: flex-start; gap: 8px; padding: 12px 16px; border-bottom: var(--border); background: var(--primary); flex-shrink: 0; min-height: 52px; }
+    .overlay-header { display: flex; align-items: flex-start; gap: 8px; padding: max(12px, env(safe-area-inset-top)) 16px 12px 16px; border-bottom: var(--border); background: var(--primary); flex-shrink: 0; min-height: 52px; }
     .overlay-header h2 { font-size: 16px; font-weight: 700; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; flex: 1; margin: 0; max-height: 42px; }
     .close-btn { background: #fff; border: var(--border); width: 36px; height: 36px; min-width: 36px; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; cursor: pointer; box-shadow: var(--shadow-sm); flex-shrink: 0; transition: box-shadow var(--t-fast) var(--ease), transform var(--t-fast) var(--ease); }
     .close-btn:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 #1c1c0f; }
-    .close-btn:active { box-shadow: none; transform: translate(4px,4px); }
+    .close-btn:active { box-shadow: none; transform: translate(4px,4px) scale(0.97); transition-duration: 80ms; }
     .close-btn:focus-visible { outline: 3px solid var(--secondary); outline-offset: 2px; }
 
     /* Animations */
@@ -120,39 +139,93 @@
       100% { transform: scale(1); }
     }
     @keyframes blinkPulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.55; }
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
     }
     .countdown-blink { animation: blinkPulse 1.2s ease-in-out infinite; }
+    @keyframes cardSwapInFromLeft {
+      from { transform: translateX(-20px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes cardSwapInFromRight {
+      from { transform: translateX(20px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes rsvpCircleDraw {
+      from { stroke-dasharray: 0 151; }
+      to { stroke-dasharray: 151 151; }
+    }
+    @keyframes rsvpCheckDraw {
+      from { stroke-dasharray: 0 50; }
+      to { stroke-dasharray: 50 50; }
+    }
+    .rsvp-checkmark-circle { stroke-dasharray: 151 151; stroke-dashoffset: 0; animation: rsvpCircleDraw 0.4s ease-out; }
+    .rsvp-checkmark-path { stroke-dasharray: 50 50; stroke-dashoffset: 0; animation: rsvpCheckDraw 0.3s ease-out 0.4s backwards; }
+    @keyframes rsvpBounce {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.08); }
+      100% { transform: scale(1); }
+    }
+    .rsvp-bounce { animation: rsvpBounce 400ms ease-out; }
+    .card-swap-prev { animation: cardSwapInFromLeft 200ms ease-out; }
+    .card-swap-next { animation: cardSwapInFromRight 200ms ease-out; }
     @media (prefers-reduced-motion: reduce) {
       .countdown-blink { animation: none !important; }
     }
+    /* e22 empty/error/loading states */
+    @keyframes shimmer {
+      0% { background-position: -200px 0; }
+      100% { background-position: calc(200px + 100%) 0; }
+    }
+    @keyframes toastSlideIn {
+      0% { transform: translate(-50%, 100px); opacity: 0; }
+      60% { transform: translate(-50%, -10px); opacity: 1; }
+      100% { transform: translate(-50%, 0); opacity: 1; }
+    }
+    .toast-anim { animation: toastSlideIn 0.25s ease-out; }
+    .skeleton-bar {
+      background: linear-gradient(90deg, var(--surface) 0%, var(--outline-v) 50%, var(--surface) 100%);
+      background-size: 200px 100%;
+      animation: shimmer 1.4s linear infinite;
+      height: 16px;
+      margin-bottom: 10px;
+      border: var(--border);
+    }
+    .req { color: var(--secondary); font-weight: 700; }
+    .form-error { color: var(--danger); font-size: 12px; font-weight: 600; margin-top: 4px; }
+    .form-group.has-error input,
+    .form-group.has-error textarea,
+    .form-group.has-error select { box-shadow: 0 0 0 3px var(--danger); }
     .fade-in { animation: fadeInUp 0.35s ease-out forwards; will-change: opacity, transform; }
     .tab-fade { transition: opacity 0.18s ease-out; }
     .tab-fade.out { opacity: 0; }
     .tab-fade.in { opacity: 1; }
     .step-dot.just-pulsed { animation: stepPulse 0.32s var(--ease); }
+    .event-tag { animation: fadeInUp 0.2s ease-out backwards; animation-delay: calc(var(--i, 0) * 40ms); }
 
     .overlay-progress { display: flex; gap: 6px; padding: 10px 16px; border-bottom: var(--border); background: #fff; flex-shrink: 0; }
     .step-dot { flex: 1; height: 6px; background: var(--outline-v); }
     .step-dot.done { background: var(--primary); }
     .overlay-body { flex: 1; min-height: 0; padding: 16px 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-    .overlay-footer { padding: 8px 16px; border-top: var(--border); background: #fff; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .overlay-footer { padding: 8px 16px max(8px, env(safe-area-inset-bottom)) 16px; border-top: var(--border); background: #fff; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
     .footer-btn { padding: 10px 24px; font-size: 14px; font-weight: 700; font-family: var(--font); border: var(--border); border-radius: 9999px; cursor: pointer; box-shadow: var(--shadow-sm); transition: box-shadow var(--t-fast) var(--ease), transform var(--t-fast) var(--ease); min-width: 100px; min-height: 44px; white-space: nowrap; }
     .footer-btn:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 #1c1c0f; }
-    .footer-btn:active { box-shadow: none; transform: translate(3px,3px); }
+    .footer-btn:active { box-shadow: none; transform: translate(3px,3px) scale(0.97); transition-duration: 80ms; }
     .footer-btn:focus-visible { outline: 3px solid var(--secondary); outline-offset: 2px; }
     .footer-btn-prev { background: #fff; color: var(--on-surface); }
     .footer-btn-next { background: var(--primary); color: var(--on-surface); margin-left: auto; }
     .footer-btn-rsvp { background: var(--secondary); color: var(--on-surface); flex: 1; min-width: 140px; }
 
     /* Unified card shell */
-    .card-shell { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; padding: 12px; box-sizing: border-box; background: #fff; border: var(--border); box-shadow: var(--shadow-sm); }
+    .card-shell { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; padding: 10px; box-sizing: border-box; background: #fff; border: var(--border); box-shadow: var(--shadow-sm); }
+    .card-shell--pitch { background: var(--pitch-bg); }
+    .card-shell--pending { background: var(--pending-bg); }
     .card-shell-header { flex-shrink: 0; }
     .card-shell-body { flex: 1; min-height: 0; overflow: hidden; position: relative; display: flex; flex-direction: column; }
-    .card-shell-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; }
-    .card-shell-footer { padding: 8px 0; border-top: var(--border); background: transparent; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-    .card-progress { display: flex; justify-content: center; align-items: center; gap: 6px; padding: 6px 0; flex-shrink: 0; }
+    .card-shell-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding-top: 8px; }
+    .card-shell-footer { padding: 6px 0 0 0; background: transparent; display: flex; align-items: center; gap: 10px; flex-shrink: 0; position: relative; }
+    .card-shell-footer .footer-counter { position: absolute; left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 700; }
+    .card-progress { display: flex; justify-content: center; align-items: center; gap: 6px; padding: 2px 0; flex-shrink: 0; }
     .card-progress-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--outline-v); border: 2px solid transparent; }
     .card-progress-dot.done { background: var(--primary); border-color: #1c1c0f; }
 
@@ -170,19 +243,14 @@
   /* Icon bar in header */
   .header-row { display: flex; align-items: center; justify-content: space-between; }
   .header-actions { display: flex; gap: 4px; }
-  .icon-btn { background: #fff; color: var(--on-surface); border: 3px solid #1c1c0f; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 16px; cursor: pointer; box-shadow: 3px 3px 0 #1c1c0f; transition: box-shadow var(--t-fast) var(--ease), transform var(--t-fast) var(--ease); }
+  .icon-btn { background: #fff; color: var(--on-surface); border: 3px solid var(--border-color); width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 17px; cursor: pointer; box-shadow: 3px 3px 0 var(--border-color); transition: box-shadow var(--t-fast) var(--ease), transform var(--t-fast) var(--ease); }
   .icon-btn:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 #1c1c0f; }
-  .icon-btn:active { box-shadow: none; transform: translate(3px,3px); }
+    .icon-btn:active { box-shadow: none; transform: translate(3px,3px) scale(0.97); transition-duration: 80ms; }
   .icon-btn:focus-visible { outline: 3px solid var(--secondary); outline-offset: 2px; }
   /* Create menu popup */
   .backdrop { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 900; }
   .create-menu { display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #fff; border: var(--border); box-shadow: var(--shadow-md); z-index: 901; padding: 16px; width: 260px; }
   .backdrop.active, .create-menu.active { display: block; }
-    .idea-card { background: #ffeaa7; border: var(--border); padding: 18px; margin-bottom: 12px; box-shadow: var(--shadow-sm); }
-    .idea-card h3 { font-size: 18px; font-weight: 700; }
-    .pending-card { background: var(--secondary); border: var(--border); padding: 18px; margin-bottom: 12px; box-shadow: var(--shadow-sm); }
-    .pending-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
-    .pending-card .desc { background: #fff; border: var(--border); padding: 10px; margin: 12px 0; font-size: 15px; font-weight: 500; }
 
     /* Detail view */
     .detail-card { background: #fff; border: var(--border); box-shadow: var(--shadow-sm); }
@@ -363,8 +431,8 @@
     <div class="overlay" id="pitch-overlay">
       <div class="overlay-header"><h2>💡 Pitch an Idea</h2><div class="close-btn close-overlay" data-action="close-overlay">✕</div></div>
       <div class="overlay-body">
-        <div class="form-group"><label>Meetup Title</label><input type="text" id="pitch-title" placeholder="e.g. Weekend Board Games"></div>
-        <div class="form-group"><label>Brief Description</label><textarea id="pitch-description" placeholder="What do you have in mind?" rows="3"></textarea></div>
+        <div class="form-group"><label>Meetup Title <span class="req">*</span></label><input type="text" id="pitch-title" placeholder="e.g. Weekend Board Games"></div>
+        <div class="form-group"><label>Brief Description <span class="req">*</span></label><textarea id="pitch-description" placeholder="What do you have in mind?" rows="3"></textarea></div>
         <div class="form-row">
           <div class="form-group"><label>Proposed Date <span style="color:var(--muted);font-weight:500;font-size:11px;">(optional)</span></label><input type="date" id="pitch-date"></div>
           <div class="form-group"><label>Proposed Time <span style="color:var(--muted);font-weight:500;font-size:11px;">(optional)</span></label><input type="time" id="pitch-time"></div>
@@ -385,7 +453,7 @@
         <div class="step-dot" id="event-dot-4"></div>
       </div>
       <div class="overlay-body" id="event-step-1">
-        <div class="form-group"><label>Event Title</label><input type="text" id="event-title" placeholder="e.g. Monthly Dev Meetup"></div>
+        <div class="form-group"><label>Event Title <span class="req">*</span></label><input type="text" id="event-title" placeholder="e.g. Monthly Dev Meetup"></div>
         <div class="form-group"><label>Category <span style="color:var(--secondary);font-weight:700;">*</span></label>
           <select id="event-category">
             <option value="" disabled selected>Choose category...</option>
@@ -407,15 +475,15 @@
       </div>
       <div class="overlay-body hidden" id="event-step-2">
         <div class="form-row">
-          <div class="form-group"><label>Date</label><input type="date" id="event-date"></div>
-          <div class="form-group"><label>Time</label><input type="time" id="event-time"></div>
+          <div class="form-group"><label>Date <span class="req">*</span></label><input type="date" id="event-date"></div>
+          <div class="form-group"><label>Time <span class="req">*</span></label><input type="time" id="event-time"></div>
         </div>
-        <div class="form-group"><label>Location</label><input type="text" id="event-location" placeholder="e.g. Cubbon Park, Bangalore"></div>
+        <div class="form-group"><label>Location <span class="req">*</span></label><input type="text" id="event-location" placeholder="e.g. Cubbon Park, Bangalore"></div>
         <div class="form-group"><label>Google Maps Link (optional)</label><input type="text" id="event-map-url" placeholder="https://maps.google.com/..."></div>
       </div>
       <div class="overlay-body hidden" id="event-step-3" style="display:flex;flex-direction:column;">
         <div class="form-group" style="margin-bottom:0;display:flex;flex-direction:column;flex:1;min-height:0;">
-          <label>Description <span style="color:var(--muted);font-weight:500;font-size:11px;">(longer is fine — full page)</span></label>
+          <label>Description <span class="req">*</span> <span style="color:var(--muted);font-weight:500;font-size:11px;">(longer is fine — full page)</span></label>
           <textarea id="event-desc" placeholder="What's the plan? What to bring? Who's it for?" style="flex:1;min-height:280px;resize:none;"></textarea>
         </div>
       </div>
@@ -424,7 +492,7 @@
           <div style="font-weight:700;font-size:11px;text-transform:uppercase;color:var(--muted);margin-bottom:8px;flex-shrink:0;">📋 Review your event</div>
           <div id="event-review-title-preview" style="font-size:17px;font-weight:700;line-height:1.3;margin-bottom:6px;min-width:0;max-width:100%;overflow-x:auto;white-space:nowrap;"></div>
           <div id="event-review-meta-preview" style="font-size:13px;color:var(--muted);margin-bottom:12px;min-width:0;max-width:100%;overflow-x:auto;white-space:nowrap;"></div>
-          <div id="event-review-desc-preview" style="font-size:13px;line-height:1.45;background:#fff;border:var(--border);padding:10px;flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;white-space:pre;min-width:0;max-width:100%;"></div>
+          <div id="event-review-desc-preview" style="font-size:13px;line-height:1.45;background:#fff;border:var(--border);padding:10px;flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;white-space:pre-wrap;min-width:0;max-width:100%;display:flex;flex-direction:column;"></div>
         </div>
         <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.4;flex-shrink:0;">Once submitted, a mod will review and publish your event. You can edit it from My Stuff once it's published.</div>
       </div>

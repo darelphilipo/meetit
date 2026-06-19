@@ -11,7 +11,7 @@
 
 ## 3. Confirmation Toast
 
-- [ ] 3.1 On re-RSVP success, show "✏️ RSVP updated — new contact info saved" toast
+- [x] 3.1 On re-RSVP success, show toast (`showToast(isUpdate ? "Contact info updated ✅" : "RSVP confirmed! 🎉", "success")` at `app.ts:1794`)
 - [ ] 3.2 Log `log("rsvp-updated eventId={id} user={u}")`
 
 ## 4. Test
