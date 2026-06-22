@@ -1,7 +1,8 @@
 # mod-dashboard Specification
 
 ## Purpose
-TBD - created by archiving change e18-ui-polish-bundle-v2. Update Purpose after archive.
+Mod dashboard — pending/published/pitches tabs, approve/decline workflow, attendee view with contact details, and mod detail overlay.
+
 ## Requirements
 ### Requirement: Mod dashboard always opens on the Pending tab
 

@@ -1,7 +1,8 @@
 # home-page Specification
 
 ## Purpose
-TBD - created by archiving change e19-home-sort-and-wrap. Update Purpose after archive.
+Home page features — event carousel navigation, client-side search/filter, share link copy, and category emoji mapping.
+
 ## Requirements
 ### Requirement: Home page displays events in chronological order (soonest first)
 

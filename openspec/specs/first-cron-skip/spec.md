@@ -1,7 +1,8 @@
 # first-cron-skip Specification
 
 ## Purpose
-TBD - created by archiving change fix-bug3-first-cron-skip. Update Purpose after archive.
+First cron skip fix — prevents the first CRON tick from processing events that were just created, using a grace period flag.
+
 ## Requirements
 ### Requirement: First CRON run suppresses mod alerts
 The system SHALL initialize `lastCheck` to the current timestamp on the first CRON run and skip the mod alert loop for that run.

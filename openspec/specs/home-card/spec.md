@@ -1,7 +1,8 @@
 # home-card Specification
 
 ## Purpose
-TBD - created by archiving change e18-ui-polish-bundle-v2. Update Purpose after archive.
+Home page event card — layout, styling, animations, countdown badge, category accent stripe, CTA hierarchy, and card-swap navigation for the main event carousel.
+
 ## Requirements
 ### Requirement: Home card shows blinking countdown for events in the next 24 hours
 

@@ -1,7 +1,8 @@
 # organizer-attendees Specification
 
 ## Purpose
-TBD - created by archiving change e14-organizer-see-attendees. Update Purpose after archive.
+Organizer attendee view — allows event organizers to see the full attendee list with contact details and export to CSV from the mod dashboard.
+
 ## Requirements
 ### Requirement: Organizer can view attendee list
 The system SHALL show a "👥 N Attendees" button on each published event card in My Stuff where the current user is the event organizer. Tapping the button SHALL open the existing attendee overlay populated with the event's full attendee list.

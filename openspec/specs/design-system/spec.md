@@ -1,7 +1,8 @@
 # design-system Specification
 
 ## Purpose
-TBD - created by archiving change e21-design-system-tokens. Update Purpose after archive.
+Design token system — semantic color tokens, typography classes, touch targets, safe-area insets, and card-shell variants that define the app's neo-brutalist visual language.
+
 ## Requirements
 ### Requirement: Status colors are tokenized
 

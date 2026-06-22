@@ -1,7 +1,8 @@
 # review-event Specification
 
 ## Purpose
-TBD - created by archiving change e18-ui-polish-bundle-v2. Update Purpose after archive.
+Event review step — read-only preview of all collected data before submission, with paginated description and edit-back navigation.
+
 ## Requirements
 ### Requirement: Review card description uses explicit Previous/Next pager for long text
 

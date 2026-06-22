@@ -1,7 +1,8 @@
 # submit-event-wizard Specification
 
 ## Purpose
-TBD - created by archiving change e18-ui-polish-bundle-v2. Update Purpose after archive.
+Event submission wizard — 4-card form flow (title/cat/org, date/time/location, description, review) with auto-RSVP organizer on approval and paginated description review.
+
 ## Requirements
 ### Requirement: Submit wizard is 4 cards (title/cat/org, date/time/location/maps, description, review)
 
@@ -64,4 +65,18 @@ Card 4 (review) SHALL display the event's full description split into pages with
 #### Scenario: User edits description and re-reviews
 - **WHEN** the user taps "← Previous" on card 4 to return to card 3, edits the description, and advances to card 4 again
 - **THEN** the pager refreshes with the new content (page count and current page reset to 1)
+
+### Requirement: Organizer is auto-RSVPed when event is approved
+When a moderator approves a pending event, the system SHALL automatically RSVP the event's organizer to their own event. The organizer SHALL appear in both "My Events" (as the organizer) and "My RSVPs" (as an attendee). The auto-RSVP SHALL be idempotent — re-approving an already-RSVPed organizer is a no-op.
+
+#### Scenario: Event approved, organizer not yet RSVPed
+- **WHEN** a moderator approves a pending event with organizer `u/darelphilip`
+- **THEN** the system calls `redis.zAdd("meetit:rsvps:${eventId}", { member: "darelphilip", score: <timestamp> })`
+- **AND** the organizer appears in the event's attendee list
+- **AND** the event appears in the organizer's My Stuff → RSVPs tab
+
+#### Scenario: Event re-approved, organizer already RSVPed
+- **WHEN** a moderator approves an event that was already approved (re-approval)
+- **THEN** the `zAdd` is idempotent (same member key) and does not create a duplicate entry
+- **AND** the organizer's RSVP status is unchanged
 

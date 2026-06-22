@@ -1,7 +1,8 @@
 # rsvp-disclosure Specification
 
 ## Purpose
-TBD - created by archiving change e25-rsvp-disclaimer. Update Purpose after archive.
+RSVP form privacy disclosure — informational line explaining that username, email, and phone are visible to the organizer and mods, and that username may appear in public event reminder and share posts.
+
 ## Requirements
 ### Requirement: RSVP form discloses organizer and moderator access to RSVP details
 The RSVP form SHALL display a small, non-blocking disclaimer line that informs the user that their RSVP details (username, email, phone) are visible to the event organizer and subreddit moderators. The disclaimer SHALL appear above the submit button, in the same overlay as the email/phone inputs.

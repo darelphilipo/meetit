@@ -1,7 +1,8 @@
 # microinteractions Specification
 
 ## Purpose
-TBD - created by archiving change e23-microinteractions. Update Purpose after archive.
+Microinteraction animations — button press-and-squish, card stagger, RSVP bounce, toast slide-in, SVG checkmark draw, and countdown pulse that make the app feel tactile and responsive.
+
 ## Requirements
 ### Requirement: Press-and-squish feedback on all buttons
 

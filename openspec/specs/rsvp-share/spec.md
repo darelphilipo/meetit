@@ -1,7 +1,8 @@
 # rsvp-share Specification
 
 ## Purpose
-TBD - created by archiving change e27-rsvp-share. Update Purpose after archive.
+RSVP share feature — creates a Reddit post announcing attendance at an event, with USER→APP fallback, 24h dedup, attendee list section, and draft-preview overlay for consent.
+
 ## Requirements
 ### Requirement: RSVP success card shows a "Share that I'm going" button
 After a successful RSVP submission, the confirmation card SHALL display a "🎉 Share that I'm going" button alongside the existing "📋 Copy Details" and "Done →" buttons. Tapping it SHALL open a draft-preview overlay showing the exact post that will be created.
@@ -51,8 +52,27 @@ The system SHALL build the share post using a fixed template: title `u/${usernam
 - **WHEN** `event.description` is longer than 300 characters
 - **THEN** the body truncates the description to 300 characters and appends "…"
 
+### Requirement: Share post includes other attendees list
+The share post body SHALL include an "Also going" section listing other users who have RSVPed to the same event. The list SHALL be capped at 20 attendees with "+N more" notation, sorted case-insensitively alphabetically, deduplicated, and with `u/` prefix stripped.
+
+#### Scenario: Share with 3 other attendees
+- **WHEN** the user shares an event with 3 other RSVPed users
+- **THEN** the post body contains `**Also going (3):** u/alice u/bob u/charlie`
+- **AND** the attendees are sorted alphabetically (case-insensitive)
+- **AND** the current user's username is excluded from the list
+
+#### Scenario: Share with 25 other attendees (cap hit)
+- **WHEN** the user shares an event with 25 other RSVPed users
+- **THEN** the post body lists 20 attendees followed by `+5 more`
+- **AND** the list is capped at 20 entries
+
+#### Scenario: Share with no other attendees
+- **WHEN** the user is the only RSVPed user
+- **THEN** the "Also going" section is omitted entirely
+- **AND** the post body does not contain an empty attendee list
+
 ### Requirement: Share is rate-limited to once per (eventId, username) per 24 hours
-The system SHALL set a Redis key `meetit:rsvp_share:${eventId}:${username}` with a 24h TTL after a successful share. Subsequent share calls for the same event from the same user within 24h SHALL be rejected with `reason: "already_shared"`.
+The system SHALL set a Redis key `meetit:rsvp_share:${eventId}:${username}` with a 24h TTL after a successful share. The dedup key SHALL be set ONLY after validating the post URL (to prevent stuck state if the post creation fails).
 
 #### Scenario: First share within 24h
 - **WHEN** the user has not shared this event in the last 24h

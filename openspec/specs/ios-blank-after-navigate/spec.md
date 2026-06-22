@@ -1,7 +1,8 @@
 # ios-blank-after-navigate Specification
 
 ## Purpose
-TBD - created by archiving change fix-ios-blank-after-navigate. Update Purpose after archive.
+iOS Safari blank screen fix — `visibilitychange` listener re-renders the active view when the webview becomes visible again after a `navigateTo()` + Back navigation.
+
 ## Requirements
 ### Requirement: visibilitychange re-init
 The system SHALL register a `visibilitychange` event listener that, when the document becomes visible again, triggers a re-render of the current app state. The listener SHALL be throttled and SHALL NOT double-fire if a re-render is already in progress.

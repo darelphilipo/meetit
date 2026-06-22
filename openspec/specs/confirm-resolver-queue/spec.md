@@ -1,7 +1,8 @@
 # confirm-resolver-queue Specification
 
 ## Purpose
-TBD - created by archiving change fix-bug8-confirm-resolver-queue. Update Purpose after archive.
+Confirm resolver queue fix — ensures RSVP confirmation dialogs resolve in the correct order when multiple are queued.
+
 ## Requirements
 ### Requirement: Confirm dialog uses a per-instance resolver
 The system SHALL use a unique resolver per confirm dialog instance, stored on the overlay element, to prevent one confirm's resolution from overwriting another's.

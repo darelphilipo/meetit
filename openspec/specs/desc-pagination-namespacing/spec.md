@@ -1,7 +1,8 @@
 # desc-pagination-namespacing Specification
 
 ## Purpose
-TBD - created by archiving change fix-desc-pagination-shared-state. Update Purpose after archive.
+Description pagination fix — ensures page index state is namespaced per event ID so multiple cards don't share pagination state.
+
 ## Requirements
 ### Requirement: Mod detail pagination state uses a separate namespace
 The system SHALL maintain description pagination state for the mod detail overlay in a separate namespace from the user detail overlay, so the two overlays can be open simultaneously for the same event without cross-contamination.

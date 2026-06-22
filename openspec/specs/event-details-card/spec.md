@@ -1,7 +1,8 @@
 # event-details-card Specification
 
 ## Purpose
-TBD - created by archiving change e28-ux-and-social-polish. Update Purpose after archive.
+Event details card layout — category badge positioning, organizer display, and description pagination within the event details overlay.
+
 ## Requirements
 ### Requirement: Category badge is inline with the title
 

@@ -35,6 +35,23 @@ The system SHALL include `**Moderators:** u/mod1 u/mod2 ...` in the reminder bod
 - **WHEN** the `mod_usernames` setting is empty or unset
 - **THEN** the body does NOT include a `**Moderators:**` line
 
+### Requirement: Reminder body includes attendee list
+The reminder body SHALL include a `**👥 N going:**` section listing users who have RSVPed to the event. The list SHALL be capped at 20 attendees with "+N more" notation, sorted case-insensitively alphabetically, deduplicated, and with `u/` prefix stripped.
+
+#### Scenario: Event with 5 RSVPed attendees
+- **WHEN** the CRON creates a reminder for an event with 5 RSVPed users
+- **THEN** the body contains `**👥 5 going:** u/alice u/bob u/charlie ...`
+- **AND** the attendees are sorted alphabetically (case-insensitive)
+
+#### Scenario: Event with 25 attendees (cap hit)
+- **WHEN** the CRON creates a reminder for an event with 25 RSVPed users
+- **THEN** the body lists 20 attendees followed by `+5 more`
+
+#### Scenario: Event with no RSVPs (only organizer)
+- **WHEN** the CRON creates a reminder for an event with no RSVPs (or only the organizer)
+- **THEN** the "👥 going" section is omitted entirely
+- **AND** the body does not contain an empty attendee list
+
 ### Requirement: Reminder body includes a deep link to the subreddit's Meetit app
 The system SHALL include a `🚀 [Open in Meetit to RSVP](https://www.reddit.com/r/${subredditName})` line in the reminder body so attendees can find the Meetit app to RSVP. Since the post is a plain text post (no app iframe), this deep link is the entry point to the RSVP flow.
 

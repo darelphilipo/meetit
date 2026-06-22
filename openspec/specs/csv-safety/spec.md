@@ -1,7 +1,8 @@
 # csv-safety Specification
 
 ## Purpose
-TBD - created by archiving change fix-sec3-csv-injection. Update Purpose after archive.
+CSV safety — prevents Excel formula injection by escaping fields starting with `=`, `+`, `-`, `@`, `\t`, `\r` with a single quote prefix.
+
 ## Requirements
 ### Requirement: CSV export escapes special characters and prevents formula injection
 The system SHALL escape all CSV fields with double quotes and escape internal double quotes by doubling them. Fields starting with `=`, `+`, `-`, `@`, or a tab character SHALL be prepended with a single quote to prevent formula injection in Excel and similar tools.

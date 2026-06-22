@@ -1,7 +1,8 @@
 # empty-and-error-states Specification
 
 ## Purpose
-TBD - created by archiving change e22-empty-and-error-states. Update Purpose after archive.
+Empty state helpers (`renderEmptyState`, `renderErrorState`, `renderSkeleton`) and form validation (`validateField`) that provide consistent UX when data is loading, missing, or invalid.
+
 ## Requirements
 ### Requirement: Empty states are rendered through a helper
 
