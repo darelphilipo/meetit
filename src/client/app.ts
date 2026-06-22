@@ -146,13 +146,20 @@ function renderUnifiedLogs(container: Element | null) {
 function applyDebugPanelVisibility() {
   var btn = document.getElementById("debug-toggle");
   if (!btn) return;
-  var user = currentUsername || usernameCached || "anonymous";
+  // H1 fix: don't log "u/anonymous" when the username hasn't loaded yet from
+  // /api/init. /api/home returns first and triggers this function with
+  // cachedHomeIsMod set, but currentUsername is still null. The visibility
+  // is correct (mod status is the security boundary, not username); the
+  // username in the log was just misleading. Show "username pending" instead
+  // and let the subsequent /api/init call re-log with the real username.
+  var user = currentUsername || usernameCached;
+  var userDisplay = user ? "u/" + user : "username-pending";
   if (cachedHomeIsMod) {
     btn.style.display = ""; // restore default (block-ish via CSS)
-    log("[H1-PRIVACY] applyDebugPanelVisibility: SHOWING debug toggle for mod u/" + user);
+    log("[H1-PRIVACY] applyDebugPanelVisibility: SHOWING debug toggle for mod " + userDisplay);
   } else {
     btn.style.display = "none";
-    log("[H1-PRIVACY] applyDebugPanelVisibility: HIDING debug toggle for non-mod u/" + user + " (cachedHomeIsMod=" + cachedHomeIsMod + ")");
+    log("[H1-PRIVACY] applyDebugPanelVisibility: HIDING debug toggle for non-mod " + userDisplay + " (cachedHomeIsMod=" + cachedHomeIsMod + ")");
   }
 }
 
