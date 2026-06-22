@@ -855,7 +855,7 @@ async function onServerLogs(): Promise<ApiResponse> {
   const authError = await requireMod();
   if (authError) {
     const user = context.username || "unknown";
-    const deniedMsg = `[SERVER-LOGS] DENIED access to /api/server-logs for non-mod u/${user}`;
+    const deniedMsg = `[H1-PRIVACY] [SERVER-LOGS] DENIED access to /api/server-logs for non-mod u/${user}`;
     console.warn(deniedMsg);
     serverLog("warn", deniedMsg);
     return authError;
@@ -863,7 +863,7 @@ async function onServerLogs(): Promise<ApiResponse> {
   try {
     const results = await redis.zRange("meetit:server_logs", "-inf", "+inf", { by: "score" });
     const logs = results.map((r) => safeJSONParse(r.member)).filter((l): l is { ts: number; level: string; msg: string } => l !== null);
-    const okMsg = `[SERVER-LOGS] Returning ${logs.length} entries to mod u/${context.username}`;
+    const okMsg = `[H1-PRIVACY] [SERVER-LOGS] Returning ${logs.length} entries to mod u/${context.username}`;
     console.log(okMsg);
     serverLog("info", okMsg);
     return { type: "server-logs", logs };

@@ -141,15 +141,18 @@ function renderUnifiedLogs(container: Element | null) {
 // from /api/home, (c) prefillOrganizer after isMod is set from /api/init.
 // The button is hidden in HTML by default so non-mods never see it, even
 // before this function runs.
+// All log lines are prefixed with [H1-PRIVACY] so a mod can grep them to
+// verify the privacy fix is active.
 function applyDebugPanelVisibility() {
   var btn = document.getElementById("debug-toggle");
   if (!btn) return;
+  var user = currentUsername || usernameCached || "anonymous";
   if (cachedHomeIsMod) {
     btn.style.display = ""; // restore default (block-ish via CSS)
-    log("applyDebugPanelVisibility: showing debug toggle (user is mod)");
+    log("[H1-PRIVACY] applyDebugPanelVisibility: SHOWING debug toggle for mod u/" + user);
   } else {
     btn.style.display = "none";
-    log("applyDebugPanelVisibility: hiding debug toggle (user is not mod)");
+    log("[H1-PRIVACY] applyDebugPanelVisibility: HIDING debug toggle for non-mod u/" + user + " (cachedHomeIsMod=" + cachedHomeIsMod + ")");
   }
 }
 
@@ -159,10 +162,10 @@ function applyDebugPanelVisibility() {
 // DOM manipulation tricks from accidentally exposing logs.
 async function fetchServerLogs() {
   if (!cachedHomeIsMod) {
-    log("fetchServerLogs SKIPPED: user is not a mod (cachedHomeIsMod=" + cachedHomeIsMod + ")");
+    log("[H1-PRIVACY] fetchServerLogs SKIPPED: user is not a mod (cachedHomeIsMod=" + cachedHomeIsMod + ")");
     return;
   }
-  log("fetching server logs...");
+  log("[H1-PRIVACY] fetchServerLogs: user is mod, fetching server logs...");
   try {
     var res = await fetch(API_BASE + "/api/server-logs");
     log("server logs response status=" + res.status);
@@ -2728,6 +2731,20 @@ document.addEventListener("DOMContentLoaded", function () {
   // is open. The check is now in resetEventForm() (called when the user
   // taps "Submit Event" from the create menu).
 
+  // H1 fix (testing aid): if the URL includes `?h1_nomod=1`, force
+  // cachedHomeIsMod to false. This lets a mod simulate the non-mod path
+  // for testing without needing a second Reddit account. The server check
+  // (requireMod) is the actual security boundary — this only affects what
+  // the CLIENT shows. Useful for verifying the H1-PRIVACY logs.
+  // Example: https://reddit.com/r/foo?h1_nomod=1
+  try {
+    var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("h1_nomod") === "1") {
+      log("[H1-PRIVACY] URL param h1_nomod=1 detected: forcing cachedHomeIsMod=false for testing");
+      cachedHomeIsMod = false;
+    }
+  } catch (e) { /* URLSearchParams not available in very old browsers */ }
+
   // A11y: every close button gets an aria-label. One pass at boot is enough
   // since the close buttons are static (not dynamically created).
   document.querySelectorAll(".close-btn").forEach(function (b) {
@@ -2758,13 +2775,13 @@ document.addEventListener("DOMContentLoaded", function () {
     // button, ignore the click. The server-side check (requireMod) is the
     // real security boundary; this is just UX.
     if (!cachedHomeIsMod) {
-      log("debug toggle click IGNORED: not a mod (cachedHomeIsMod=" + cachedHomeIsMod + ")");
+      log("[H1-PRIVACY] debug toggle click IGNORED: not a mod (cachedHomeIsMod=" + cachedHomeIsMod + ")");
       return;
     }
     var panel = document.getElementById("debug-panel")!;
     var show = panel.style.display !== "block";
     panel.style.display = show ? "block" : "none";
-    log("debug panel " + (show ? "visible" : "hidden"));
+    log("[H1-PRIVACY] debug panel " + (show ? "visible" : "hidden") + " (mod action)");
     if (show) { fetchServerLogs(); }
   });
   document.getElementById("debug-copy-all")?.addEventListener("click", function (e) {

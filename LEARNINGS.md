@@ -3531,6 +3531,108 @@ This is the **biggest privacy issue** the app has shipped. Not catastrophic (no 
 - `openspec/specs/server-logs-privacy/spec.md` — permanent spec
 - `LEARNINGS.md §1` (surgical change rule) — 6 small changes, not a feature
 - `LEARNINGS.md §59` (e28.9 logging) — the `isMod` field flows through the same init response
+- `LEARNINGS.md §61` (H1-PRIVACY tag + manual test plan) — the verification approach for this fix
+
+---
+
+## 61. Greppable Privacy Logs (2026-06-22, H1 verification)
+
+After deploying the debug panel privacy fix (§60), the user asked: "did you add login to check the non mod log non appearance". I had added generic logs but they weren't easy to verify. This section documents the verification approach.
+
+### The H1-PRIVACY tag
+
+Every log line related to the debug panel privacy fix is prefixed with `[H1-PRIVACY]`. This makes verification trivial:
+
+```bash
+# See all privacy-related events for a session
+devvit-cli logs r/meetup_hub2_dev | grep "H1-PRIVACY"
+
+# Count how many times the toggle was hidden (vs shown)
+devvit-cli logs r/meetup_hub2_dev | grep -c "H1-PRIVACY.*HIDING"
+devvit-cli logs r/meetup_hub2_dev | grep -c "H1-PRIVACY.*SHOWING"
+```
+
+The tag is applied to 7 client log lines + 2 server log lines:
+
+**Client:**
+- `applyDebugPanelVisibility: SHOWING debug toggle for mod u/{user}`
+- `applyDebugPanelVisibility: HIDING debug toggle for non-mod u/{user}`
+- `fetchServerLogs SKIPPED: user is not a mod`
+- `fetchServerLogs: user is mod, fetching server logs...`
+- `URL param h1_nomod=1 detected: forcing cachedHomeIsMod=false for testing`
+- `debug toggle click IGNORED: not a mod`
+- `debug panel visible/hidden (mod action)`
+
+**Server:**
+- `[H1-PRIVACY] [SERVER-LOGS] DENIED access to /api/server-logs for non-mod u/{user}`
+- `[H1-PRIVACY] [SERVER-LOGS] Returning N entries to mod u/{user}`
+
+### Manual test plan (3 paths)
+
+**Path 1: Mod opens the app (expected: sees toggle)**
+1. Sign in as darelphilip (mod)
+2. Open the app
+3. Look at bottom-right: 🐛 button should be visible
+4. Tap it: panel opens with server logs
+5. Expected logs:
+   ```
+   [INIT] username=darelphilip isMod=true
+   [H1-PRIVACY] applyDebugPanelVisibility: SHOWING debug toggle for mod u/darelphilip
+   [H1-PRIVACY] [SERVER-LOGS] Returning 100 entries to mod u/darelphilip
+   ```
+
+**Path 2: Non-mod opens the app (expected: no toggle)**
+1. Sign in as a non-mod Redditor (e.g., Master-Phrase4040)
+2. Open the app
+3. Look at bottom-right: 🐛 button should NOT be visible
+4. Expected logs:
+   ```
+   [INIT] username=Master-Phrase4040 isMod=false
+   [H1-PRIVACY] applyDebugPanelVisibility: HIDING debug toggle for non-mod u/Master-Phrase4040
+   ```
+
+**Path 3: Mod simulates non-mod via URL param (no second account needed)**
+1. Sign in as darelphilip (mod)
+2. Open the app with `?h1_nomod=1` appended to the URL
+3. Look at bottom-right: 🐛 button should NOT be visible
+4. Expected logs:
+   ```
+   [H1-PRIVACY] URL param h1_nomod=1 detected: forcing cachedHomeIsMod=false for testing
+   [H1-PRIVACY] applyDebugPanelVisibility: HIDING debug toggle for non-mod u/darelphilip
+   ```
+5. Remove `?h1_nomod=1` from URL → toggle reappears
+
+**Path 4: Non-mod tries to call /api/server-logs directly (expected: 403)**
+1. Open browser dev tools
+2. Run in console:
+   ```js
+   fetch('/api/server-logs', { method: 'POST' }).then(r => r.status).then(console.log)
+   ```
+3. Expected: `403`
+4. Server log will show:
+   ```
+   [H1-PRIVACY] [SERVER-LOGS] DENIED access to /api/server-logs for non-mod u/{user}
+   ```
+
+### The h1_nomod URL param: safe or not?
+
+The `?h1_nomod=1` URL param forces `cachedHomeIsMod = false` in the **client only**. This is safe because:
+- The server is the real security boundary (`requireMod()` returns 403 for non-mods)
+- The client check is UX (avoids 403 roundtrip, hides the button)
+- A non-mod can only simulate what they ALREADY see (nothing)
+- A mod using this param is just testing the client-side hide logic
+
+If the server check is ever removed in the future, the URL param would be a security concern. But the server check is the foundation of the H1 fix and is not being removed.
+
+### Cross-references
+
+- `src/client/app.ts:DOMContentLoaded` — URL param check
+- `src/client/app.ts:applyDebugPanelVisibility` — H1-PRIVACY log
+- `src/client/app.ts:fetchServerLogs` — H1-PRIVACY log
+- `src/server/server.ts:onServerLogs` — H1-PRIVACY log
+- `LEARNINGS.md §60` — the underlying H1 privacy fix
+- `LEARNINGS.md §59` — e28.9 logging convention (the H1-PRIVACY tag follows the same pattern as `e28-` prefix)
+
 
 
 
