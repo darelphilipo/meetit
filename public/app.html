@@ -553,7 +553,10 @@
       </div>
     </div>
   </div>
-  <button id="debug-toggle" type="button" aria-label="Toggle debug log panel">🐛</button>
+  <!-- H1 fix: debug toggle hidden by default. The client reveals it only for
+       mods (cachedHomeIsMod === true) after /api/init returns. The server
+       /api/server-logs endpoint also requires mod auth (defense in depth). -->
+  <button id="debug-toggle" type="button" aria-label="Toggle debug log panel" style="display: none;">🐛</button>
   <div id="debug-panel">
     <div class="debug-header">
       <span style="font-size:11px;font-weight:700;color:#00ff88;font-family:'Space Grotesk',sans-serif;">🐛 Debug Log</span>

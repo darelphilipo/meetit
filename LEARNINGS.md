@@ -3471,5 +3471,67 @@ For the iOS TIME box fix, the log uses `window.getComputedStyle(formRow).display
 - `src/client/app.ts:DOMContentLoaded` — form-row display check
 - `LEARNINGS.md §55-58` — the e28 features these logs verify
 
+---
+
+## 60. The Debug Panel Privacy Leak (2026-06-22, fix-privacy-issues)
+
+After the e28 deployment, the user reviewed their unified log output and noticed:
+```
+[SERVER] 14:50:15.928 [API] GET /api/server-logs
+[CLIENT] 14:50:14.869 debug panel visible
+```
+
+The debug panel was visible to any user — and tapping it returned the last 100 server log entries. This included:
+- **Usernames** of other Redditors (from RSVP share attempts, auto-RSVP logs, etc.)
+- **Event IDs** (correlatable to specific events)
+- **RSVP actions** (who RSVPed to what)
+- **Contact-presence flags** (`contact=true/false` in `/api/rsvp-list` logs)
+- **Error messages** (sometimes including internal state)
+
+This is the **biggest privacy issue** the app has shipped. Not catastrophic (no email/phone leaks), but enough for targeted abuse.
+
+### The fix: defense in depth across 4 layers
+
+| Layer | Check | What it prevents |
+|-------|-------|------------------|
+| 1. **HTML** | `style="display: none;"` on `<button id="debug-toggle">` | Non-mods see nothing in the initial DOM |
+| 2. **Client click handler** | `if (!cachedHomeIsMod) return;` | DOM manipulation tricks can't bypass the UI |
+| 3. **Client fetchServerLogs** | `if (!cachedHomeIsMod) return;` | Avoids the network roundtrip; logs the skip |
+| 4. **Server endpoint** | `await requireMod()` | **The actual security boundary** — non-mods get 403 even if they bypass the client |
+
+### What I added to make the fix complete
+
+1. **Server `onInit`**: include `isMod` in the response. This lets the client know mod status at app boot, before `/api/home` returns. Without this, there's a brief window at app start where `cachedHomeIsMod = false` and the panel is correctly hidden — but the moment home loads, the toggle would appear. Having `isMod` in init lets us reveal the toggle earlier if the user opens the event form (which calls `prefillOrganizer` → `onInit`).
+
+2. **Server `onServerLogs`**: added `requireMod()` at the top. Logs the denied access attempt (`[SERVER-LOGS] DENIED access to /api/server-logs for non-mod u/{username}`) for mod review.
+
+3. **Client `applyDebugPanelVisibility()`**: new helper that shows/hides the debug toggle based on `cachedHomeIsMod`. Called from 3 places:
+   - `DOMContentLoaded` (initial render)
+   - `loadHome` after `cachedHomeIsMod` is set
+   - `prefillOrganizer` after `data.isMod` arrives from init
+
+4. **Client guards**: both the click handler and `fetchServerLogs` check `cachedHomeIsMod` and bail out early if false.
+
+### The general lesson
+
+**The security boundary is the server, not the client.** The HTML `display: none` and the client-side checks are nice UX (no flicker, no failed network calls), but they're not the security boundary. A determined user can manipulate the DOM, open dev tools, and call the API directly. The server check is what actually protects the data.
+
+**Hide by default, reveal on permission.** The default state for the debug panel should be "hidden" — not just in CSS, but in the JS handler too. If a non-mod somehow gets the button visible, the handler should return early. The button being visible in the HTML at all is a code smell; the real fix is making sure the server rejects unauthorized requests.
+
+**Log denied access attempts.** A 403 isn't enough — the attempt itself is suspicious. Logging `[SERVER-LOGS] DENIED access for non-mod u/{username}` lets mods review who's trying to access what. Without this log, a misconfigured client could keep failing silently.
+
+### Cross-references
+
+- `src/server/server.ts:onInit` — new `isMod` field
+- `src/server/server.ts:onServerLogs` — new `requireMod()` gate
+- `src/client/app.ts:applyDebugPanelVisibility` — new helper
+- `src/client/app.ts:fetchServerLogs` — new mod guard
+- `public/app.html:559` — new `display: none` on toggle
+- `openspec/changes/archive/2026-06-22-fix-privacy-issues/` — full spec
+- `openspec/specs/server-logs-privacy/spec.md` — permanent spec
+- `LEARNINGS.md §1` (surgical change rule) — 6 small changes, not a feature
+- `LEARNINGS.md §59` (e28.9 logging) — the `isMod` field flows through the same init response
+
+
 
 

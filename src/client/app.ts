@@ -135,8 +135,33 @@ function renderUnifiedLogs(container: Element | null) {
   }
 }
 
-// Fetch server logs and merge into unified view
+// H1 fix: show or hide the debug toggle button based on mod status.
+// Called from: (a) DOMContentLoaded (initial render with whatever isMod is
+// known — usually false at this point), (b) loadHome after isMod is set
+// from /api/home, (c) prefillOrganizer after isMod is set from /api/init.
+// The button is hidden in HTML by default so non-mods never see it, even
+// before this function runs.
+function applyDebugPanelVisibility() {
+  var btn = document.getElementById("debug-toggle");
+  if (!btn) return;
+  if (cachedHomeIsMod) {
+    btn.style.display = ""; // restore default (block-ish via CSS)
+    log("applyDebugPanelVisibility: showing debug toggle (user is mod)");
+  } else {
+    btn.style.display = "none";
+    log("applyDebugPanelVisibility: hiding debug toggle (user is not mod)");
+  }
+}
+
+// H1 fix: gate the server-logs fetch behind cachedHomeIsMod. The server
+// endpoint also requires mod auth (see server.ts:onServerLogs), but the
+// client-side check avoids the network roundtrip for non-mods and prevents
+// DOM manipulation tricks from accidentally exposing logs.
 async function fetchServerLogs() {
+  if (!cachedHomeIsMod) {
+    log("fetchServerLogs SKIPPED: user is not a mod (cachedHomeIsMod=" + cachedHomeIsMod + ")");
+    return;
+  }
   log("fetching server logs...");
   try {
     var res = await fetch(API_BASE + "/api/server-logs");
@@ -289,6 +314,7 @@ async function loadHome() {
         var currentId = currentEvent && currentEvent.id;
         cachedHomeEvents = allEvents;
         cachedHomeIsMod = data.data.isMod;
+        applyDebugPanelVisibility(); // H1 fix: reveal debug toggle for mods
         homeShareUrl = data.data.shareUrl || "";
         if (currentId) {
           var updatedIndex = allEvents.findIndex(function (event) { return event.id === currentId; });
@@ -442,6 +468,7 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
 
     var catColor = (event.category && CAT_MAP[event.category]) ? CAT_MAP[event.category].color : "";
     c.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, footerHtml: footerHtml, noFade: opts.noFade, accentColor: catColor });
+    applyDebugPanelVisibility(); // H1 fix: re-apply in case isMod changed
     // e23: one-shot bounce on the RSVP button when the user JUST RSVP'd in this session
     if (event.hasRsvped && justRsvpedIds[event.id]) {
       var rsvpBtn = c.querySelector(".btn-rsvp-card");
@@ -2329,7 +2356,10 @@ async function submitEvent() { log("submitEvent"); if (isLocked("submit-event"))
       if (myStuffOverlay2 && myStuffOverlay2.classList.contains("active") && myStuffTab === "events") { renderMyEventCard(); }
     } else { showToast(data.error || "Submit failed - retry", "error"); setBtnLoading("#event-submit-btn", false); } } catch (e) { showToast("Error", "error"); setBtnLoading("#event-submit-btn", false); } finally { unlock("submit-event"); } }
 var usernameCached: string | null = null, prefillLoading = false;
-async function prefillOrganizer() { if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; } if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; } if (prefillLoading) return; prefillLoading = true; try { var res = await fetch(API_BASE + "/api/init"); var data = await res.json(); if (data.type === "init" && data.username) { currentUsername = data.username; usernameCached = data.username; (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username; } if (data.type === "init" && data.timezone) { setAppTimezone(data.timezone); } } catch (e) { log("error: prefillOrganizer " + e); } prefillLoading = false; }
+async function prefillOrganizer() { if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; } if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; } if (prefillLoading) return; prefillLoading = true; try { var res = await fetch(API_BASE + "/api/init"); var data = await res.json(); if (data.type === "init" && data.username) { currentUsername = data.username; usernameCached = data.username; (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username; } if (data.type === "init" && data.timezone) { setAppTimezone(data.timezone); } // H1 fix: set isMod from init so the debug panel can be revealed
+  // before /api/home returns. The server also returns isMod in the init
+  // response (see server.ts:onInit).
+  if (data.type === "init" && typeof data.isMod === "boolean") { cachedHomeIsMod = data.isMod; applyDebugPanelVisibility(); } } catch (e) { log("error: prefillOrganizer " + e); } prefillLoading = false; }
 
 // ======= OVERLAY HELPERS =======
 function openOverlay(id: string) { log("OPEN overlay " + id); document.getElementById(id)!.classList.add("active"); }
@@ -2713,7 +2743,19 @@ document.addEventListener("DOMContentLoaded", function () {
     }, 600);
   }
 
+  // H1 fix: show the debug toggle ONLY for mods. The button is hidden in HTML
+  // by default (`style="display: none;"`); this helper reveals it for mods.
+  // The panel itself stays hidden until the toggle is clicked (CSS default).
+  applyDebugPanelVisibility();
+
   document.getElementById("debug-toggle")!.addEventListener("click", function () {
+    // Defense in depth: even if a non-mod manipulates the DOM to show the
+    // button, ignore the click. The server-side check (requireMod) is the
+    // real security boundary; this is just UX.
+    if (!cachedHomeIsMod) {
+      log("debug toggle click IGNORED: not a mod (cachedHomeIsMod=" + cachedHomeIsMod + ")");
+      return;
+    }
     var panel = document.getElementById("debug-panel")!;
     var show = panel.style.display !== "block";
     panel.style.display = show ? "block" : "none";

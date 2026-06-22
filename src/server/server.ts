@@ -306,10 +306,19 @@ async function getUserRsvpScore(eventId: string, username: string): Promise<numb
 
 async function onInit(): Promise<ApiResponse> {
   const appSettings = await getSettings();
+  // H1 fix: include isMod so the client can hide mod-only UI (debug panel)
+  // BEFORE the home page loads. Without this, the client only knows isMod
+  // after /api/home returns, leaving a brief window where the debug panel
+  // might be visible to non-mods at app boot.
+  const modStatus = await isMod();
+  const initMsg = `[INIT] username=${context.username || "user"} isMod=${modStatus}`;
+  console.log(initMsg);
+  serverLog("info", initMsg);
   return {
     type: "init",
     postId: context.postId || "",
     username: context.username || "user",
+    isMod: modStatus,
     settings: appSettings,
     timezone: appSettings.timezone,
   };
@@ -838,11 +847,25 @@ async function onMySubmissions(): Promise<ApiResponse> {
 }
 
 async function onServerLogs(): Promise<ApiResponse> {
+  // H1 fix: server logs include usernames, event IDs, RSVP actions, contact-
+  // presence flags, and error messages. The /api/server-logs endpoint now
+  // requires mod authentication. The client-side debug panel is also hidden
+  // for non-mods (see app.ts:DOMContentLoaded), but the server check is the
+  // security boundary — never trust the client.
+  const authError = await requireMod();
+  if (authError) {
+    const user = context.username || "unknown";
+    const deniedMsg = `[SERVER-LOGS] DENIED access to /api/server-logs for non-mod u/${user}`;
+    console.warn(deniedMsg);
+    serverLog("warn", deniedMsg);
+    return authError;
+  }
   try {
     const results = await redis.zRange("meetit:server_logs", "-inf", "+inf", { by: "score" });
     const logs = results.map((r) => safeJSONParse(r.member)).filter((l): l is { ts: number; level: string; msg: string } => l !== null);
-    console.log(`[SERVER-LOGS] Returning ${logs.length} entries`);
-    serverLog("info", `[SERVER-LOGS] Returning ${logs.length} entries`);
+    const okMsg = `[SERVER-LOGS] Returning ${logs.length} entries to mod u/${context.username}`;
+    console.log(okMsg);
+    serverLog("info", okMsg);
     return { type: "server-logs", logs };
   } catch (e) {
     console.log(`[SERVER-LOGS] Error: ${e}`);
