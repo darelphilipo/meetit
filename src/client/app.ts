@@ -2205,6 +2205,15 @@ function resetEventForm() {
   ["event-dot-1", "event-dot-2", "event-dot-3", "event-dot-4"].forEach(function (id, i) { document.getElementById(id)!.classList.toggle("done", i === 0); });
   ["event-title", "event-organizer", "event-date", "event-time", "event-location", "event-map-url", "event-desc", "event-category"].forEach(function (id) { var el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null; if (el) el.value = ""; });
   setBtnLoading("#event-submit-btn", false);
+  // e28.9 (iOS CSS check): verify the form-row uses CSS grid (not flex) so
+  // the date+time inputs render with equal width on iOS Safari. The form-row
+  // element only exists in the DOM when the event form is open, so we check
+  // here at form-open time (instead of at app init when the element is absent).
+  var formRow = document.querySelector(".form-row") as HTMLElement | null;
+  if (formRow) {
+    var display = window.getComputedStyle(formRow).display;
+    log("resetEventForm e28-form-row-display=" + display + " (expected: grid)");
+  }
 }
 function eventPrev() {
   log("eventPrev step=" + eventStep);
@@ -2714,14 +2723,10 @@ async function confirmRsvpShare() {
 
 document.addEventListener("DOMContentLoaded", function () {
   log("APP INIT - DOM ready");
-  // e28.9: Confirm the iOS TIME-box CSS fix is active. The .form-row uses
-  // CSS grid (not flex) so the date+time inputs render with equal width.
-  // If this log is missing on iOS Safari, the CSS didn't apply (cache issue?).
-  var formRow = document.querySelector(".form-row") as HTMLElement | null;
-  if (formRow) {
-    var display = window.getComputedStyle(formRow).display;
-    log("APP INIT e28-form-row-display=" + display + " (expected: grid)");
-  }
+  // Note: the e28 iOS CSS check (`e28-form-row-display=grid`) used to live
+  // here, but the .form-row element is only in the DOM when the event form
+  // is open. The check is now in resetEventForm() (called when the user
+  // taps "Submit Event" from the create menu).
 
   // A11y: every close button gets an aria-label. One pass at boot is enough
   // since the close buttons are static (not dynamically created).
