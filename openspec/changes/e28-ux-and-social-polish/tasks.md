@@ -1,0 +1,21 @@
+# e28-ux-and-social-polish — Tasks
+
+- [x] 1. Add `formatAttendeeList()` helper + `ATTENDEE_LIST_CAP` constant in `src/shared/meetit.ts`
+- [x] 2. Update `buildRsvpShareBody` to accept `otherAttendees: readonly string[]` and render the "Also going" section
+- [x] 3. Update `buildReminderBody` to accept `attendees: readonly string[]` and render the "N going" section
+- [x] 4. Server `onApproveEvent`: auto-RSVP the organizer via `zAdd(meetit:rsvps:{eventId}, ...)` (e28.1)
+- [x] 5. Server `onMySubmissions`: annotate `myEvents` with `rsvpCount` from the existing batch query (e28.4)
+- [x] 6. Server `onRsvpShare`: fetch attendees, exclude current user, pass to `buildRsvpShareBody` (e28.6)
+- [x] 7. Server `onCheckEvents`: batch-fetch attendees for all events, pass to `buildReminderBody` (e28.7)
+- [x] 8. Client `renderMyRsvpCard`: compact header + 3 equal-width compact buttons (e28.3)
+- [x] 9. Client detail card step 1: move category badge from Row 5 to inline with title (e28.5)
+- [x] 10. Client `openRsvpSharePreview`: show "Also going (N)" count in preview body
+- [x] 11. CSS in `public/app.html`: `appearance: none` on date/time inputs; `.form-row` from flex to grid (e28.2)
+- [x] 12. Update RSVP disclosure text in `app.html:512` to mention public posts
+- [x] 13. Update existing test file (add `[]` to all `buildReminderBody` / `buildRsvpShareBody` call sites)
+- [x] 14. Add 11 new unit tests for `formatAttendeeList`, share-with-attendees, reminder-with-attendees
+- [x] 15. `npm test` (52/52 pass), `npm run type-check` (no new errors), `npm run build` (success)
+- [x] 16. `openspec validate --strict --all` passes
+- [x] 17. Update LEARNINGS with new sections §55 (auto-RSVP organizer), §56 (attendee list in posts), §57 (iOS date/time input fix)
+- [x] 18. Deploy to `r/meetup_hub2_dev` and verify all 7 fixes
+- [x] 19. Archive change via `openspec archive e28-ux-and-social-polish --yes`

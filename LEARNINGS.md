@@ -2564,3 +2564,864 @@ for (const a of attendees) {
 - [ ] A username starting with `=`, `+`, `-`, `@` is prefixed with `'` to suppress formula evaluation
 - [ ] Empty email/phone cells render as empty strings, not the literal text "undefined"
 
+---
+
+## 49. Reminder Post System: textFallback → Plain Text Post + `u/` Prefix Trap (2026-06-19)
+
+The reminder post feature went through **two major iterations** and **one hotfix** before settling on the final design. This section captures the lessons so future maintainers don't repeat the mistakes.
+
+### Iteration 1: `textFallback` on `submitCustomPost` (REJECTED)
+
+**First attempt:** Use `reddit.submitCustomPost({ textFallback: { text: buildReminderBody(...) } })`.
+
+**Why it seemed right:** The Devvit docs explicitly market `textFallback` as enabling cross-client body rendering for interactive posts. The buildReminderBody produced a 500-char markdown body — well under the 40K limit.
+
+**Why it failed in production:** Live testing in `r/meetup_hub2_dev` showed the post **still rendered the full Meetit app iframe** on new.reddit and the official mobile app. The `textFallback` was only used as a fallback on platforms that **cannot** render the iframe at all (old.reddit, 3rd-party mobile apps, screen readers, search, AutoMod). The body remained hidden from the primary viewing surface.
+
+**Lesson:** `textFallback` is **NOT** a way to show body content alongside an app post. It is a *fallback for platforms where the iframe cannot render*. The post still has an iframe as its primary surface on every client that supports it. **If you want a visible body, use `submitPost` (plain text post) instead.**
+
+### Iteration 2: `submitPost` plain text post (CURRENT)
+
+**What we shipped:** `reddit.submitPost({ title, text, subredditName? })` creates a true plain text post. The body is the post body — visible on every Reddit client, gets the full comment thread UI, and is what Redditors see when they open the post.
+
+**Trade-off:** Plain text posts don't launch the Meetit app iframe. To preserve the RSVP entry point, the body now ends with:
+```
+🚀 **[Open in Meetit to RSVP](https://www.reddit.com/r/${subredditName})**
+```
+
+**Lesson:** When the user-facing goal is **discussion** (not running an interactive app), `submitPost` is the right call. The deep link in the body is the entry point to the in-app RSVP flow.
+
+### Hotfix: `u/u/darelphilip` — the `u/` prefix trap
+
+**Bug:** First live body rendered as:
+```
+**Organized by:** u/u/darelphilip
+```
+
+**Root cause:** The submit-event form prefill at `app.ts:2310` literally prepends `u/` to the organizer username:
+```ts
+(document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername;
+```
+
+The form input is also a free-text field — users can type `u/theirname` manually. So `event.organizer` is **stored in Redis with the `u/` prefix** by design. The original `buildReminderBody` then blindly re-prefixed with `u/${event.organizer}`, producing `u/u/darelphilip`.
+
+The mod list happened to render correctly because `mod_usernames` is stored without the `u/` prefix (it's a comma-separated username list parsed from a setting, not user-typed text).
+
+**Fix:** Added a private `stripUsernamePrefix(raw)` helper in `src/shared/meetit.ts`:
+```ts
+function stripUsernamePrefix(raw: string | null | undefined): string {
+  if (raw == null) return "";
+  let s = String(raw).trim();
+  if (/^u\//i.test(s)) s = s.slice(2).trim();
+  return s;
+}
+```
+
+`buildReminderBody` now normalizes both organizer and mod list before re-prefixing. The function is now **defensive** — it accepts usernames with OR without `u/` and always renders exactly one.
+
+**Lesson:** When storing user-typed text that may include a prefix (like `u/`, `@`, `#`, `r/`, `https://`), **always normalize at the boundary where you re-prefix it**. Don't trust the storage format. The fix is small (~10 lines) but the bug is user-visible.
+
+### Hotfix: Title format `Event Reminder - event name - date @ location`
+
+**User feedback after first deploy:** The title was just `🔔 Reminder: ${event.title} — ${event.date}` — too terse. Wanted `Event Reminder - event name - date @ location` for more context.
+
+**Fix:** Extracted a new pure helper `buildReminderTitle(event)` in `src/shared/meetit.ts`:
+```ts
+export function buildReminderTitle(event: Pick<MeetitEvent, "title" | "date" | "location">): string {
+  const title = event.title || "TBD";
+  const date = event.date || "TBD";
+  const location = event.location && event.location.trim();
+  return location
+    ? `🔔 Event Reminder: ${title} — ${date} @ ${location}`
+    : `🔔 Event Reminder: ${title} — ${date}`;
+}
+```
+
+`@ location` is omitted when location is empty/whitespace. The date and title fall back to `TBD` (mirrors body builder behavior).
+
+**Lesson:** When title and body format live in different files, extract them as separate pure functions (in `src/shared/meetit.ts`) so they're independently testable. The buildReminderTitle is 4 unit tests; buildReminderBody is 13. Both pass.
+
+### Files changed in the e24 implementation
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `src/shared/meetit.ts` | +90 | New `buildReminderBody()`, `buildReminderTitle()`, private `stripUsernamePrefix()` |
+| `src/server/server.ts` | +30 | `parseModList()` helper, `buildReminderBody()` + `buildReminderTitle()` calls in `onCheckEvents`, retry window fix, dedup flag after success |
+| `tools/meetit-behavior.test.ts` | +91 | 13 new test cases (4 body + 9 title) |
+| `public/app.html` | 0 (this was for e25, not e24) | (n/a) |
+
+### OpenSpec outcome
+
+- `e24-discussion-friendly-reminders` archived with **correction history** in proposal.md (v1 = textFallback, v2 = plain text post, hotfix for `u/` and title)
+- `reminder-system` capability spec lives at `openspec/specs/reminder-system/spec.md`
+- 35 → 36 OpenSpec items (added `rsvp-disclosure` in e25)
+
+### Verification commands (use these in any future reminder post debugging)
+
+```bash
+# 1. Render the body locally to verify the format
+node --experimental-strip-types -e "
+import { buildReminderBody, buildReminderTitle } from './src/shared/meetit.ts';
+const event = { title: 'Test', date: '2026-06-20', time: '18:00', location: 'Park', description: 'Bring snacks', organizer: 'u/darelphilip' };
+console.log('TITLE:', buildReminderTitle(event));
+console.log('BODY:');
+console.log(buildReminderBody(event, 'u/darelphilip', ['modA', 'modB'], 'meetup_hub2_dev'));
+"
+
+# 2. Confirm the bundle has the new helpers
+grep -E "buildReminderTitle|stripUsernamePrefix" dist/server/index.js
+
+# 3. Watch CRON logs for the new post
+devvit-cli logs r/meetup_hub2_dev
+# Look for: [CRON] Reminder post sent for ... (postId=...)
+
+# 4. Inspect a posted reminder via Reddit JSON API (auth required since May 28, 2026)
+curl -H "Authorization: Bearer <token>" https://oauth.reddit.com/r/meetup_hub2_dev/comments/1uacdhy | jq '.[] | .children[].data | {title, selftext}'
+```
+
+### Why I didn't create a new OpenSpec change for the hotfix
+
+Per the surgical-change rule (see §40): the `u/` prefix and title format are both correctness/UX defects in the same `reminder-system` capability. The fix is ~20 lines of code + 9 unit tests. Creating a new OpenSpec change for < 30 minutes of work would be more bureaucracy than the fix itself. Instead, the archived `e24-discussion-friendly-reminders/design.md` has a new "Post-launch hotfix" section documenting both bugs and their fixes.
+
+The "what changed" rule for hotfixes:
+- Total footprint < 50 lines of code: hotfix the existing capability, document in archived design.md
+- Total footprint ≥ 50 lines OR new capability: create a new OpenSpec change
+
+### Cross-references
+
+- `openspec/specs/reminder-system/spec.md` — current spec
+- `openspec/changes/archive/2026-06-19-e24-discussion-friendly-reminders/{proposal,design,tasks}.md` — full proposal + design + correction history
+- `src/shared/meetit.ts:140` — `buildReminderBody()` (current)
+- `src/shared/meetit.ts:209` — `buildReminderTitle()` (current)
+- `src/server/server.ts:780` — `onCheckEvents()` reminder loop (current)
+- `src/server/server.ts:188` — `parseModList()` helper
+- `app.ts:2310` — `prefillOrganizer()` (the source of the `u/` prefix in stored data)
+
+---
+
+## 50. Reminder Post Maps Link + Deep Link to Launcher Post (2026-06-19)
+
+After the e24 reminder system shipped and the e24 hotfix (§49) fixed the `u/u/` bug, two more user-visible defects remained in the reminder body:
+
+1. **No Google Maps link**, even though the form has a maps field and the rest of the app shows it.
+2. **"Open in Meetit" deep link went to the subreddit homepage**, not the actual Meetit app post.
+
+### Defect 1: Missing Google Maps link
+
+**Root cause:** `buildReminderBody()` didn't read `event.mapUrl`. The field exists in the `MeetitEvent` type (`src/shared/api.ts:9`), is populated by the form (`public/app.html:482`), is stored in Redis by `createPendingEvent()` (`src/shared/meetit.ts:72`), and is rendered in the home card (`app.ts:1034`) and mod detail (`app.ts:1694`) with a copy button. The reminder body was the only place that ignored it.
+
+**Fix:** Added a `## 🗺️ [Open in Google Maps](${mapUrl})` section in `buildReminderBody()`. Skipped entirely when `event.mapUrl` is empty/whitespace/missing. No URL validation — the form is the trust boundary, and the reminder just renders whatever the user typed.
+
+**Lesson:** When you have a "do not forget the obvious fields" check, do an **end-to-end audit**: form → type → server storage → all rendering sites (home card, mod detail, CRON reminder, share exports). The reminder body was missing the maps link because I added it to the body without running through the full data flow.
+
+### Defect 2: Subreddit homepage instead of Meetit app post
+
+**Root cause:** The "Open in Meetit" deep link was `https://www.reddit.com/r/${subredditName}` — the subreddit's main feed. The user expected it to deep-link to the most recent Meetit app post (created via the `Create Meetit Post` menu action) so attendees could tap straight into the app to RSVP.
+
+**Fix in two parts:**
+
+1. **Track the launcher post ID.** In `onMenuCreatePost()` (the menu action handler), after the post is created, persist `post.id` to `meetit:meetit_app_post_id` in Redis. Wrapped in try/catch so a Redis write failure does not block the post creation UX (the post is already created; the only loss is that the next reminder will fall back to the subreddit homepage).
+
+2. **Read the launcher post ID in CRON.** In `onCheckEvents()`, before the per-event loop, read `meetit:meetit_app_post_id` and build the URL `https://www.reddit.com/comments/${id}/` (stripping any `t3_` prefix). Pass this as the new 5th parameter `meetitAppPostUrl` to `buildReminderBody()`.
+
+3. **Body builder prefers launcher post URL.** When `meetitAppPostUrl` is set, the deep link points to the app post. When unset, it falls back to the subreddit homepage with a hint for mods: "*Mods: create a 'Meetit - Community Meetups' post via the subreddit menu to make this link go straight to the app.*" This hint is the self-documenting workaround for fresh installs.
+
+**Why a Redis key instead of querying:** CRON context has no `context.postId` (per `LEARNINGS.md` table in §11.1 — "CRON context: `context.postId` is NOT available (no user post)"). The post ID would have to come from the webview context. Redis is the shared state between contexts.
+
+**Why overwrite on each menu invocation (not add to a set):** Mods typically create one canonical launcher post per subreddit. Overwriting is simpler and matches reality. If multiple launcher posts are created, only the most recent is used as the deep link target — acceptable trade-off.
+
+**Lesson:** When the user says "link to the last X post", they usually mean "the canonical post that the app was launched from", not literally "the most recent post with this title". The mental model is: "the post that the Meetit app lives in" — singular, not plural. Track it with a single Redis key, overwrite on creation, fall back gracefully.
+
+### Why the hint text matters (and is the right UX)
+
+When a fresh install has no launcher post, the deep link goes to the subreddit homepage. **Without the hint, a user might think the deep link is broken.** The hint text:
+
+> *Mods: create a "Meetit - Community Meetups" post via the subreddit menu to make this link go straight to the app.*
+
+…turns the fallback into a self-documenting onboarding step. The first mod to see the reminder post understands exactly what to do.
+
+**Lesson:** Fallback paths are user-visible. Always add a one-line hint explaining what the user is seeing and how to fix it. The hint is also a free audit trail — the mod who reads the reminder post knows that no one has clicked "Create Meetit Post" yet.
+
+### Files changed in e26
+
+| File | Change | Lines |
+|------|--------|-------|
+| `src/shared/meetit.ts` | `buildReminderBody()`: new `mapUrl` field in event Pick, new optional 5th param `meetitAppPostUrl`, mod hint in fallback | +30 |
+| `src/server/server.ts` | `onMenuCreatePost()`: persist `post.id` to `meetit:meetit_app_post_id` (try/catch) | +10 |
+| `src/server/server.ts` | `onCheckEvents()`: read the key, build URL, pass to `buildReminderBody()` | +10 |
+| `tools/meetit-behavior.test.ts` | 7 new tests (3 maps, 4 deep-link) + `mapUrl: undefined` on `FULL_EVENT` | +60 |
+
+### Test coverage added (7 new tests)
+
+**Maps (3):**
+- Includes maps section when `event.mapUrl` is set
+- Omits maps section when `event.mapUrl` is empty
+- Omits maps section when `event.mapUrl` is whitespace
+
+**Deep link (4):**
+- Prefers `meetitAppPostUrl` over subreddit homepage
+- Falls back to subreddit homepage when `meetitAppPostUrl` is missing
+- Falls back to subreddit homepage when `meetitAppPostUrl` is empty string
+- Omits the deep link entirely when both subreddit and app post are missing
+
+Total: 35/35 tests pass.
+
+### Cross-references
+
+- `openspec/specs/reminder-system/spec.md` — current spec (now includes e26 requirements)
+- `openspec/changes/archive/2026-06-19-e26-reminder-map-and-deeplink/{proposal,design,tasks}.md` — full proposal
+- `src/shared/meetit.ts:158` — `buildReminderBody()` (with maps + deep link logic)
+- `src/server/server.ts:721` — `onMenuCreatePost()` (writes the Redis key)
+- `src/server/server.ts:804` — `onCheckEvents()` (reads the key + builds URL)
+- `src/shared/api.ts:9` — `MeetitEvent.mapUrl?: string` type definition
+- `app.ts:2287` — `submitEvent()` form submission (where `mapUrl` enters the data flow)
+- `app.ts:1034, 1694` — home card and mod detail maps link rendering (for consistency check)
+
+### Pattern: progressive enhancement of a pure function
+
+`buildReminderBody()` has grown over three iterations:
+- v1 (e24): `buildReminderBody(event, organizer, mods)` — basic body
+- v2 (e24 hotfix): `buildReminderBody(event, organizer, mods, subredditName?)` — added deep link
+- v3 (e26): `buildReminderBody(event, organizer, mods, subredditName?, meetitAppPostUrl?)` — added launcher post URL
+
+Each new parameter is **optional and backward-compatible**. Existing callers (none right now, but in the future) can upgrade without touching the call site. This is the **pure-function evolution pattern**: keep the signature growing to the right, never break existing callers, always add tests for the new behavior.
+
+### Verification commands
+
+```bash
+# 1. Render the body with all new features enabled
+node --experimental-strip-types -e "
+import { buildReminderBody, buildReminderTitle } from './src/shared/meetit.ts';
+const event = { title: 'Test', date: '2026-06-20', time: '18:00', location: 'Park', description: 'Bring snacks', organizer: 'u/darelphilip', mapUrl: 'https://maps.google.com/?q=Park' };
+console.log('TITLE:', buildReminderTitle(event));
+console.log('BODY (with launcher post):');
+console.log(buildReminderBody(event, 'u/darelphilip', ['modA'], 'meetup_hub2_dev', 'https://www.reddit.com/comments/1uab0cg/'));
+console.log('BODY (fallback — no launcher):');
+console.log(buildReminderBody(event, 'u/darelphilip', ['modA'], 'meetup_hub2_dev'));
+"
+
+# 2. Confirm the Redis key is set after a mod creates a launcher post
+# In Devvit: trigger "Create Meetit Post" menu action, then in CRON logs look for:
+#   [MENU] Saved meetit_app_post_id=t3_1uab0cg (url=https://www.reddit.com/comments/1uab0cg/)
+
+# 3. Confirm a reminder post deep-links to the launcher
+# In CRON logs after the next 5-min tick:
+#   [CRON] Reminder post sent for ... (postId=t3_...)
+# Open the reminder post → the "Open in Meetit to RSVP" link should go to the launcher post URL, not the subreddit homepage.
+```
+
+---
+
+## 51. RSVP Share: User Actions Permission + Draft Preview UX (2026-06-19)
+
+The "I'm going to" social-share feature went through three iterations of design thought, all in one session, before settling on the final approach. This section captures the lessons so future social features don't repeat the mistakes.
+
+### Iteration 1: Single button, no preview (REJECTED)
+
+**First thought:** "Add a Share button. Tap it. Post goes out. Done."
+
+**Why I rejected it:**
+- **No User Actions compliance.** Per the [Devvit User Actions docs](https://developers.reddit.com/docs/capabilities/server/userActions), the user must be informed before the app acts on their behalf. A single-button no-preview design has no consent step.
+- **No typo protection.** Social-share posts with a typo (or worse, an accidentally-included private field) become permanent public records. The user can't review before posting.
+- **No cancel path.** A single button means accidental clicks = accidental public posts under the user's account.
+
+### Iteration 2: User account ONLY (REJECTED)
+
+**Second thought:** "Post under the user's account via `runAs: 'USER'`. Add the `asUser: ['SUBMIT_POST']` permission. No fallback."
+
+**Why I rejected it:**
+- **Feature is broken until app review completes.** Per docs: *"requires explicit approval during app review (extends review time)"*. If the app is still pending review, the feature doesn't work AT ALL.
+- **No graceful degradation.** A clean failure with no fallback is hostile to users who need the feature.
+
+### Iteration 3 (FINAL): User account + APP fallback + draft preview
+
+**What we shipped:**
+1. **Draft preview overlay** — the user always sees the exact post that will be created before confirming.
+2. **`runAs: 'USER'` first** — feels authentic, posted under their own account.
+3. **APP account fallback** — if `runAs: 'USER'` throws (e.g., permission pending), fall back to `runAs: 'APP'`. Feature works from day 1.
+4. **24h Redis dedup** — invisible to the user, prevents accidental double-posts.
+
+This is the **User Actions "always ask permission" + graceful degradation + spam prevention** trifecta.
+
+### Why a draft preview is the right UX (not just a checkbox)
+
+A common alternative to a draft preview is a consent checkbox:
+
+```html
+<input type="checkbox" required> I agree to post this on my behalf
+```
+
+I rejected this because:
+- **Checkboxes are skippable.** Users tap "I agree" without reading. The consent is performative, not informed.
+- **A draft preview IS the consent step.** Showing the exact post title + body is more informative than any checkbox. The user reads what they're about to send.
+- **It's the same pattern used by Strava, Letterboxd, Spotify Wrapped** — all use draft previews for social-share UX, not checkboxes.
+
+**Lesson:** For "act on my behalf" UX, the preview IS the consent. A separate checkbox is redundant friction.
+
+### The graceful fallback pattern (try USER → fall back to APP)
+
+The `runAs: 'USER'` API is powerful but gated by Reddit's app review. To avoid having a feature that doesn't work until review completes, the handler wraps the USER call in try/catch and falls back to APP:
+
+```ts
+let post;
+let postedAs: "USER" | "APP" = "USER";
+try {
+  post = await reddit.submitPost({ title, text, runAs: "USER" });
+} catch (e) {
+  serverLog("error", `rsvp-share USER fallback: ${errMsg}`);
+  post = await reddit.submitPost({ title, text, runAs: "APP" });
+  postedAs = "APP";
+}
+```
+
+The client gets `postedAs` in the response and shows a non-blocking toast:
+
+```ts
+var postedAsNote = data.postedAs === "APP" ? " (posted by Meetit — your account posting is pending review)" : "";
+showToast("Posted to Reddit! 🎉" + postedAsNote, "success");
+```
+
+**Why this works:**
+- **Day 1:** Feature works, posts are under the app account, users see a hint about pending review.
+- **After app review:** Feature works, posts are under user accounts, the hint disappears.
+
+The user never sees a broken feature.
+
+### 24h dedup prevents both accidental AND malicious double-posts
+
+The dedup key is `meetit:rsvp_share:${eventId}:${username}` with 24h TTL. The user can't share the same event twice in 24 hours, regardless of which account posted.
+
+**Why per-(eventId, username) instead of just per-username:**
+- **User RSVPs to event A** → shares it → dedup key set for (A, user)
+- **User RSVPs to event B** (different event) → wants to share it → fresh dedup key (B, user) → succeeds
+- **Without the eventId in the key**, the user could only share ONE event per 24h, which is too restrictive for active meetup attendees.
+
+**Why 24h and not permanent:**
+- Users might want to share an update ("Actually I'm bringing snacks!"). 24h is the right window for "spam prevention" without "permanently locking out re-sharing".
+
+### Why `submitPost` and not `submitCustomPost` for shares
+
+The first instinct might be to use `submitCustomPost` (the Meetit app iframe) for share posts. **Don't.** The share is supposed to be a flat text post that the user's followers can read and engage with. An app iframe:
+- Hides the body
+- Breaks comment thread UX
+- Feels spammy (app posts are often auto-generated)
+
+A plain text post (`submitPost`) is the right call. Same lesson as the e24 reminder system — see §49.
+
+### Why no `userGeneratedContent` on `submitPost` with `runAs: 'USER'`
+
+The Devvit docs and the `submitPost` type signature are inconsistent:
+- Docs say `userGeneratedContent` is required for `runAs: 'USER'`
+- Type signature only allows it on `submitCustomPost`
+
+**The pragmatic interpretation:** for `submitPost`, the `text` field IS the user-generated content. The platform infers it from the body. Passing `userGeneratedContent` on `submitPost` causes a TypeScript error (`userGeneratedContent does not exist in type`).
+
+**Lesson:** When Devvit docs and types disagree, trust the types. The bundler catches the mismatch at compile time; the docs are aspirational.
+
+### Files changed in e27
+
+| File | Change | Lines |
+|------|--------|-------|
+| `devvit.json` | Add `"asUser": ["SUBMIT_POST"]` under `permissions.reddit` | +1 |
+| `src/shared/api.ts` | Add `RsvpShare: "/api/rsvp-share"` to `ApiEndpoint` enum | +1 |
+| `src/shared/meetit.ts` | New `buildRsvpShareBody()` pure function + private `escapeShareMarkdown()` helper | +80 |
+| `src/server/server.ts` | New `onRsvpShare()` handler (~70 lines) + response type | +75 |
+| `public/app.html` | New `rsvp-share-overlay` markup | +20 |
+| `src/client/app.ts` | New `openRsvpSharePreview()` + `confirmRsvpShare()` functions + Share button in RSVP success card + 2 new action cases | +90 |
+| `tools/meetit-behavior.test.ts` | 6 new tests | +80 |
+
+### Test coverage added (6 new tests)
+
+- `buildRsvpShareBody returns a title and body for a full event`
+- `buildRsvpShareBody omits the maps section when event.mapUrl is empty`
+- `buildRsvpShareBody omits the description section when description is empty`
+- `buildRsvpShareBody truncates long descriptions to 300 chars with an ellipsis`
+- `buildRsvpShareBody strips u/ prefix from username before rendering` (defensive, mirrors e24 hotfix)
+- `buildRsvpShareBody falls back to plain footer when subredditName is missing`
+
+Total: 41/41 tests pass.
+
+### Why a client-side preview function in addition to the server-side builder
+
+`buildRsvpShareBody()` is the source of truth (server). But the client also has a `openRsvpSharePreview()` function that re-implements the same rules. **Why duplicate?**
+
+- **The preview is rendered before the user clicks "Post to Reddit"** — it must work WITHOUT a server round-trip. Building it client-side keeps the preview snappy (no loading spinner).
+- **The server is still the source of truth** — if the client and server rules ever drift, the user sees the preview, the server builds its own, and the user might see a slightly different post. To prevent this, the client mirrors the server's rules exactly.
+- **This is the same pattern as `buildReminderBody()`** — see §50. The client preview is a thin re-implementation; the server is the canonical builder.
+
+**Alternative: pure client + server import:** I could have the client import `buildRsvpShareBody` directly from the shared file via the same import system. But the client uses no imports — it's a single bundled JS file. Importing from `../shared/meetit.ts` would require a build step that we don't have. Re-implementing client-side is the pragmatic choice.
+
+**Lesson:** When the client and server need the same logic, prefer shared modules. When shared modules aren't possible (bundling constraints), re-implement and add a comment cross-referencing the source of truth.
+
+### Cross-references
+
+- `openspec/specs/rsvp-share/spec.md` — current spec
+- `openspec/changes/archive/2026-06-19-e27-rsvp-share/{proposal,design,tasks}.md` — full proposal
+- `src/shared/meetit.ts:255` — `buildRsvpShareBody()` (current)
+- `src/shared/meetit.ts:241` — `escapeShareMarkdown()` private helper
+- `src/server/server.ts:427` — `onRsvpShare()` handler
+- `src/server/server.ts:167` — response type in `ApiResponse` union
+- `src/client/app.ts:2336` — `openRsvpSharePreview()` (client preview)
+- `src/client/app.ts:2601` — `confirmRsvpShare()` (client confirm)
+- `src/client/app.ts:2059` — Share button in RSVP success card
+- `public/app.html:531` — `rsvp-share-overlay` markup
+- `devvit.json:25` — `"asUser": ["SUBMIT_POST"]` permission
+
+### Pattern: graceful degradation for permission-gated features
+
+When a feature depends on a permission that may not be approved at deploy time, the right pattern is:
+
+1. **Implement the full feature** assuming the permission is granted.
+2. **Wrap the permission-gated call in try/catch.**
+3. **Fall back to the non-permissioned alternative** (in this case, `runAs: 'APP'`).
+4. **Tell the user what's happening** with a non-blocking toast.
+5. **Log the fallback** so you can track when the permission was missing.
+
+This pattern applies to:
+- `runAs: 'USER'` for any user-action (post, comment, subscribe)
+- Future user-notification features
+- Future per-user preferences
+
+The opposite pattern — "ship the feature only after the permission is approved" — is hostile to users who need the feature now and creates a "feature doesn't work" bug report.
+
+---
+
+## 52. Pinned-Bottom Action Row for Modal Confirmations (2026-06-19)
+
+After shipping the e27 RSVP share feature, the user reported "didn't see any share button post rsvp". The button was rendering correctly in the DOM — it was just **below the visible viewport** on small viewports.
+
+### The bug
+
+The RSVP success card was a `flex-direction: column` with `justify-content: flex-start` and the Share button at the **bottom** of the column. On the dev subreddit's iframe (Devvit Web inline view, default height 320px in some clients), the content height was ~328px — taller than the viewport. The Share button and the Copy/Done row were **below the fold**.
+
+Concretely, the original layout was:
+- 32px top padding + 56px SVG checkmark + 18px heading + 14px event title + 13px date + 13px location + 44px Share button + 44px Copy/Done row = **~328px** of content stacked top-to-bottom.
+
+The user scrolled or didn't realize the button was below. Either way: **the button is functionally invisible** if it's not in the first 320px.
+
+### The fix
+
+Restructure the success card with a **pinned bottom action row**:
+
+```html
+<div style="display:flex; flex-direction:column; height:100%; overflow:hidden;">
+  <!-- Scrollable header content -->
+  <div style="flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:14px 16px 8px;">
+    <svg /> <!-- checkmark -->
+    <div>You're on the list!</div>
+    <div>Event title</div>
+    <div>📅 date</div>
+    <div>📍 location</div>
+  </div>
+  <!-- Pinned button row -->
+  <div style="flex-shrink:0; border-top:var(--border); background:#fff; padding:10px 16px 12px;">
+    <button>🎉 Share that I'm going</button>
+    <div>
+      <button>📋 Copy</button>
+      <button>Done</button>
+    </div>
+  </div>
+</div>
+```
+
+Three key CSS rules make this work:
+
+1. **`flex: 1 1 auto; min-height: 0; overflow-y: auto`** on the header content — the `min-height: 0` is critical, otherwise flex children don't shrink below their content size and the overflow doesn't trigger.
+2. **`flex-shrink: 0`** on the button row — keeps the buttons from being squeezed if the parent shrinks.
+3. **`border-top: var(--border); background: #fff`** on the button row — gives visual separation from the scrollable content above.
+
+### Why the previous layout was wrong
+
+The original `flex-direction: column; justify-content: flex-start` layout is fine for **simple confirmations** (one button, no action area). But for **multi-action confirmations** (share + copy + done), all three buttons compete for the bottom of the viewport, and the last one loses on small screens.
+
+### Lesson: always pin action rows in modal confirmations
+
+Any confirmation overlay with **more than one action** (primary CTA + secondary actions) should use this pattern:
+- **Scrollable content area** (text, images, details)
+- **Pinned bottom action row** (always-visible primary + secondary buttons)
+
+This is the same pattern used by:
+- iOS Action Sheets (fixed bottom toolbar)
+- Material Design bottom sheets (pinned action area)
+- Stripe checkout (pinned "Pay" button at bottom)
+
+The alternative — letting content push buttons below the fold — is hostile UX. The user might never know the button exists.
+
+### When this matters most
+
+- **Mobile / inline webview** contexts with fixed heights (Devvit Web, iframes) — viewport is 320-512px by default.
+- **Long content** (event title + date + location + description) — easily exceeds viewport.
+- **Multi-action confirmations** (more than 2 buttons in a column).
+
+### The general rule
+
+**For confirmations with 2+ actions in a constrained viewport:**
+1. Pin the actions at the bottom (`flex-shrink: 0; border-top; background: solid color`).
+2. Make the rest scrollable (`flex: 1 1 auto; min-height: 0; overflow-y: auto`).
+3. Reduce content sizes aggressively (smaller fonts, smaller checkmark, tighter gaps).
+4. Add `text-overflow: ellipsis` to long single-line text (location, URL, etc.) to prevent wraps.
+
+### Why this is in LEARNINGS and not in a new OpenSpec change
+
+The fix is ~20 lines of inline style changes in `app.ts`. No new endpoint, no new behavior, no new permission, no new spec section. Per `LEARNINGS.md` §40, this is a surgical hotfix to the same capability (`rsvp-share`), recorded in the archived proposal for traceability.
+
+### Cross-references
+
+- `openspec/changes/archive/2026-06-19-e27-rsvp-share/proposal.md` — full hotfix section
+- `src/client/app.ts:2045-2083` — restructured success card layout
+- `public/app.js:2160` — bundled HTML structure
+- `LEARNINGS.md §40` — surgical change rule
+- `LEARNINGS.md §51` — the e27 feature that shipped this hotfix
+
+---
+
+## 53. Always Ship a Recoverable Entry Point (2026-06-19)
+
+After §52's "pinned-bottom action row" hotfix, the user reported again: *"still didn't see the share button"*. The success card layout was correct on paper but the button was still not visible in the iOS Safari Devvit Web iframe.
+
+### The deeper problem
+
+The success card is a **moment-in-time affordance** — it appears for a few seconds after the user RSVPs, then disappears when they tap Done or close the overlay. If the user doesn't notice the Share button in that window, there's no way to come back to it. They have to:
+1. RSVP again (which doesn't make sense, they're already going)
+2. Manually compose a new post (defeats the purpose of the feature)
+3. Forget about it
+
+This is hostile UX. A feature that the user can only access in a 5-second window after a specific action is a feature that most users will never use.
+
+### The fix: a second, persistent entry point
+
+Added a dedicated Share button in **My Stuff → RSVPs**. This is a **recoverable affordance** — the user can come back to it at any time, browse their RSVPs, and share when they're ready. The My Stuff card always shows the button, regardless of when the user RSVPs.
+
+### When to ship multiple entry points
+
+**Always ship at least one recoverable entry point for any feature that:**
+- Has a "in the moment" affordance (toast, success card, confirmation dialog)
+- Is destructive or hard to redo (e.g., posting a share — they don't want to RSVP again)
+- The user might want to invoke multiple times (e.g., share a different event from My Stuff)
+
+**Examples:**
+- Slack: notification + sidebar mention (you can act later)
+- GitHub: PR notification + "Your Pull Requests" page
+- Reddit: inbox notification + saved posts
+- Spotify: "Now Playing" share + your library
+
+### The "two entry points" rule of thumb
+
+| Entry point | Best for | Cost |
+|---|---|---|
+| Moment-in-time (toast/success card) | Catching the user at peak intent | Low — 1 button |
+| Persistent menu (My Stuff/profile) | Catching the user when they come back | Low — 1 button in existing menu |
+
+If both cost 1 button and ~50 lines of code, ship both. The "I'll do it later" user is as important as the "do it now" user.
+
+### The deeper lesson: don't fight the viewport
+
+The §52 fix tried to make the success card button work in a constrained viewport. The §53 fix sidesteps the problem by putting the button somewhere the viewport constraints don't apply (the My Stuff card has its own scrollable container, not a flex middle region).
+
+**Rule of thumb:** When a layout fix requires fighting the platform (iOS Safari iframes, Android webviews, etc.), consider whether the problem is solvable by **moving the action to a different container** that doesn't have the constraint.
+
+### Cross-references
+
+- `openspec/changes/archive/2026-06-19-e27-rsvp-share/proposal.md` — "Post-launch hotfix #2" section
+- `src/client/app.ts:629-634` — My Stuff RSVP card actions (2 rows: Share primary, Update + Leave secondary)
+- `src/client/app.ts:2350` — `myRsvps` fallback in `openRsvpSharePreview`
+- `LEARNINGS.md §52` — the success card layout lesson that didn't fully work
+- `LEARNINGS.md §40` — surgical change rule
+- `LEARNINGS.md §51` — the e27 feature that shipped both hotfixes
+
+---
+
+## 54. Prune Features That Don't Earn Their Complexity (2026-06-19)
+
+After the §52 and §53 hotfixes for the RSVP share button, the user reported again: *"the share from my stuff worked, but the one on rsvp doesn't. makes sense to remove the rsvp popup"*.
+
+### The situation
+
+The success card Share button had been worked on three times:
+- **v1 (shipped)**: simple column with share button at the bottom — share was below the fold
+- **v2 (hotfix)**: pinned-bottom action row with nested scrollable header — still clipped on iOS Safari iframe
+- **v3 (this)**: removed entirely
+
+After the My Stuff Share button shipped, the user could share reliably from there. The success card share button was now redundant AND broken AND complex. **All three reasons to remove it.**
+
+### The decision: remove the feature, not work around the platform
+
+The natural temptation is to keep trying to make the success card button work. The instinct is: "we already built it, let's make it work." But:
+
+- The My Stuff button **fully covers the use case** (users can share any time)
+- The success card button was **inherently constrained** (the iOS Safari iframe viewport bug is not something we can fix from app code)
+- The layout was **complex** (~15 lines of nested scroll + pinned row + flex-shrink) for a feature that didn't work
+
+The right call was to **remove the unreliable entry point**, not to keep investing in making it work. The user's feedback was explicit and aligned: "makes sense to remove".
+
+### The lesson: prune, don't polish
+
+**Sometimes the right answer to a broken feature is to delete it, not fix it.**
+
+Heuristics for when to remove a feature:
+- It has a working alternative (My Stuff share button)
+- It's in a surface you can't control (iOS Safari iframe viewport)
+- The fix would require a major overhaul (rebuilding the success card layout from scratch)
+- The user is OK with removing it (they explicitly said "makes sense to remove")
+
+When in doubt, ask: *"Is this feature earning its complexity?"* If a feature is 50 lines of code for 0 users (because it's invisible), those 50 lines are a liability, not an asset.
+
+### The compounding cost of "fix it later"
+
+Each iteration added complexity:
+- v1: simple HTML, broken
+- v2: nested scroll + pinned row + flex-shrink + border-top + max-width, still broken
+- v3: removed all of v2's complexity, back to simple
+
+**Two iterations of fixes = a net negative on the codebase.** v1 and v2 added complexity for no user benefit. v3 removed both and simplified the code.
+
+**Lesson:** If a feature fails the first deploy and the fix requires a non-trivial layout change, ask whether the feature should exist before investing in the fix. The cost of a feature that doesn't work is higher than the cost of no feature at all.
+
+### When to keep fighting vs. when to remove
+
+| Keep fighting | Remove |
+|---|---|
+| The feature is core to the product | The feature has a working alternative |
+| The user explicitly wants it | The user is OK with removing it |
+| The fix is in our control (CSS, layout) | The fix requires platform changes |
+| Other features depend on the layout | The layout is isolated |
+| The layout pattern is reusable | The layout is one-off |
+
+The success card share button hit **all 4 of the "Remove" criteria**. The decision was obvious once the user confirmed.
+
+### The general principle
+
+**The best code is no code. The best features are the ones that work in the simplest way.**
+
+If a feature requires 3 iterations of fixes and the user is happy to remove it, **remove it**. The codebase gets simpler, the user gets a cleaner UI, and you free up cycles for the features that actually work.
+
+### Cross-references
+
+- `openspec/changes/archive/2026-06-19-e27-rsvp-share/proposal.md` — "Post-launch hotfix #3" section
+- `src/client/app.ts:2050-2083` — simplified success card (no share button, no nested scroll, no pinned row)
+- `src/client/app.ts:608` — My Stuff share button (the surviving entry point)
+- `LEARNINGS.md §52` — pinned-bottom row pattern (still valid for multi-action confirmations)
+- `LEARNINGS.md §53` — recoverable entry point pattern (the real fix that worked)
+- `LEARNINGS.md §51` — the e27 feature that shipped all 3 hotfixes
+- `LEARNINGS.md §40` — surgical change rule
+
+---
+
+## 55. Auto-RSVP the Organizer (2026-06-22, e28.1)
+
+After several rounds of testing, the user asked: "Organizer should already be rsvod to event they make". The current flow had the organizer submitting an event → mod approving it → the event appearing in `My Stuff → My Events`, but the organizer's own `My Stuff → RSVPs` was empty and the attendee count started at 0.
+
+### Why this was a gap
+
+When you create an event, you obviously intend to be at it. Forcing the organizer to:
+1. Wait for mod approval
+2. Open the event
+3. Tap RSVP
+4. Fill the form
+5. Submit
+
+...is 4 extra steps for the most "guaranteed attendee" of any event. And the attendee count of 0 makes the event look unpopular to other Redditors who might want to join.
+
+### The fix
+
+After `redis.hSet("meetit:active_events", { [eventId]: eventJson })` in `onApproveEvent`, the server also runs:
+```ts
+const organizerKey = normalizeUsername(event.organizer || "");
+if (organizerKey) {
+  await redis.zAdd(`meetit:rsvps:${eventId}`, { score: Date.now(), member: organizerKey });
+}
+```
+
+`zAdd` is idempotent (overwrites the score for the same member), so re-approving the same event is a no-op. `normalizeUsername` handles the `u/` prefix quirk (the form prefill adds `u/`, so the stored value is `u/organizer` but the rsvps zset uses bare usernames).
+
+### Design decisions
+
+- **Where to do the auto-RSVP**: in `onApproveEvent` (server-side), not `onSubmitEvent` (client-side). Why? Because the event isn't "real" until a mod approves it. If the organizer auto-RSVPed on submit and the mod rejected the event, we'd have a stale zset entry.
+- **What about email/phone**: don't pass any. The organizer's contact details are visible to themselves in their `My Stuff → RSVPs`, but the auto-RSVP is "I'm organizing" not "I want to be contacted". The other attendees (and the mod) see the organizer's username but no contact info.
+- **My Stuff visibility**: the event appears in BOTH `My Events` (as the organizer) and `My RSVPs` (as an attendee). This matches the user mental model ("I made it, I'm going to it"). The "1 going" count is just the organizer until others RSVP — which is honest and matches the disclosure.
+
+### Cross-references
+
+- `src/server/server.ts:onApproveEvent` — auto-RSVP line
+- `openspec/changes/e28-ux-and-social-polish/specs/submit-event-wizard/spec.md` — new requirement
+- `LEARNINGS.md §56` — attendee list in posts (related: the auto-RSVPed user now appears in the attendee list)
+- `LEARNINGS.md §49` — reminder system history (auto-RSVP works with reminder attendee list)
+
+---
+
+## 56. Show the Attendee List in Posts (2026-06-22, e28.6 + e28.7)
+
+The user asked: "The I'm going post should include the list of others joining me in the post body" and "The reminder post should also include the list of all those going". This is the **social-proof** feature — when you see "u/alice u/bob u/charlie are going", you're more likely to RSVP yourself.
+
+### The cap question
+
+How many attendees to show? Options considered:
+- **All of them**: a popular event might have 500+ RSVPs, making the post an unreadable wall of usernames
+- **5-10**: too few to demonstrate social proof
+- **20 with "+N more"**: matches Reddit comment-thread depth (the "see all replies" link in comment threads uses a similar cap), demonstrates social proof, keeps the post scannable
+- **Just the count**: safest privacy-wise but loses the social-discovery value
+
+I went with **20 with "+N more"** per the user's choice. The 20 usernames are:
+- Sorted alphabetically (case-insensitive)
+- Deduped (case-insensitive — `Alice` and `alice` are the same person)
+- `u/` prefix normalized (no `u/u/username` artifacts)
+
+### Server vs client preview
+
+The client-side `openRsvpSharePreview` shows just the count in the preview ("Also going (12)"), not the full list. Why?
+- The preview is for the user's review step before posting — they want to confirm "yes, I'm going to this event, here's the date/location/map"
+- The actual list is small and predictable — server is source of truth
+- Fetching the full list client-side would require a new endpoint just for the preview
+- If the count is wrong, the user will see it after posting and can delete + retry (low cost)
+
+### Privacy disclosure update
+
+Added a sentence to the RSVP form disclosure:
+> "By RSVPing, your Reddit username may also appear in public event reminder posts and in the event's share post."
+
+This is a soft disclosure (informational, not consent-gated) consistent with the existing pattern. The user already chose to RSVP knowing their username is public (it's visible on the event's attendee list).
+
+### Format
+
+```
+## 👥 Also going (12): u/alice u/bob u/charlie ... u/zoe
+```
+
+Or for reminders:
+```
+## 👥 23 going: u/alice u/bob u/charlie ... +3 more
+```
+
+The format is intentionally boring — `u/` links render as Reddit auto-links, no fancy markdown. Plain text is the most reliable across all Reddit clients.
+
+### Cross-references
+
+- `src/shared/meetit.ts:formatAttendeeList` — the helper that does sort/dedup/cap
+- `src/shared/meetit.ts:buildRsvpShareBody` — adds "Also going" section
+- `src/shared/meetit.ts:buildReminderBody` — adds "N going" section
+- `src/server/server.ts:onRsvpShare` — fetches attendees, passes to builder
+- `src/server/server.ts:onCheckEvents` — batch-fetches attendees via `Promise.all`
+- `src/client/app.ts:openRsvpSharePreview` — shows count in preview
+- `public/app.html:512` — updated RSVP disclosure
+- `openspec/changes/e28-ux-and-social-polish/specs/rsvp-share/spec.md`
+- `openspec/changes/e28-ux-and-social-polish/specs/reminder-system/spec.md`
+- `LEARNINGS.md §51` — e27 RSVP share feature
+- `LEARNINGS.md §49` — reminder system history
+- `LEARNINGS.md §55` — auto-RSVP organizer (the data source for this list)
+
+---
+
+## 57. iOS Safari Date/Time Input Alignment (2026-06-22, e28.2)
+
+The user reported: "In iphone the time box is horizontally off". Looking at the screenshot, the DATE and TIME input boxes in the event submission form's step 2 were misaligned — TIME was slightly wider or differently padded.
+
+### The cause
+
+iOS Safari renders `<input type="date">` and `<input type="time">` with different default padding because of the native picker icon (the small calendar/clock icon on the right side of the input). Even with `box-sizing: border-box` and `min-width: 0` on the flex children, the inputs refuse to render at exactly equal widths.
+
+### The fix (two parts)
+
+1. **`appearance: none; -webkit-appearance: none;`** on both `input[type="date"]` and `input[type="time"]` — removes the native picker icon and its padding
+2. **`.form-row` from flex to grid** — `display: grid; grid-template-columns: 1fr 1fr; gap: 10px;` — grid columns are guaranteed equal width, no flex quirks
+
+### Why grid is better than flex for 2-col inputs
+
+CSS grid's `1fr 1fr` columns are exactly equal width, no matter what. Flex's `flex: 1; min-width: 0;` should also work, but on iOS Safari, native form inputs can override the flex sizing in subtle ways. Grid doesn't have this problem because it allocates space before content is rendered.
+
+### The lesson
+
+When you have native form inputs (date, time, color, file) in a 2-col layout, prefer grid over flex. Grid is more reliable across browsers because it doesn't interact with the inputs' intrinsic sizing the same way flex does.
+
+### Cross-references
+
+- `public/app.html:234-241` — CSS for date/time inputs and `.form-row` grid
+- `openspec/changes/e28-ux-and-social-polish/specs/form-input-alignment/spec.md`
+- `LEARNINGS.md §21` — design system tokens (touch targets, safe-area)
+- `LEARNINGS.md §52` — pinned-bottom action row (related: another iOS-specific layout lesson)
+
+---
+
+## 58. The "Share Failed / Already Shared" Trap (2026-06-22, e28.8 hotfix)
+
+After deploying e28, the user reported:
+> "the first time i click on share, it says share failed and then the next time i click share again it says you have already shared today"
+
+This is a particularly nasty bug because the post **is** being created — the dedup key is set server-side, the user just can't see it. They end up in a state where:
+- The post exists in the subreddit
+- The dedup key says they shared
+- The client says "share failed"
+- The next click says "already shared" with no way to find the post they "failed" to create
+
+### The root cause
+
+The server flow in `onRsvpShare`:
+1. Dedup check (key not set → pass)
+2. Create the post (USER fails, APP succeeds)
+3. **Set dedup key** (regardless of post.url)
+4. Return `{ success: true, postUrl: post.url, postedAs: "APP" }`
+
+The client flow in `confirmRsvpShare`:
+1. Fetch the response
+2. Check `data.type === "rsvp-share" && data.success && data.postUrl`
+3. If postUrl is missing → fall to the else branch → show "Share failed - retry"
+
+The trap: if `post.url` is somehow undefined (rare platform edge case, or a different submitPost return shape), the server has already set the dedup key but the client can't navigate. The post exists, but the user has no way to find it.
+
+### The fix (3 parts)
+
+**Part 1: Server validates post.url before setting dedup**
+
+```ts
+if (!post || !post.url) {
+  // Don't set dedup — let the user retry
+  return { error: "Post created but URL not available - please retry", status: 500 };
+}
+await redis.set(dedupKey, "1", { expiration: new Date(...) });
+return { type: "rsvp-share", success: true, postUrl: post.url, postedAs };
+```
+
+This is the most important fix: **the dedup key is only set when we have a confirmed post with a URL**. If the platform returns a post object without a URL, we bail out and let the user retry.
+
+**Part 2: Client wraps navigateTo in try-catch**
+
+```ts
+closeOverlay("rsvp-share-overlay");  // Close FIRST so the user is never stuck
+if (data.postUrl) {
+  try {
+    navigateTo(data.postUrl);
+  } catch (navErr) {
+    log("navigateTo failed: " + navErr);
+    // Don't surface as error — the post IS created, we just can't auto-navigate
+  }
+}
+```
+
+The overlay is closed BEFORE the navigateTo call so even if navigateTo throws, the user isn't left with an open overlay and a dead button.
+
+**Part 3: Client relaxes the postUrl check on the success path**
+
+```ts
+if (data.type === "rsvp-share" && data.success) {  // No longer checks postUrl
+  // ... show success toast
+  // ... close overlay
+  // ... try to navigate (may fail gracefully)
+}
+```
+
+The success path no longer requires `data.postUrl` — if the post is created (server says so), we trust it. The toast confirms success; the navigateTo is best-effort.
+
+### The general lesson
+
+**Server side effects should be atomic.** A dedup key is a side effect that should not be set unless ALL the user-visible effects (post + url) are also in place. Otherwise, the user gets a half-completed action with no way to finish it.
+
+**Client toast logic should never depend on platform internals.** `navigateTo` is a Devvit runtime global — we don't control it. Wrapping it in try-catch is cheap insurance against future platform changes.
+
+### Cross-references
+
+- `src/server/server.ts:onRsvpShare` — post.url validation before dedup
+- `src/client/app.ts:confirmRsvpShare` — defensive navigateTo + success path no longer requires postUrl
+- `LEARNINGS.md §56` — attendee list in posts (the e28 change that was deployed)
+- `LEARNINGS.md §51` — e27 RSVP share (the original feature this builds on)
+- `LEARNINGS.md §40` — surgical change rule
+
+

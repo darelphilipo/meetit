@@ -13,7 +13,7 @@ import {
   type RsvpAttendee,
   type SubmitEventFormData,
 } from "../shared/api.ts";
-import { buildAttendees, createPendingEvent, csvEscape, isConfiguredModerator, isSubmissionOwner, normalizeUsername } from "../shared/meetit.ts";
+import { buildAttendees, buildReminderBody, buildReminderTitle, buildRsvpShareBody, createPendingEvent, csvEscape, isConfiguredModerator, isSubmissionOwner, normalizeUsername } from "../shared/meetit.ts";
 import { once } from "node:events";
 
 const MAX_SERVER_LOGS = 100;
@@ -80,6 +80,9 @@ async function onRequest(
       break;
     case ApiEndpoint.Rsvp:
       body = await onRsvp(req);
+      break;
+    case ApiEndpoint.RsvpShare:
+      body = await onRsvpShare(req);
       break;
     case ApiEndpoint.LeaveEvent:
       body = await onLeaveEvent(req);
@@ -161,6 +164,7 @@ type ApiResponse =
   | { type: "home"; data: HomeState }
   | { type: "event-details"; data: EventDetails }
   | { type: "rsvp"; success: boolean; wasExisting?: boolean }
+  | { type: "rsvp-share"; success: boolean; postUrl?: string; postedAs?: "USER" | "APP"; reason?: "already_shared" }
   | { type: "leave-event"; success: boolean }
   | { type: "rsvp-list"; attendees: RsvpAttendee[] }
   | { type: "pitch-idea"; success: boolean }
@@ -186,6 +190,28 @@ type ErrorResponse = {
 function normalizeTimezone(raw: unknown): string {
   if (Array.isArray(raw)) return (raw[0] as string) || "+05:30";
   return (raw as string) || "+05:30";
+}
+
+/**
+ * Parse the `mod_usernames` setting into a list of trimmed, non-empty usernames.
+ * The setting is typed as `string | number | true | string[]` per the Devvit
+ * settings schema, so we coerce defensively. Returns [] if the value is empty,
+ * missing, or not a parseable string.
+ */
+function parseModList(raw: unknown): string[] {
+  if (raw == null) return [];
+  let s: string;
+  if (Array.isArray(raw)) {
+    s = raw.map((v) => String(v)).join(",");
+  } else if (typeof raw === "string") {
+    s = raw;
+  } else {
+    return []; // number, boolean, or other — no usable usernames
+  }
+  return s
+    .split(",")
+    .map((m) => m.trim())
+    .filter((m) => m.length > 0);
 }
 
 async function getSettings(): Promise<AppSettings> {
@@ -378,6 +404,124 @@ async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
   return { type: "rsvp", success: true, wasExisting };
 }
 
+/**
+ * Handle the "🎉 Share that I'm going" action from the RSVP success card.
+ *
+ * Creates a self-post in the subreddit announcing that the user is going to
+ * the event. The post is created under the user's account via `runAs: 'USER'`
+ * (so it appears as "u/alice is going to ..." in the feed). If that call
+ * throws (e.g., the app's `asUser: ["SUBMIT_POST"]` permission is still pending
+ * Reddit's user-actions review), the handler falls back to `runAs: 'APP'` and
+ * includes `postedAs: "APP"` in the response so the client can surface a
+ * non-blocking toast to the user.
+ *
+ * Rate-limited via Redis: a `meetit:rsvp_share:${eventId}:${username}` key
+ * with 24h TTL prevents the same user from sharing the same event twice in
+ * 24 hours (which would create duplicate posts in the subreddit).
+ *
+ * Returns:
+ *   { success: true, postUrl, postedAs: "USER" | "APP" } — post created
+ *   { success: false, reason: "already_shared" }         — dedup hit
+ *   { error, status }                                    — auth/validation errors
+ */
+async function onRsvpShare(req: IncomingMessage): Promise<ApiResponse> {
+  try {
+    const { eventId } = await readJSON<{ eventId: string }>(req);
+    if (!eventId) return { error: "eventId is required", status: 400 };
+
+    const event = await getActiveEvent(eventId);
+    if (!event) return { error: "Event not found", status: 404 };
+
+    const username = context.username;
+    if (!username) return { error: "Authentication required", status: 401 };
+
+    // Dedup: prevent the same user from sharing the same event twice in 24h.
+    // Key includes eventId so RSVPs to a different event still get a fresh slot.
+    const dedupKey = `meetit:rsvp_share:${eventId}:${username}`;
+    if (await redis.get(dedupKey)) {
+      console.log(`[RSVP-SHARE] ${username} → ${eventId} skipped (already shared within 24h)`);
+      return { type: "rsvp-share", success: false, reason: "already_shared" };
+    }
+
+    // e28: Fetch the other attendees (everyone EXCEPT the current user) for the
+    // "Also going" section in the share post body. zRange with by:"score" returns
+    // members in score order (oldest RSVP first). The builder handles sort + cap.
+    const rsvpResults = await redis.zRange(`meetit:rsvps:${eventId}`, "-inf", "+inf", { by: "score" });
+    const otherAttendees = rsvpResults
+      .map((r) => r.member)
+      .filter((u) => normalizeUsername(u) !== normalizeUsername(username));
+
+    const { title, body } = buildRsvpShareBody(event, username, otherAttendees, context.subredditName);
+    const shareMsg = `[RSVP-SHARE] ${username} → ${eventId} title="${title.substring(0, 60)}..."`;
+    console.log(shareMsg); serverLog("info", shareMsg);
+
+    // Try user-account posting first (authentic social proof).
+    // Falls back to app-account posting on any error so the feature works
+    // even when the app's user-actions permission is still pending review.
+    //
+    // Note: per Devvit docs, `userGeneratedContent` is required for
+    // `submitCustomPost` with `runAs: 'USER'`. For `submitPost` (plain text
+    // post), the `text` field IS the user-generated content, so we just
+    // pass `text` directly. The dev type doesn't allow `userGeneratedContent`
+    // on `submitPost` — the platform infers it from the body.
+    let post;
+    let postedAs: "USER" | "APP" = "USER";
+    try {
+      post = await reddit.submitPost({
+        title,
+        text: body,
+        subredditName: context.subredditName,
+        runAs: "USER",
+      });
+      console.log(`[RSVP-SHARE] Posted as USER (postId=${post.id} url=${post.url})`);
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      console.warn(`[RSVP-SHARE] runAs:USER failed (${errMsg}) — falling back to APP`);
+      serverLog("error", `rsvp-share USER fallback: ${errMsg}`);
+      post = await reddit.submitPost({
+        title,
+        text: body,
+        subredditName: context.subredditName,
+        runAs: "APP",
+      });
+      postedAs = "APP";
+      console.log(`[RSVP-SHARE] Posted as APP (postId=${post.id} url=${post.url})`);
+    }
+
+    // e28.8: Validate post.url before declaring success. If the post object
+    // somehow lacks a url (rare platform edge case), do NOT set the dedup key
+    // and return an error so the user can retry. Without this check, a missing
+    // url would cause the client to show "share failed" while the server still
+    // set the dedup key — leaving the user in a state where they can't retry
+    // (next click says "already shared") and there's no post to navigate to.
+    if (!post || !post.url) {
+      const errMsg = `[RSVP-SHARE] Post created but url is missing (postId=${post?.id ?? "unknown"}, postedAs=${postedAs})`;
+      console.error(errMsg);
+      serverLog("error", errMsg);
+      return { error: "Post created but URL not available - please retry", status: 500 };
+    }
+
+    // Set dedup key with 24h TTL — only after we have a confirmed post with a url.
+    // If the post creation succeeded under the user's account, this prevents
+    // a second click from creating a duplicate. If it fell back to APP, this
+    // also prevents a duplicate under the app account.
+    try {
+      await redis.set(dedupKey, "1", { expiration: new Date(Date.now() + 24 * 60 * 60 * 1000) });
+    } catch (e) {
+      // Non-fatal: log the dedup failure but still return success since the
+      // post was created. Worst case: user can share again within 24h.
+      console.error(`[RSVP-SHARE] Failed to set dedup key: ${e}`);
+    }
+
+    return { type: "rsvp-share", success: true, postUrl: post.url, postedAs };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[RSVP-SHARE] Unexpected error: ${msg}`);
+    serverLog("error", `rsvp-share unexpected: ${msg}`);
+    return { error: "Internal error", status: 500 };
+  }
+}
+
 async function onPitchIdea(req: IncomingMessage): Promise<ApiResponse> {
   const { title, description, proposedDate, proposedTime } = await readJSON<PitchFormData>(req);
   if (!title || title.length > 200) return { error: "Title too long", status: 400 };
@@ -447,6 +591,17 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
   await redis.hSet("meetit:active_events", { [eventId]: eventJson });
   await redis.hDel("meetit:pending_events", [eventId]);
   const event = JSON.parse(eventJson) as MeetitEvent;
+
+  // e28: Auto-RSVP the organizer so they appear in their own event's
+  // attendee list (and in My Stuff → RSVPs). zAdd is idempotent — re-approving
+  // an already-RSVPed organizer is a no-op. Skip if organizer is empty
+  // (defensive — should never happen since the form requires it).
+  const organizerKey = normalizeUsername(event.organizer || "");
+  if (organizerKey) {
+    await redis.zAdd(`meetit:rsvps:${eventId}`, { score: Date.now(), member: organizerKey });
+    console.log(`[APPROVE] auto-RSVPed organizer u/${organizerKey} → ${eventId}`);
+  }
+
   console.log(`[APPROVE] ${event.title} approved`);
   return { type: "approve-event", success: true };
 }
@@ -620,8 +775,6 @@ async function onMySubmissions(): Promise<ApiResponse> {
     .filter((event: MeetitEvent) => matchOrg(event.organizer || ""))
     .map(e => ({ ...e, status: "published" }));
 
-  const myEvents = [...pendingEvents, ...activeEvents];
-
   // RSVP'd events (events the user is attending, not organizing)
   // PERF3: batch zScore queries instead of sequential loop
   const rsvpEvents: any[] = [];
@@ -631,9 +784,26 @@ async function onMySubmissions(): Promise<ApiResponse> {
       Promise.all([
         redis.zScore(`meetit:rsvps:${eventId}`, normUser),
         redis.zCard(`meetit:rsvps:${eventId}`),
-      ]).then(([score, count]) => ({ eventJson, score, count }))
+      ]).then(([score, count]) => ({ eventId, eventJson, score, count }))
     )
   );
+
+  // e28: Build eventId → attendee count map from the same batch query so we
+  // can attach rsvpCount to myEvents too (used by the "👥 N Attendees" button
+  // on My Stuff → My Events). Pending events have 0 RSVPs by definition.
+  const eventIdToCount = new Map<string, number>();
+  for (const { eventId, count } of rsvpScores) {
+    eventIdToCount.set(eventId, count);
+  }
+
+  // Annotate active events with rsvpCount
+  const activeEventsWithCount = activeEvents.map((e) => ({
+    ...e,
+    rsvpCount: eventIdToCount.get(e.id) || 0,
+  }));
+
+  const myEvents = [...pendingEvents, ...activeEventsWithCount];
+
   for (const { eventJson, score, count } of rsvpScores) {
     if (score != null) {
       const event = JSON.parse(eventJson);
@@ -701,6 +871,16 @@ async function onMenuCreatePost(): Promise<UiResponse> {
     const post = await reddit.submitCustomPost({
       title: "Meetit - Community Meetups",
     });
+    // Persist the launcher post ID so reminder posts can deep-link to it (e26).
+    // Wrapped in try/catch so a Redis write failure does NOT block the post UX —
+    // the post is already created; the only loss is that the next reminder will
+    // fall back to the subreddit homepage deep link.
+    try {
+      await redis.set("meetit:meetit_app_post_id", post.id);
+      console.log(`[MENU] Saved meetit_app_post_id=${post.id} (url=${post.url})`);
+    } catch (e) {
+      console.error(`[MENU] Failed to persist meetit_app_post_id: ${e}`);
+    }
     return {
       showToast: { text: `Meetit post created!`, appearance: "success" },
       navigateTo: post.url,
@@ -763,6 +943,32 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
     const tzValue = timezone.replace(/^[+-]/, ""); // e.g. "05:30"
     const tzOffset = tzSign + tzValue; // e.g. "+05:30" or "-05:00"
     const reminderHours = Number(await settings.get("reminder_hours")) || 24;
+    // Fetch moderator list once per CRON run; used in reminder body so attendees
+    // can reach mods directly from the post. Empty list = line omitted entirely.
+    const modList = parseModList(await settings.get("mod_usernames"));
+    // Fallback organizer: use app account so the body always has a contact line.
+    const fallbackOrganizer = context.username || "meetit-app";
+    // Look up the most recent Meetit app launcher post so the "Open in Meetit"
+    // deep link points to the actual app post (not the subreddit homepage).
+    // The key is written by `onMenuCreatePost` whenever a mod creates a launcher
+    // post via the subreddit menu. If no launcher exists yet, this is empty
+    // and the body builder falls back to the subreddit homepage with a hint.
+    const meetitAppPostId = (await redis.get("meetit:meetit_app_post_id")) || "";
+    const meetitAppPostUrl = meetitAppPostId
+      ? `https://www.reddit.com/comments/${meetitAppPostId.replace(/^t3_/, "")}/`
+      : undefined;
+
+    // e28: Batch-fetch attendees for all active events. Used by reminder posts
+    // to show "👥 N going: u/user1 u/user2 ...". One zRange per event is cheap,
+    // but batching all into Promise.all keeps the CRON fast.
+    const attendeesByEvent: Record<string, string[]> = {};
+    await Promise.all(
+      Object.entries(allEvents).map(async ([eventId, _eventJson]) => {
+        const results = await redis.zRange(`meetit:rsvps:${eventId}`, "-inf", "+inf", { by: "score" });
+        attendeesByEvent[eventId] = results.map((r) => r.member);
+      })
+    );
+
     for (const [eventId, eventJson] of Object.entries(allEvents)) {
       const event = JSON.parse(eventJson);
       // Parse date+time together for accurate reminder timing using configured timezone
@@ -771,15 +977,42 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
       const nowTs = Date.now();
       const hoursUntilEvent = (eventTs - nowTs) / 3600000;
 
-      if (hoursUntilEvent > reminderHours || hoursUntilEvent < 0) continue;
+      // Retry window: also allow posts up to 1h after event start (was: skip past events).
+      // This covers CRON downtime — a missed reminder still fires once the next tick runs.
+      if (hoursUntilEvent > reminderHours || hoursUntilEvent < -1) continue;
       const remindedKey = `meetit:reminded:${eventId}`;
       if (await redis.get(remindedKey)) continue;
-      await redis.set(remindedKey, "true");
-      await redis.expire(remindedKey, 86400);
       console.log(`[CRON] Reminder post for ${event.title}`);
       try {
-        await reddit.submitCustomPost({ title: `📢 Event Reminder: ${event.title} is happening ${event.date}!`, userGeneratedContent: { text: `# ${event.title}\n\n## 🗓️ ${event.date} at ${event.time}\n\n## 📍 ${event.location}\n\n${event.description}\n\n---\n\n**Organized by:** ${event.organizer || "the community"}\n\nSearch 'Meetit' in this subreddit to join!` } });
-      } catch (e) { console.error(`[CRON] Post failed: ${e}`); }
+        // Use submitPost (not submitCustomPost) to create a plain text post.
+        // submitCustomPost always renders the app iframe on new.reddit/mobile,
+        // which is bad for discussion: the body is hidden behind the iframe and
+        // there's no obvious entry point for comments. A plain text post shows
+        // the body on every Reddit client and gets the full comment thread UI.
+        // See: https://developers.reddit.com/docs/capabilities/server/reddit-api#submitting-a-post
+        const post = await reddit.submitPost({
+          title: buildReminderTitle(event),
+          text: buildReminderBody(
+            event,
+            (event.organizer && event.organizer.trim()) || fallbackOrganizer,
+            modList,
+            // e28: pass attendee list so the post body shows who is going.
+            attendeesByEvent[event.id] || [],
+            context.subredditName,
+            meetitAppPostUrl,
+          ),
+        });
+        // Set dedup flag ONLY after successful post so failures retry on next tick.
+        await redis.set(remindedKey, "true");
+        await redis.expire(remindedKey, 86400);
+        const successMsg = `[CRON] Reminder post sent for ${event.title} (postId=${post?.id ?? "unknown"})`;
+        console.log(successMsg);
+        serverLog("info", successMsg);
+      } catch (e) {
+        const errMsg = `[CRON] Post failed for ${event.title}: ${e instanceof Error ? e.message : e}`;
+        console.error(errMsg);
+        serverLog("error", errMsg);
+      }
     }
 
     // === 2. Mod alerts for new pending items ===

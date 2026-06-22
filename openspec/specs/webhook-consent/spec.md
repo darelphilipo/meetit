@@ -1,7 +1,9 @@
 # webhook-consent Specification
 
 ## Purpose
-TBD - created by archiving change fix-sec1-webhook-consent. Update Purpose after archive.
+RSVP user consent for third-party contact sharing via webhook.
+
+**⚠️ NOT YET IMPLEMENTED.** This spec was created during planning for change fix-sec1-webhook-consent, but the feature was archived before shipping. The codebase contains no consent checkbox, no disclosure text, and no server-side `consented` field handling. The RSVP overlay in `app.html` has no consent-related elements. This spec is retained for future implementation.
 ## Requirements
 ### Requirement: RSVPs require explicit user consent for contact sharing
 The system SHALL require users to explicitly opt in to sharing their contact information with event organizers via the external webhook. Default state: opted out.

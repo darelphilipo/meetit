@@ -235,8 +235,16 @@
     .form-group input:focus, .form-group textarea:focus { outline: none; box-shadow: 4px 4px 0 var(--secondary); background: #fff; }
     .form-group input:focus-visible, .form-group textarea:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
     .form-group textarea { min-height: 80px; resize: vertical; }
-    .form-row { display: flex; gap: 10px; }
-    .form-row .form-group { flex: 1; min-width: 0; }
+    /* e28: Reset native iOS Safari rendering for date/time inputs. Without this,
+       iOS adds extra padding for the picker icon, causing the TIME box to render
+       horizontally off from the DATE box in a flex row. appearance: none makes
+       both inputs render with our custom styling. */
+    .form-group input[type="date"], .form-group input[type="time"] { -webkit-appearance: none; appearance: none; }
+    /* e28: Use grid (not flex) for the 2-col date+time row — grid columns are
+       guaranteed equal width on iOS, where flex children with min-width:0 can
+       still respect native input sizing differently. */
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .form-row .form-group { flex: 1; min-width: 0; margin-bottom: 0; }
 
     .hidden { display: none !important; }
   .mod-section { margin-top: 24px; }
@@ -509,6 +517,7 @@
       <div class="overlay-body">
         <div class="form-group"><label>Email (optional)</label><input type="email" id="rsvp-email" placeholder="your@email.com"></div>
         <div class="form-group"><label>Phone (optional)</label><input type="text" id="rsvp-phone" placeholder="+91 98765 43210"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.4;">🔒 <strong>Your RSVP details (username, email, phone) are visible to the event organizer and subreddit moderators.</strong> Redditors who view the event see only your username. You can leave the event anytime from My Stuff. By RSVPing, your Reddit username may also appear in public event reminder posts and in the event's share post.</div>
       </div>
       <div class="overlay-footer"><button class="btn btn-pink btn-submit-rsvp">Confirm RSVP →</button></div>
     </div>
@@ -523,6 +532,24 @@
           <button class="btn btn-white btn-compact" id="confirm-cancel-btn" style="flex:1;">Cancel</button>
           <button class="btn btn-pink btn-compact" id="confirm-ok-btn" style="flex:1;">Yes, Do It</button>
         </div>
+      </div>
+    </div>
+
+    <!-- RSVP Share Preview Overlay (e27) — shows the exact post that will be created -->
+    <div class="overlay" id="rsvp-share-overlay">
+      <div class="overlay-header"><h2>🎉 Share that I'm going</h2><div class="close-btn" data-action="close-rsvp-share">✕</div></div>
+      <div class="overlay-body" style="display:flex;flex-direction:column;gap:12px;">
+        <div style="font-size:11px;color:var(--muted);line-height:1.4;">Here's the post that will be created in this subreddit. Review and tap <strong>Post to Reddit</strong> to publish it on your behalf.</div>
+        <div style="background:var(--surface);border:var(--border);padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);">Title</div>
+          <div id="rsvp-share-title-preview" style="font-size:14px;font-weight:700;line-height:1.3;word-break:break-word;min-width:0;max-width:100%;"></div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-top:4px;">Body</div>
+          <div id="rsvp-share-body-preview" style="font-size:13px;line-height:1.45;background:#fff;border:var(--border);padding:10px;white-space:pre-wrap;word-break:break-word;font-family:var(--font);min-width:0;max-width:100%;overflow-x:auto;"></div>
+        </div>
+      </div>
+      <div class="overlay-footer">
+        <button class="btn btn-white btn-compact" data-action="close-rsvp-share" style="flex:1;">Cancel</button>
+        <button class="btn btn-pink btn-compact" id="rsvp-share-confirm-btn" data-action="confirm-rsvp-share" style="flex:2;">Post to Reddit →</button>
       </div>
     </div>
   </div>

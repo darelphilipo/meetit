@@ -1,7 +1,9 @@
 # dm-organizer Specification
 
 ## Purpose
-TBD - created by archiving change e13-direct-message-organizer. Update Purpose after archive.
+Direct-message deep links to event organizers and pitch submitters from the event details and mod dashboard overlays.
+
+**⚠️ NOT YET IMPLEMENTED.** This spec was created during planning for change e13-direct-message-organizer, but the feature was archived before shipping. The codebase contains no `navigateTo("https://www.reddit.com/message/compose?to={username}")` calls. This spec is retained for future implementation.
 ## Requirements
 ### Requirement: Direct-message deep link from event details
 The system SHALL render a "✉️ Message Organizer" button in the event details overlay (attendee view, step 2) that, when tapped, calls `navigateTo("https://www.reddit.com/message/compose?to={username}")` with the event organizer's username.

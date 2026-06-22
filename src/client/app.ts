@@ -608,21 +608,33 @@ function renderMyRsvpCard(opts: { noFade?: boolean } = {}) {
   if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   myStuffDescPageIdx[key] = 0;
 
-  var headerHtml = '<h3 class="card-title-md" style="margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
-    '<div style="font-size:12px;color:var(--muted);font-weight:600;">📅 ' + escapeHtml(e.date) + ' at ' + escapeHtml(e.time) + '</div>' +
-    '<div style="font-size:12px;color:var(--muted);">📍 ' + escapeHtml(e.location || "") + '</div>' +
-    '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-top:4px;">👥 ' + (e.rsvpCount || 0) + ' going</div>' +
-    (e.category ? '<div style="margin:4px 0;">' + catBadge(e.category) + '</div>' : '');
+  // e28: Compact header (1 dense line + 1 location line) to give the description
+  // box more vertical space. Share + Update + Leave are 3 equal-width compact
+  // buttons in a single row (replaces the previous 2-row layout with a
+  // full-width Share button that was too big for the card).
+  var headerHtml =
+    '<h3 class="card-title-md" style="margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(e.title) + '</h3>' +
+    '<div style="font-size:11px;color:var(--muted);font-weight:600;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">' +
+      '<span>📅 ' + escapeHtml(e.date) + '</span>' +
+      '<span>⏰ ' + escapeHtml(e.time) + '</span>' +
+      '<span>👥 ' + (e.rsvpCount || 0) + '</span>' +
+      (e.category ? catBadge(e.category) : '') +
+    '</div>' +
+    (e.location ? '<div style="font-size:11px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📍 ' + escapeHtml(e.location) + '</div>' : '');
 
   var bodyHtml = '<div id="my-stuff-desc-box-' + key + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
       '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
         '<div style="min-width:100%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px;font-size:14px;line-height:1.45;word-break:break-word;">' + escapeHtml(desc.substring(0, DESC_SHORT_LENGTH)) + (desc.length > DESC_SHORT_LENGTH ? '...' : '') + '</div>' +
       '</div></div>' +
-    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;margin-top:10px;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
+    '<div id="my-stuff-desc-nav-' + key + '" style="flex-shrink:0;margin-top:6px;display:flex;justify-content:center;align-items:center;gap:6px;"></div>';
 
-  var actionsHtml = '<div style="display:flex;gap:8px;">' +
-      '<button class="btn btn-white btn-action" data-id="' + e.id + '" data-action="update-rsvp">✏️ Update</button>' +
-      '<button class="btn btn-white btn-action" data-id="' + e.id + '" data-action="leave-event">❌ Leave</button>' +
+  // 3 equal-width compact buttons in a single row. Share is pink (primary) but
+  // not full-width — keeps it discoverable without dominating the card.
+  var actionsHtml =
+    '<div style="display:flex;gap:6px;">' +
+      '<button class="btn btn-white btn-compact" data-id="' + e.id + '" data-action="update-rsvp" style="flex:1;">✏️ Edit</button>' +
+      '<button class="btn btn-pink btn-compact" data-id="' + e.id + '" data-action="share-rsvp" style="flex:1;">🎉 Share</button>' +
+      '<button class="btn btn-white btn-compact" data-id="' + e.id + '" data-action="leave-event" style="flex:1;">❌ Leave</button>' +
     '</div>';
 
   el.innerHTML = buildCardShell({ headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, noFade: opts.noFade });
@@ -894,9 +906,9 @@ function buildDescNavHTML(eventId: string): string {
 }
 
 function buildModDetailDescNavHTML(eventId: string): string {
-  var total = descPageTotal[eventId] || 1;
+  var total = modDescTotal[eventId] || 1;
   if (total <= 1) return '';
-  var cur = descPageIdx[eventId] || 0;
+  var cur = modDescPageIdx[eventId] || 0;
   return (cur > 0 ? '<button class="btn btn-white btn-pager" data-id="' + eventId + '" data-action="mod-detail-desc-prev">← Previous</button>' : '') +
     '<span style="font-size:12px;font-weight:700;">' + (cur + 1) + '/' + total + '</span>' +
     (cur < total - 1 ? '<button class="btn btn-white btn-pager" data-id="' + eventId + '" data-action="mod-detail-desc-next">Next →</button>' : '');
@@ -982,13 +994,14 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   var locationLabel = '<div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">📍 Location</div><div style="font-size:14px;font-weight:700;line-height:1.25;word-break:break-word;overflow-wrap:break-word;">' + escapeHtml(e.location || "TBD") + '</div>';
   var goingCount = d.rsvpCount + ' going' + (d.rsvpCount !== 1 ? '' : '');
   var s1 = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:8px;padding:14px;">' +
-    // Row 1: emoji + title header (compact)
+    // Row 1: emoji + title + category badge (e28: badge moved from Row 5 to here)
     '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">' +
       emojiTile +
       '<div style="flex:1;min-width:0;">' +
         '<div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Event</div>' +
         '<div style="font-size:13px;font-weight:700;line-height:1.2;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">' + escapeHtml(e.title) + '</div>' +
       '</div>' +
+      (e.category ? '<div style="flex-shrink:0;">' + catBadge(e.category) + '</div>' : '') +
     '</div>' +
     // Row 2: 2-col grid for date and time
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;flex-shrink:0;">' +
@@ -997,7 +1010,7 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
     '</div>' +
     // Row 3: location (full width)
     '<div style="background:var(--surface);border:var(--border);padding:8px 10px;flex-shrink:0;">' + locationLabel + '</div>' +
-    // Row 4: organizer + category + going count (2-col, organizer takes more)
+    // Row 4: organizer + going count (2-col, organizer takes more)
     '<div style="display:grid;grid-template-columns:1fr auto;gap:8px;flex-shrink:0;align-items:stretch;">' +
       (e.organizer
         ? '<div style="background:var(--surface);border:var(--border);padding:8px 10px;display:flex;align-items:center;gap:8px;min-width:0;">' +
@@ -1013,8 +1026,6 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
         '<div style="font-weight:700;font-size:18px;line-height:1;">' + d.rsvpCount + '</div>' +
       '</div>' +
     '</div>' +
-    // Row 5: category badge (if present)
-    (e.category ? '<div style="flex-shrink:0;text-align:center;">' + catBadge(e.category) + '</div>' : '') +
     '</div>';
 
   // Card 2: Organizer + Description
@@ -1678,9 +1689,9 @@ async function showModEventDetails(id: string) {
 
   // Card 2: Organizer + Description (with auto-pagination)
   var descFull = item.description || "";
-  descFullText[id] = descFull;
-  descPageIdx[id] = 0;
-  descPageTotal[id] = descFull.length > DESC_SHORT_LENGTH ? 99 : 1;
+  modDescFullText[id] = descFull;
+  modDescPageIdx[id] = 0;
+  modDescTotal[id] = descFull.length > DESC_SHORT_LENGTH ? 99 : 1;
   var s2 = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:6px;padding:8px 0;">';
   if (item.organizer) { var initial = item.organizer.replace("u/", "").charAt(0).toUpperCase(); s2 += '<div style="display:flex;align-items:center;gap:10px;padding:10px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><div class="avatar-circle">' + initial + '</div><div><div style="font-weight:700;font-size:10px;text-transform:uppercase;color:var(--muted);">Organizer</div><div style="font-weight:700;font-size:14px;">' + escapeHtml(item.organizer) + '</div></div></div>'; }
   s2 += '<div style="flex:1;min-height:0;overflow:hidden;margin:0 8px;background:#fff;border:var(--border);position:relative;" id="mod-desc-box-' + id + '">' +
@@ -1732,20 +1743,20 @@ async function showModEventDetails(id: string) {
         setTimeout(function() {
           var retryBox = document.getElementById("mod-desc-box-" + id);
           if (!retryBox || retryBox.clientWidth === 0 || retryBox.clientHeight === 0) return;
-          var pages = splitTextToPages(descFullText[id] || "", retryBox.clientWidth, retryBox.clientHeight);
-          if (pages.length > 50) { pages = [descFullText[id] || ""]; }
-          descPageTotal[id] = pages.length;
-          descPageIdx[id] = 0;
+          var pages = splitTextToPages(modDescFullText[id] || "", retryBox.clientWidth, retryBox.clientHeight);
+          if (pages.length > 50) { pages = [modDescFullText[id] || ""]; }
+          modDescTotal[id] = pages.length;
+          modDescPageIdx[id] = 0;
           document.getElementById("mod-desc-track-" + id)!.outerHTML = buildDescPagesHTML(id, pages, "mod-desc-track-");
           document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDetailDescNavHTML(id);
           persistModStep2(id);
         }, 300);
         return;
       }
-      var pages = splitTextToPages(descFullText[id] || "", box.clientWidth, box.clientHeight);
-      if (pages.length > 50) { pages = [descFullText[id] || ""]; }
-      descPageTotal[id] = pages.length;
-      descPageIdx[id] = 0;
+      var pages = splitTextToPages(modDescFullText[id] || "", box.clientWidth, box.clientHeight);
+      if (pages.length > 50) { pages = [modDescFullText[id] || ""]; }
+      modDescTotal[id] = pages.length;
+      modDescPageIdx[id] = 0;
       document.getElementById("mod-desc-track-" + id)!.outerHTML = buildDescPagesHTML(id, pages, "mod-desc-track-");
       document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDetailDescNavHTML(id);
       persistModStep2(id);
@@ -2043,20 +2054,26 @@ async function submitRsvp() {
         if (!alreadyInMyRsvps) { myRsvps.push(homeEvt); log("added to myRsvps: " + currentEventId); }
       }
       closeOverlay("rsvp-overlay");
-      // Show RSVP confirmation summary in detail overlay
+      // Show RSVP confirmation summary in detail overlay.
+      // Layout: single column, content stacked top-to-bottom, Copy + Done at the
+      // bottom (pushed down with margin-top:auto). The previous layout had a
+      // nested scrollable header + pinned bottom row (added to keep the Share
+      // button visible on small viewports), but the Share button was still
+      // clipped in the iOS Safari Devvit Web iframe. The Share button has been
+      // removed — users share from My Stuff → RSVPs instead. Keep this simple.
       var evt = cachedHomeEvents.find(function(e) { return e.id === currentEventId; });
       if (evt) {
         var confirmEmoji = isUpdate ? "✅" : "🎉";
         var confirmHeading = isUpdate ? "Contact info updated" : "You\'re on the list!";
-        var confirmHTML = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;padding:20px;text-align:center;padding-top:32px;">' +
-          (isUpdate ? '<div style="font-size:56px;">' + confirmEmoji + '</div>' : '<svg class="rsvp-checkmark" viewBox="0 0 52 52" width="56" height="56" style="margin:0 auto;"><circle class="rsvp-checkmark-circle" cx="26" cy="26" r="24" fill="none" stroke="#1c1c0f" stroke-width="4"/><path class="rsvp-checkmark-path" fill="none" stroke="#00ff88" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" d="M14 27l7 7 16-16"/></svg>') +
-          '<div style="font-size:18px;font-weight:700;">' + confirmHeading + '</div>' +
-          '<div style="font-size:14px;color:var(--muted);max-width:260px;">' + escapeHtml(evt.title) + '</div>' +
-          '<div style="font-size:13px;color:var(--muted);">📅 ' + escapeHtml(relativeDate(evt.date)) + ' at ' + formatTimeWithTz(evt.time, appTimezone) + '</div>' +
-          '<div style="font-size:13px;color:var(--muted);">📍 ' + escapeHtml(evt.location || "TBD") + '</div>' +
-          '<div style="display:flex;gap:8px;margin-top:8px;width:100%;max-width:260px;">' +
-          '<button class="btn btn-white btn-compact" data-action="copy-event-details" data-id="' + currentEventId + '">📋 Copy Details</button>' +
-          '<button class="btn btn-pink btn-compact" data-action="close-overlay">Done →</button>' +
+        var confirmHTML = '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;padding:24px 16px 16px;text-align:center;">' +
+          (isUpdate ? '<div style="font-size:48px;line-height:1;">' + confirmEmoji + '</div>' : '<svg class="rsvp-checkmark" viewBox="0 0 52 52" width="48" height="48" style="margin:8px auto 0;flex-shrink:0;"><circle class="rsvp-checkmark-circle" cx="26" cy="26" r="24" fill="none" stroke="#1c1c0f" stroke-width="4"/><path class="rsvp-checkmark-path" fill="none" stroke="#00ff88" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" d="M14 27l7 7 16-16"/></svg>') +
+          '<div style="font-size:17px;font-weight:700;margin-top:14px;line-height:1.3;">' + confirmHeading + '</div>' +
+          '<div style="font-size:14px;color:var(--muted);margin-top:8px;max-width:280px;line-height:1.4;">' + escapeHtml(evt.title) + '</div>' +
+          '<div style="font-size:13px;color:var(--muted);margin-top:6px;">📅 ' + escapeHtml(relativeDate(evt.date)) + ' at ' + formatTimeWithTz(evt.time, appTimezone) + '</div>' +
+          '<div style="font-size:13px;color:var(--muted);margin-top:4px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📍 ' + escapeHtml(evt.location || "TBD") + '</div>' +
+          '<div style="margin-top:auto;padding-top:20px;display:flex;gap:8px;width:100%;max-width:320px;">' +
+          '<button class="btn btn-white btn-compact" data-action="copy-event-details" data-id="' + currentEventId + '" style="flex:1;">📋 Copy</button>' +
+          '<button class="btn btn-compact" data-action="close-overlay" style="flex:1;background:var(--surface);">Done</button>' +
           '</div>' +
           '</div>';
         document.getElementById("detail-body")!.innerHTML = confirmHTML;
@@ -2315,6 +2332,76 @@ function closeOverlay(id: string) { log("CLOSE overlay " + id); document.getElem
 function closeAllOverlays() { log("CLOSE ALL overlays"); document.querySelectorAll(".overlay").forEach(function (el) { el.classList.remove("active"); }); resetEventForm(); closeCreateMenu(); }
 function showHomePage() { log("showHomePage"); closeAllOverlays(); loadHome(); }
 
+// ======= RSVP SHARE (e27) =======
+// Track the eventId being shared so the confirm-rsvp-share handler can use it.
+var rsvpShareEventId: string | null = null;
+// Tracks whether the user has confirmed the share in this session (used to
+// prevent double-submit if the user rapid-taps Post to Reddit).
+var rsvpShareInFlight = false;
+
+/**
+ * Open the share-preview overlay for an event the user has just RSVPed to.
+ * Mirrors the server-side buildRsvpShareBody() so the preview shows EXACTLY
+ * what the server will post — including the u/ prefix handling and description
+ * truncation. Keeping the preview in sync with the server is critical: the
+ * preview is the "ask permission" step required by Devvit's User Actions rules.
+ */
+function openRsvpSharePreview(eventId: string) {
+  log("openRsvpSharePreview id=" + eventId);
+  // Look in cachedHomeEvents first; fall back to myRsvps so the button works
+  // from My Stuff even if the home cache is stale or the user opened My Stuff
+  // from a deep-link without visiting Home.
+  var evt = cachedHomeEvents.find(function (e) { return e.id === eventId; });
+  if (!evt) evt = myRsvps.find(function (e) { return e.id === eventId; });
+  if (!evt) { showToast("Event not found", "error"); return; }
+  rsvpShareEventId = eventId;
+  // Build the exact title + body that the server will post, using the same
+  // rules: u/ prefix stripped, description truncated to 300 chars, map link
+  // omitted if empty. We re-implement the rules client-side so the preview
+  // matches; the server is the source of truth and will re-render on submit.
+  var cleanUsername = (currentUsername || "anonymous").replace(/^u\//i, "");
+  var date = evt.date || "TBD";
+  var safeTitle = (evt.title || "this event")
+    .replace(/\\/g, "\\\\")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]")
+    .replace(/\*/g, "\\*")
+    .replace(/_/g, "\\_")
+    .replace(/^#/gm, "\\#")
+    .replace(/^>/gm, "\\>");
+  var title = "u/" + cleanUsername + " is going to " + safeTitle + " (" + date + ")";
+  var bodyParts: string[] = [];
+  if (evt.date || evt.time) {
+    bodyParts.push("## 📅 " + (evt.date || "TBD") + (evt.time ? " at " + evt.time : ""));
+  }
+  if (evt.location && String(evt.location).trim()) {
+    bodyParts.push("## 📍 " + String(evt.location).trim());
+  }
+  if (evt.mapUrl && String(evt.mapUrl).trim()) {
+    bodyParts.push("## 🗺️ [Open in Google Maps](" + String(evt.mapUrl).trim() + ")");
+  }
+  if (evt.description && String(evt.description).trim()) {
+    var desc = String(evt.description).trim();
+    if (desc.length > 300) desc = desc.substring(0, 300).trimEnd() + "…";
+    bodyParts.push("## 📝 " + desc);
+  }
+  // e28: Show the "Also going" count in the preview (just the count, not the
+  // full list — server is source of truth for the actual list at submit time).
+  // rsvpCount includes the current user; subtract 1 for "other" attendees.
+  var totalGoing = (evt && typeof evt.rsvpCount === "number") ? evt.rsvpCount : 0;
+  var otherCount = Math.max(0, totalGoing - 1);
+  if (otherCount > 0) {
+    bodyParts.push("## 👥 Also going (" + otherCount + ")");
+  }
+  bodyParts.push("---\n\nPosted via Meetit.");
+  document.getElementById("rsvp-share-title-preview")!.textContent = title;
+  document.getElementById("rsvp-share-body-preview")!.textContent = bodyParts.join("\n\n");
+  // Reset confirm button state in case it was left disabled from a previous share
+  var confirmBtn = document.getElementById("rsvp-share-confirm-btn") as HTMLButtonElement | null;
+  if (confirmBtn) { confirmBtn.textContent = "Post to Reddit →"; confirmBtn.disabled = false; confirmBtn.style.opacity = "1"; confirmBtn.style.pointerEvents = "auto"; }
+  openOverlay("rsvp-share-overlay");
+}
+
 function handleAction(action: string, id: string | null) {
   switch (action) {
     case "view-details": if (id) showEventDetails(id); break;
@@ -2445,35 +2532,35 @@ function handleAction(action: string, id: string | null) {
     } break;
     case "mod-detail-desc-next": {
       if (!id) break;
-      log("mod-detail-desc-next id=" + id + " pageTotal=" + (descPageTotal[id] || 0) + " curPage=" + (descPageIdx[id] || 0));
-      if (descPageTotal[id] === 99) {
+      log("mod-detail-desc-next id=" + id + " pageTotal=" + (modDescTotal[id] || 0) + " curPage=" + (modDescPageIdx[id] || 0));
+      if (modDescTotal[id] === 99) {
         log("mod-detail-desc-next PAGINATING id=" + id);
         var box = document.getElementById("mod-desc-box-" + id);
         if (!box) return;
-        var pages = splitTextToPages(descFullText[id] || "", box.clientWidth, box.clientHeight);
+        var pages = splitTextToPages(modDescFullText[id] || "", box.clientWidth, box.clientHeight);
         log("mod-detail-desc-next split into " + pages.length + " pages id=" + id);
-        descPageTotal[id] = pages.length;
-        descPageIdx[id] = 0;
+        modDescTotal[id] = pages.length;
+        modDescPageIdx[id] = 0;
         document.getElementById("mod-desc-track-" + id)!.outerHTML = buildDescPagesHTML(id, pages, "mod-desc-track-");
         document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDetailDescNavHTML(id);
         persistModStep2(id);
       } else {
-        var cur = (descPageIdx[id] || 0) + 1;
-        if (cur >= (descPageTotal[id] || 1)) { log("mod-detail-desc-next BLOCKED at last page id=" + id); return; }
-        descPageIdx[id] = cur;
-        log("mod-detail-desc-next slide id=" + id + " page=" + cur + "/" + descPageTotal[id]);
-        slideTrack("mod-desc-track-" + id, cur, descPageTotal[id] || 1);
+        var cur = (modDescPageIdx[id] || 0) + 1;
+        if (cur >= (modDescTotal[id] || 1)) { log("mod-detail-desc-next BLOCKED at last page id=" + id); return; }
+        modDescPageIdx[id] = cur;
+        log("mod-detail-desc-next slide id=" + id + " page=" + cur + "/" + modDescTotal[id]);
+        slideTrack("mod-desc-track-" + id, cur, modDescTotal[id] || 1);
         document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDetailDescNavHTML(id);
         persistModStep2(id);
       }
     } break;
     case "mod-detail-desc-prev": {
       if (!id) break;
-      var cur2 = (descPageIdx[id] || 0) - 1;
+      var cur2 = (modDescPageIdx[id] || 0) - 1;
       if (cur2 < 0) { log("mod-detail-desc-prev BLOCKED at first page id=" + id); return; }
-      descPageIdx[id] = cur2;
-      log("mod-detail-desc-prev slide id=" + id + " page=" + cur2 + "/" + descPageTotal[id]);
-      slideTrack("mod-desc-track-" + id, cur2, descPageTotal[id] || 1);
+      modDescPageIdx[id] = cur2;
+      log("mod-detail-desc-prev slide id=" + id + " page=" + cur2 + "/" + modDescTotal[id]);
+      slideTrack("mod-desc-track-" + id, cur2, modDescTotal[id] || 1);
       document.getElementById("mod-desc-nav-" + id)!.innerHTML = buildModDetailDescNavHTML(id);
       persistModStep2(id);
     } break;
@@ -2507,6 +2594,7 @@ function handleAction(action: string, id: string | null) {
     } break;
     case "copy-link": if (id) { if (navigator.clipboard) navigator.clipboard.writeText(id); else { var ta = document.createElement("textarea"); ta.value = id; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); } showToast("Link copied! 📋", "success"); } break;
     case "copy-event-details": if (id) { log("copy-event-details id=" + id); var ce = cachedHomeEvents.find(function(e) { return e.id === id; }); if (ce) { var detailText = ce.title + "\n📅 " + relativeDate(ce.date) + " at " + ce.time + "\n📍 " + (ce.location || "TBD") + "\n" + (ce.description || ""); if (navigator.clipboard) navigator.clipboard.writeText(detailText).then(function() { showToast("Event details copied! 📋", "success"); }).catch(function() { showToast("Copy failed", "error"); }); else { var t2 = document.createElement("textarea"); t2.value = detailText; document.body.appendChild(t2); t2.select(); try { document.execCommand("copy"); showToast("Event details copied! 📋", "success"); } catch(e) { showToast("Copy failed", "error"); } document.body.removeChild(t2); } } } break;
+    case "share-rsvp": if (id) openRsvpSharePreview(id); break;
     case "export-csv": if (id) exportAttendeesCSV(id); break;
     case "toggle-create": toggleCreateMenu(); break;
     case "close-create-menu": closeCreateMenu(); break;
@@ -2523,7 +2611,66 @@ function handleAction(action: string, id: string | null) {
     case "event-prev": eventPrev(); break;
     case "event-submit": submitEvent(); break;
     case "close-overlay": showHomePage(); break;
+    case "close-rsvp-share": closeOverlay("rsvp-share-overlay"); break;
+    case "confirm-rsvp-share": confirmRsvpShare(); break;
     default: break;
+  }
+}
+
+/**
+ * Handle the "Post to Reddit" click in the RSVP share-preview overlay.
+ * POSTs to /api/rsvp-share, which tries runAs:USER first and falls back to
+ * runAs:APP. On success: navigate to the new post and show a toast. On
+ * already_shared: show a non-blocking toast. On other errors: surface the
+ * error but keep the overlay open so the user can retry.
+ */
+async function confirmRsvpShare() {
+  if (rsvpShareInFlight) { log("confirmRsvpShare already in flight, ignoring"); return; }
+  if (!rsvpShareEventId) { showToast("No event selected for share", "error"); return; }
+  rsvpShareInFlight = true;
+  var confirmBtn = document.getElementById("rsvp-share-confirm-btn") as HTMLButtonElement | null;
+  if (confirmBtn) { confirmBtn.textContent = "⏳ Posting..."; confirmBtn.disabled = true; confirmBtn.style.opacity = "0.7"; confirmBtn.style.pointerEvents = "none"; }
+  log("confirmRsvpShare eventId=" + rsvpShareEventId);
+  try {
+    var res = await fetch(API_BASE + "/api/rsvp-share", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: rsvpShareEventId }) });
+    var data = await res.json();
+    if (data.type === "rsvp-share" && data.success) {
+      var postedAsNote = data.postedAs === "APP" ? " (posted by Meetit — your account posting is pending review)" : "";
+      showToast("Posted to Reddit! 🎉" + postedAsNote, "success");
+      log("confirmRsvpShare success postedAs=" + data.postedAs + " url=" + data.postUrl);
+      // Close the share overlay first — if navigateTo throws or fails, we don't
+      // want the user stuck with an open overlay and a dead button.
+      closeOverlay("rsvp-share-overlay");
+      // e28.8: Navigate to the new post. Only call navigateTo if we have a url.
+      // Wrap in try-catch because navigateTo is a Devvit runtime global and
+      // may throw on invalid URLs (we don't control the platform's behavior).
+      if (data.postUrl) {
+        try {
+          navigateTo(data.postUrl);
+        } catch (navErr) {
+          log("confirmRsvpShare navigateTo failed: " + navErr + " (post still created at " + data.postUrl + ")");
+          // Don't surface as an error — the post WAS created, we just couldn't
+          // auto-navigate. The toast already informed the user of success.
+        }
+      } else {
+        log("confirmRsvpShare success but no postUrl — post was created but client can't navigate (check server logs)");
+      }
+    } else if (data.reason === "already_shared") {
+      log("confirmRsvpShare already_shared");
+      showToast("You already shared this event today ✋", "success");
+      closeOverlay("rsvp-share-overlay");
+    } else {
+      log("confirmRsvpShare error: " + (data.error || "unknown"));
+      showToast(data.error || "Share failed - retry", "error");
+      // Re-enable the button so the user can retry without re-opening the overlay
+      if (confirmBtn) { confirmBtn.textContent = "Post to Reddit →"; confirmBtn.disabled = false; confirmBtn.style.opacity = "1"; confirmBtn.style.pointerEvents = "auto"; }
+    }
+  } catch (e) {
+    log("confirmRsvpShare exception: " + e);
+    showToast("Share failed - check connection", "error");
+    if (confirmBtn) { confirmBtn.textContent = "Post to Reddit →"; confirmBtn.disabled = false; confirmBtn.style.opacity = "1"; confirmBtn.style.pointerEvents = "auto"; }
+  } finally {
+    rsvpShareInFlight = false;
   }
 }
 
