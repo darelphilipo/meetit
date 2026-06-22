@@ -19,7 +19,7 @@ import { once } from "node:events";
 const MAX_SERVER_LOGS = 100;
 
 // Capture all server logs into Redis for UI retrieval
-function serverLog(level: "info" | "error", message: string) {
+function serverLog(level: "info" | "warn" | "error", message: string) {
   const entry = JSON.stringify({ ts: Date.now(), level, msg: message });
   // Fire-and-forget: don't await, don't block the request
   redis.zAdd("meetit:server_logs", { score: Date.now(), member: entry }).catch((e: any) => {
@@ -450,6 +450,11 @@ async function onRsvpShare(req: IncomingMessage): Promise<ApiResponse> {
     const otherAttendees = rsvpResults
       .map((r) => r.member)
       .filter((u) => normalizeUsername(u) !== normalizeUsername(username));
+    // e28.9: Log the other-attendees count so we can verify the "Also going"
+    // section will be built. 0 = section omitted; >20 = capped with +N more.
+    const attendeesMsg = `[RSVP-SHARE] ${username} → ${eventId} otherAttendees=${otherAttendees.length} (cap=20)`;
+    console.log(attendeesMsg);
+    serverLog("info", attendeesMsg);
 
     const { title, body } = buildRsvpShareBody(event, username, otherAttendees, context.subredditName);
     const shareMsg = `[RSVP-SHARE] ${username} → ${eventId} title="${title.substring(0, 60)}..."`;
@@ -599,7 +604,13 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
   const organizerKey = normalizeUsername(event.organizer || "");
   if (organizerKey) {
     await redis.zAdd(`meetit:rsvps:${eventId}`, { score: Date.now(), member: organizerKey });
-    console.log(`[APPROVE] auto-RSVPed organizer u/${organizerKey} → ${eventId}`);
+    const autoRsvpMsg = `[APPROVE] auto-RSVPed organizer u/${organizerKey} → ${eventId}`;
+    console.log(autoRsvpMsg);
+    serverLog("info", autoRsvpMsg); // e28.9: also write to in-app debug panel
+  } else {
+    const skipMsg = `[APPROVE] skipped auto-RSVP for ${eventId} (organizer field empty)`;
+    console.warn(skipMsg);
+    serverLog("warn", skipMsg);
   }
 
   console.log(`[APPROVE] ${event.title} approved`);
@@ -810,6 +821,17 @@ async function onMySubmissions(): Promise<ApiResponse> {
       rsvpEvents.push({ ...event, status: "rsvpd", rsvpScore: score, rsvpCount: count });
     }
   }
+  // e28.9: Per-event rsvpCount summary for myEvents (e28.4 verification).
+  // Only log events with at least 1 RSVP — avoids log spam for empty events.
+  const nonEmpty = activeEventsWithCount.filter((e) => (e.rsvpCount || 0) > 0);
+  if (nonEmpty.length > 0) {
+    const summary = nonEmpty
+      .map((e) => `${e.title.substring(0, 30)}=${e.rsvpCount}`)
+      .join(", ");
+    const msg = `[MY-SUBMISSIONS] myEvents-rsvpCount: ${summary}`;
+    console.log(msg);
+    serverLog("info", msg);
+  }
   console.log(`[MY-SUBMISSIONS] pitches=${pitches.length} myEvents=${myEvents.length} rsvps=${rsvpEvents.length}`);
 
   return { type: "my-submissions", pitches, events: myEvents, rsvps: rsvpEvents };
@@ -982,7 +1004,12 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
       if (hoursUntilEvent > reminderHours || hoursUntilEvent < -1) continue;
       const remindedKey = `meetit:reminded:${eventId}`;
       if (await redis.get(remindedKey)) continue;
-      console.log(`[CRON] Reminder post for ${event.title}`);
+      // e28.9: Log the attendees count included in this reminder body so we can
+      // verify the "N going" section was built. 0 = section omitted.
+      const reminderAttendees = attendeesByEvent[event.id] || [];
+      const reminderLogMsg = `[CRON] Reminder post for ${event.title} attendees=${reminderAttendees.length} (cap=20)`;
+      console.log(reminderLogMsg);
+      serverLog("info", reminderLogMsg);
       try {
         // Use submitPost (not submitCustomPost) to create a plain text post.
         // submitCustomPost always renders the app iframe on new.reddit/mobile,

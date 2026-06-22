@@ -589,6 +589,9 @@ async function loadMySubmissions() {
 function renderMyRsvpCard(opts: { noFade?: boolean } = {}) {
   log("renderMyRsvpCard idx=" + myRsvpIdx + " total=" + myRsvps.length);
   var el = document.getElementById("my-stuff-container")!;
+  // e28.9: Log the new compact header + 3-button layout markers so we can
+  // verify in devvit logs / in-app debug panel that the e28.3 redesign rendered.
+  log("renderMyRsvpCard e28-layout=3button-rsvp-card");
   updateMyStuffFooter("rsvps");
   updateCardDots("my-stuff", myRsvpIdx, myRsvps.length);
   if (myRsvps.length === 0) {
@@ -982,6 +985,8 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
   var e = d.event;
   var isOpen = document.getElementById("details-overlay")!.classList.contains("active");
   log("openDetailsOverlay event=" + e.id + " isOpen=" + isOpen + " hasRsvped=" + d.hasRsvped + " step=" + detailStep);
+  // e28.9: Log the e28.5 change (category badge moved to top of detail card).
+  log("openDetailsOverlay e28-category-position=top (badge in Row 1, not Row 5)");
   document.getElementById("details-overlay-title")!.textContent = e.title;
   var date = new Date(e.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
@@ -2393,6 +2398,9 @@ function openRsvpSharePreview(eventId: string) {
   if (otherCount > 0) {
     bodyParts.push("## 👥 Also going (" + otherCount + ")");
   }
+  // e28.9: Log the "Also going" count so we can verify in devvit logs / in-app
+  // debug panel that the preview is showing the right number.
+  log("openRsvpSharePreview e28-also-going=" + otherCount + " (totalGoing=" + totalGoing + ")");
   bodyParts.push("---\n\nPosted via Meetit.");
   document.getElementById("rsvp-share-title-preview")!.textContent = title;
   document.getElementById("rsvp-share-body-preview")!.textContent = bodyParts.join("\n\n");
@@ -2676,6 +2684,14 @@ async function confirmRsvpShare() {
 
 document.addEventListener("DOMContentLoaded", function () {
   log("APP INIT - DOM ready");
+  // e28.9: Confirm the iOS TIME-box CSS fix is active. The .form-row uses
+  // CSS grid (not flex) so the date+time inputs render with equal width.
+  // If this log is missing on iOS Safari, the CSS didn't apply (cache issue?).
+  var formRow = document.querySelector(".form-row") as HTMLElement | null;
+  if (formRow) {
+    var display = window.getComputedStyle(formRow).display;
+    log("APP INIT e28-form-row-display=" + display + " (expected: grid)");
+  }
 
   // A11y: every close button gets an aria-label. One pass at boot is enough
   // since the close buttons are static (not dynamically created).

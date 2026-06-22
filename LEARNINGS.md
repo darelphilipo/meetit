@@ -3424,4 +3424,52 @@ The success path no longer requires `data.postUrl` — if the post is created (s
 - `LEARNINGS.md §51` — e27 RSVP share (the original feature this builds on)
 - `LEARNINGS.md §40` — surgical change rule
 
+---
+
+## 59. Log the New Features, Not Just the Old Ones (2026-06-22, e28.9)
+
+The user asked: "did you add adequate logging for all the new features". An audit of the e28 deployment revealed 5 logging gaps:
+
+| Feature | Was missing | Now logs |
+|---------|-------------|----------|
+| e28.1 Auto-RSVP organizer | Skip-case (empty organizer field) | `console.warn` + `serverLog("warn", ...)` |
+| e28.3 My Stuff 3-button layout | Confirmation that new layout was used | `renderMyRsvpCard e28-layout=3button-rsvp-card` |
+| e28.4 My Events rsvpCount | Per-event rsvpCount (only summary) | `[MY-SUBMISSIONS] myEvents-rsvpCount: Title1=3, Title2=7` |
+| e28.5 Detail card category at top | Confirmation of layout change | `openDetailsOverlay e28-category-position=top` |
+| e28.6 RSVP share attendees | Other attendees count | `[RSVP-SHARE] ... otherAttendees=5 (cap=20)` |
+| e28.7 Reminder post attendees | Attendees count per reminder | `[CRON] Reminder post for X attendees=12 (cap=20)` |
+| e28.2 iOS TIME box (CSS) | Confirmation that grid is applied | `APP INIT e28-form-row-display=grid` (uses getComputedStyle) |
+| Share preview "Also going" count | Count shown to user | `openRsvpSharePreview e28-also-going=5` |
+
+### The principle: tag new-feature logs with a version prefix
+
+Every new e28 log line starts with `e28-` or includes the e28 number in brackets (`[RSVP-SHARE]`, `[MY-SUBMISSIONS]`, etc., with the e28 feature number nearby). This makes it trivial to:
+- Filter logs to see only e28 events: `grep "e28-" devvit-cli.log`
+- Confirm a feature fired: `grep "myEvents-rsvpCount"` shows the new rsvpCount feature
+- Debug regressions: if an old log disappears, the feature might be broken
+
+### Use both `console.log` and `serverLog` for important business events
+
+- `console.log` → visible in `devvit-cli logs` (terminal)
+- `serverLog` → visible in the in-app debug panel (developers browsing the app)
+
+For warnings and errors especially, both should be used. The debug panel can be opened by a mod without terminal access, so business events should appear there too.
+
+### Use `getComputedStyle` for CSS-fix verification
+
+For the iOS TIME box fix, the log uses `window.getComputedStyle(formRow).display` to read the actual computed display value. This proves the CSS rule is actually applied in the live DOM, not just present in the source. If the log says `display=flex` instead of `display=grid`, the CSS didn't take effect (caching, specificity, or typo).
+
+### Cross-references
+
+- `src/server/server.ts:onApproveEvent` — auto-RSVP + skip log
+- `src/server/server.ts:onMySubmissions` — per-event rsvpCount log
+- `src/server/server.ts:onRsvpShare` — otherAttendees log
+- `src/server/server.ts:onCheckEvents` — reminder attendees log
+- `src/client/app.ts:renderMyRsvpCard` — 3-button layout log
+- `src/client/app.ts:openDetailsOverlay` — category position log
+- `src/client/app.ts:openRsvpSharePreview` — also-going count log
+- `src/client/app.ts:DOMContentLoaded` — form-row display check
+- `LEARNINGS.md §55-58` — the e28 features these logs verify
+
+
 
