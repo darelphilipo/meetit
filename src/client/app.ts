@@ -1391,7 +1391,10 @@ function buildModDescNavHTML(key: string): string {
 function renderModPending(events: any[]) {
   log("renderModPending count=" + events.length);
   modItems["pending"] = events;
-  modCardIdx["pending"] = 0;
+  // Do NOT reset modCardIdx["pending"] here — the existing bounds check in
+  // renderModCard (idx >= items.length) handles out-of-range cases. Resetting
+  // to 0 here would cause mods reviewing a queue to be sent back to card 0
+  // after every approve/decline/dismiss.
   if (events.length === 0) {
     document.getElementById("pending-events-container")!.innerHTML = renderEmptyState({
       emoji: "📋", title: "No pending events",
@@ -1409,7 +1412,7 @@ function renderModPublished(events: any[]) {
   events.sort(function(a, b) { return (b.rsvpCount || 0) - (a.rsvpCount || 0); });
   log("renderModPublished sorted " + events.length + " events by RSVP count");
   modItems["published"] = events;
-  modCardIdx["published"] = 0;
+  // Do NOT reset modCardIdx["published"] here — see renderModPending comment.
   if (events.length === 0) {
     document.getElementById("pending-events-container")!.innerHTML = renderEmptyState({
       emoji: "✅", title: "No published events",
@@ -1425,7 +1428,7 @@ function renderModPublished(events: any[]) {
 function renderModPitches(ideas: any[]) {
   log("renderModPitches count=" + ideas.length);
   modItems["pitches"] = ideas;
-  modCardIdx["pitches"] = 0;
+  // Do NOT reset modCardIdx["pitches"] here — see renderModPending comment.
   if (ideas.length === 0) {
     document.getElementById("pending-events-container")!.innerHTML = renderEmptyState({
       emoji: "💡", title: "No pitched ideas",
@@ -1646,7 +1649,14 @@ async function dismissIdea(id: string) { log("dismissIdea id=" + id); var k = "d
     } else { await tryShowServerError(res, "Dismiss failed"); } } catch (e) { showToast("Network error", "error"); } finally { setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', false); unlock(k); } }
 async function deletePitch(id: string) { log("deletePitch id=" + id); var title = getItemTitle(id, { myPitches: myPitches }); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) return; var k = "pitch-" + id; if (isLocked(k)) return; lock(k); setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', true, "⏳ Deleting..."); var res; try { res = await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) });     if (res.ok) { showToast("Deleted", "success");       // Optimistically remove from myPitches
       var pitchIdx = myPitches.findIndex(function(p: any) { return p.id === id; });
-      if (pitchIdx >= 0) { myPitches.splice(pitchIdx, 1); log("optimistic pitch removed: " + id + " | myPitches count=" + myPitches.length); }
+      if (pitchIdx >= 0) {
+        myPitches.splice(pitchIdx, 1);
+        // Preserve viewer's position: if the deleted item was before the current
+        // viewing index, decrement so the user stays on the same logical card
+        // instead of silently skipping the next item.
+        if (pitchIdx < myPitchIdx && myPitchIdx > 0) myPitchIdx--;
+        log("optimistic pitch removed: " + id + " | myPitches count=" + myPitches.length + " | myPitchIdx=" + myPitchIdx);
+      }
       // If user is in My Stuff on pitches tab, re-render instantly
       var myStuffOverlay3 = document.getElementById("my-stuff-overlay");
       if (myStuffOverlay3 && myStuffOverlay3.classList.contains("active") && myStuffTab === "pitches") { renderMyPitchCard(); }
@@ -1663,7 +1673,14 @@ async function cancelMyEvent(id: string) {
     res = await fetch(API_BASE + "/api/delete-pending", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
     if (res.ok) { showToast("Cancelled", "success");       // Optimistically remove from myEvents
       var cancelIdx = myEvents.findIndex(function(e: any) { return e.id === id; });
-      if (cancelIdx >= 0) { myEvents.splice(cancelIdx, 1); log("optimistic event cancelled: " + id + " | myEvents count=" + myEvents.length); }
+      if (cancelIdx >= 0) {
+        myEvents.splice(cancelIdx, 1);
+        // Preserve viewer's position: if the cancelled item was before the
+        // current viewing index, decrement so the user stays on the same
+        // logical card instead of silently skipping the next item.
+        if (cancelIdx < myEventIdx && myEventIdx > 0) myEventIdx--;
+        log("optimistic event cancelled: " + id + " | myEvents count=" + myEvents.length + " | myEventIdx=" + myEventIdx);
+      }
       // If user is in My Stuff on events tab, re-render instantly
       var myStuffOverlay4 = document.getElementById("my-stuff-overlay");
       if (myStuffOverlay4 && myStuffOverlay4.classList.contains("active") && myStuffTab === "events") { renderMyEventCard(); }
@@ -1684,7 +1701,14 @@ async function deleteMyEvent(id: string) {
     res = await fetch(API_BASE + "/api/delete-published", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) });
     if (res.ok) { showToast("Deleted", "success");       // Optimistically remove from myEvents
       var delIdx = myEvents.findIndex(function(e: any) { return e.id === id; });
-      if (delIdx >= 0) { myEvents.splice(delIdx, 1); log("optimistic event deleted: " + id + " | myEvents count=" + myEvents.length); }
+      if (delIdx >= 0) {
+        myEvents.splice(delIdx, 1);
+        // Preserve viewer's position: if the deleted item was before the
+        // current viewing index, decrement so the user stays on the same
+        // logical card instead of silently skipping the next item.
+        if (delIdx < myEventIdx && myEventIdx > 0) myEventIdx--;
+        log("optimistic event deleted: " + id + " | myEvents count=" + myEvents.length + " | myEventIdx=" + myEventIdx);
+      }
       // If user is in My Stuff on events tab, re-render instantly
       var myStuffOverlay5 = document.getElementById("my-stuff-overlay");
       if (myStuffOverlay5 && myStuffOverlay5.classList.contains("active") && myStuffTab === "events") { renderMyEventCard(); }
@@ -2147,7 +2171,14 @@ async function leaveEvent(id: string) { log("leaveEvent id=" + id); var title = 
       renderHomeCard({ eventsByDate: groupByDate(cachedHomeEvents), isMod: cachedHomeIsMod, settings: {} });
       // Also update My Stuff if this event is in myRsvps
       var myStuffIdx = myRsvps.findIndex(function(e: any) { return e.id === id; });
-      if (myStuffIdx >= 0) { myRsvps.splice(myStuffIdx, 1); log("removed from myRsvps: " + id); }
+      if (myStuffIdx >= 0) {
+        myRsvps.splice(myStuffIdx, 1);
+        // Preserve viewer's position: if the left event was before the
+        // current viewing index, decrement so the user stays on the same
+        // logical card instead of silently skipping the next item.
+        if (myStuffIdx < myRsvpIdx && myRsvpIdx > 0) myRsvpIdx--;
+        log("removed from myRsvps: " + id + " | myRsvpIdx=" + myRsvpIdx);
+      }
       closeOverlay("details-overlay");
       // Stay on My Stuff if user was viewing it, otherwise go home
       var msOverlay = document.getElementById("my-stuff-overlay");
