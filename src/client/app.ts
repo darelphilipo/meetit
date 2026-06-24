@@ -90,6 +90,36 @@ function formatTimeWithTz(time: string, tz: string): string {
   return escapeHtml(time) + (tz ? " <span style='font-size:10px;color:var(--muted);'>" + escapeHtml(tz) + "</span>" : "");
 }
 
+// e31: Build a Google Calendar "Add Event" deep link from a Meetit event.
+// Returns a URL the user can open in any browser to add the event to their
+// Google Calendar. iOS Safari will prompt to open the Google Calendar app if
+// installed. Pure function — no Devvit or DOM dependencies, no I/O.
+//
+// @param event  MeetitEvent (title, date, time, location, description, mapUrl)
+// @returns      A fully-formed Google Calendar URL
+function buildGoogleCalendarUrl(event: { title?: string; date?: string; time?: string; location?: string; description?: string; mapUrl?: string }): string {
+  // Convert event's local date+time (in appTimezone) to a UTC ISO string.
+  // e.g. 2026-06-26 + 22:50 + +05:30 → 2026-06-26T17:20:00.000Z
+  var tz = appTimezone || "+05:30";
+  var time = event.time || "00:00";
+  var startLocal = new Date(event.date + "T" + time + ":00" + tz);
+  // End time defaults to start + 1 hour. Events don't have an end time field.
+  var endLocal = new Date(startLocal.getTime() + 60 * 60 * 1000);
+  // Google Calendar `dates` format: YYYYMMDDTHHMMSSZ (UTC) joined with `/`.
+  // toISOString() gives 2026-06-26T17:20:00.000Z — strip dashes/colons/dots.
+  var fmt = function(d: Date) { return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, ""); };
+  var details = event.description || "";
+  if (event.mapUrl) details += (details ? "\n\n" : "") + "🗺️ " + event.mapUrl;
+  var params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: event.title || "Meetit Event",
+    dates: fmt(startLocal) + "/" + fmt(endLocal),
+    location: event.location || "",
+    details: details,
+  });
+  return "https://calendar.google.com/calendar/render?" + params.toString();
+}
+
 // Fetch debounce / caches
 var homeFetchTimeout: ReturnType<typeof setTimeout> | null = null;
 var homeFetchInProgress = false;
@@ -1085,6 +1115,10 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
       (hasMore ? '<button class="btn btn-white btn-pager btn-desc-next" data-id="' + e.id + '" data-action="desc-next">Read more →</button>' : '') +
     '</div>';
   if (e.mapUrl) { s2 +=       '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy btn-copy-link" data-id="' + escapeAttr(e.mapUrl) + '" data-action="copy-link">📋 Copy</button></div>'; }
+  // e31: Add to Calendar row (Google Calendar deep link). Sits below Maps so
+  // the location-related actions are grouped. The handler fetches event
+  // details on demand because cachedHomeEvents may lack description/mapUrl.
+  s2 +=       '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">📅 Add to Calendar</span><button class="btn btn-white btn-compact" data-id="' + escapeAttr(e.id) + '" data-action="add-to-calendar">Google</button></div>';
   s2 += '</div>';
 
   // Card 3: Who's Going
@@ -1102,9 +1136,15 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
       '<svg class="rsvp-checkmark" viewBox="0 0 52 52" width="56" height="56" style="margin:0 auto;"><circle class="rsvp-checkmark-circle" cx="26" cy="26" r="24" fill="none" stroke="#1c1c0f" stroke-width="4"/><path class="rsvp-checkmark-path" fill="none" stroke="#00ff88" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" d="M14 27l7 7 16-16"/></svg>' +
       '<div style="font-size:18px;font-weight:700;">You\'re on the list!</div>' +
       '<div style="font-size:14px;color:var(--muted);">See you there</div>' +
-      '<div style="display:flex;gap:8px;margin-top:8px;width:100%;max-width:260px;">' +
+      // e31: "Add to Calendar" sits as its own row above Update/Leave so the
+      // calendar action has its own visual weight (it's a different intent —
+      // "save for later" — vs the RSVP actions which are immediate).
+      '<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;width:100%;max-width:260px;">' +
+      '<button class="btn btn-white btn-action" data-id="' + e.id + '" data-action="add-to-calendar">📅 Add to Calendar</button>' +
+      '<div style="display:flex;gap:8px;">' +
       '<button class="btn btn-white btn-action btn-update-rsvp" data-id="' + e.id + '" data-action="update-rsvp">✏️ Update</button>' +
       '<button class="btn btn-white btn-action btn-leave-event" data-id="' + e.id + '" data-action="leave-event">❌ Leave</button>' +
+      '</div>' +
       '</div>' +
       '</div>'
     : '<div class="detail-card" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;text-align:center;">' +
@@ -2684,6 +2724,31 @@ function handleAction(action: string, id: string | null) {
     case "copy-event-details": if (id) { log("copy-event-details id=" + id); var ce = cachedHomeEvents.find(function(e) { return e.id === id; }); if (ce) { var detailText = ce.title + "\n📅 " + relativeDate(ce.date) + " at " + ce.time + "\n📍 " + (ce.location || "TBD") + "\n" + (ce.description || ""); if (navigator.clipboard) navigator.clipboard.writeText(detailText).then(function() { showToast("Event details copied! 📋", "success"); }).catch(function() { showToast("Copy failed", "error"); }); else { var t2 = document.createElement("textarea"); t2.value = detailText; document.body.appendChild(t2); t2.select(); try { document.execCommand("copy"); showToast("Event details copied! 📋", "success"); } catch(e) { showToast("Copy failed", "error"); } document.body.removeChild(t2); } } } break;
     case "share-rsvp": if (id) openRsvpSharePreview(id); break;
     case "export-csv": if (id) exportAttendeesCSV(id); break;
+    case "add-to-calendar": {
+      if (!id) { log("add-to-calendar WARNING: empty id"); break; }
+      log("add-to-calendar id=" + id);
+      // Fetch event details on demand — cachedHomeEvents may lack description/mapUrl.
+      // Use a per-button lock to prevent double-fire from rapid taps.
+      var calLock = "addcal-" + id;
+      if (isLocked(calLock)) break;
+      lock(calLock);
+      fetch(API_BASE + "/api/event-details", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data && data.type === "event-details" && data.data && data.data.event) {
+            var url = buildGoogleCalendarUrl(data.data.event);
+            log("add-to-calendar navigating to: " + url.substring(0, 80) + "...");
+            navigateTo(url);
+            showToast("Opening Google Calendar 📅", "success");
+          } else {
+            log("add-to-calendar event-details failed: " + JSON.stringify(data).substring(0, 200));
+            showToast("Couldn't load event", "error");
+          }
+        })
+        .catch(function(e) { log("add-to-calendar error: " + e); showToast("Network error", "error"); })
+        .finally(function() { setTimeout(function() { unlock(calLock); }, 1000); });
+      break;
+    }
     case "toggle-create": toggleCreateMenu(); break;
     case "close-create-menu": closeCreateMenu(); break;
     case "create-pitch": closeCreateMenu(); openOverlay("pitch-overlay"); break;
