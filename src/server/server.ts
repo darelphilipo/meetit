@@ -1018,17 +1018,11 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
       })
     );
 
-    for (const [eventId, eventJson] of Object.entries(allEvents)) {
-      const event = JSON.parse(eventJson);
-      // Parse date+time together for accurate reminder timing using configured timezone
-      const eventDateTime = new Date(event.date + "T" + (event.time || "00:00") + ":00" + tzOffset);
-      const eventTs = eventDateTime.getTime();
-      const nowTs = Date.now();
-      const hoursUntilEvent = (eventTs - nowTs) / 3600000;
-
     // e30: Two reminder windows — 24h (🔔) and 2h (⏰). Each window has its own
     // dedup key so both can fire in the same CRON run for last-minute events.
     // Mods disable the 2h window by setting reminder_hours_2 to 0.
+    // Built ONCE per CRON run (outside the per-event loop) so the active-windows
+    // log fires once, not once per event.
     const windows: { hours: number; key: string; prefix: string }[] = [
       { hours: reminderHours, key: "24h", prefix: "🔔 Event Reminder:" },
     ];
@@ -1041,6 +1035,15 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
     const windowsLogMsg = `[CRON] active windows: ${windows.map(function(w) { return w.key + "(" + w.hours + "h)"; }).join(", ")}`;
     console.log(windowsLogMsg);
     serverLog("info", windowsLogMsg);
+
+    for (const [eventId, eventJson] of Object.entries(allEvents)) {
+      const event = JSON.parse(eventJson);
+      // Parse date+time together for accurate reminder timing using configured timezone
+      const eventDateTime = new Date(event.date + "T" + (event.time || "00:00") + ":00" + tzOffset);
+      const eventTs = eventDateTime.getTime();
+      const nowTs = Date.now();
+      const hoursUntilEvent = (eventTs - nowTs) / 3600000;
+
     for (const win of windows) {
       // Retry window: also allow posts up to 1h after event start (was: skip past events).
       // This covers CRON downtime — a missed reminder still fires once the next tick runs.

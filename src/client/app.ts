@@ -2739,7 +2739,23 @@ function handleAction(action: string, id: string | null) {
           if (data && data.type === "event-details" && data.data && data.data.event) {
             var url = buildGoogleCalendarUrl(data.data.event);
             log("add-to-calendar URL built: " + url.substring(0, 120) + (url.length > 120 ? "..." : ""));
-            navigateTo(url);
+            // Use window.open for external URLs. The Devvit `navigateTo` global
+            // (declared at app.ts:3) only works for internal Reddit navigation
+            // and throws ReferenceError for arbitrary external URLs like
+            // Google Calendar. window.open opens in a new tab and is the
+            // standard web pattern for external links.
+            try {
+              window.open(url, "_blank", "noopener,noreferrer");
+              log("add-to-calendar window.open called");
+            } catch (openErr) {
+              log("add-to-calendar window.open failed: " + openErr + " — falling back to location.href");
+              try {
+                window.location.href = url;
+              } catch (locErr) {
+                log("add-to-calendar location.href failed: " + locErr);
+                showToast("Couldn't open calendar — try again", "error");
+              }
+            }
             showToast("Opening Google Calendar 📅", "success");
           } else {
             log("add-to-calendar event-details failed: " + JSON.stringify(data).substring(0, 200));
