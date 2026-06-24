@@ -75,6 +75,11 @@
         "label": "Reminder: Hours Before Event (e.g. 24 = 1 day before)",
         "defaultValue": 24
       },
+      "reminder_hours_2": {
+        "type": "number",
+        "label": "Second Reminder: Hours Before Event (e.g. 2 = 2 hours before). Set to 0 to disable.",
+        "defaultValue": 2
+      },
       "timezone": {
         "type": "select",
         "label": "Community Timezone (for event reminders)",

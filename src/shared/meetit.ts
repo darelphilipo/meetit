@@ -289,23 +289,29 @@ export function buildReminderBody(
  * Build the title for a reminder post. Pure function — no Devvit imports,
  * no I/O. Safe to unit-test with `node:test`.
  *
- * Format: `🔔 Event Reminder: ${title} — ${date} @ ${location}`
+ * Format: `${prefix} ${title} — ${date} @ ${location}`
  *
  * - The `@ ${location}` suffix is omitted when the location is empty/whitespace.
  * - The date and title fall back to "TBD" when missing (mirrors body builder behavior).
+ * - The `prefix` defaults to "🔔 Event Reminder:" (24h reminder). The 2h reminder
+ *   uses "⏰ Starting Soon:" via the optional prefix parameter. Both windows share
+ *   the same body format — only the title differs.
  *
- * @param event The MeetitEvent being reminded about
- * @returns     A title string ready to pass to `submitPost({ title })`.
+ * @param event   The MeetitEvent being reminded about
+ * @param prefix  Title prefix. Defaults to "🔔 Event Reminder:" for backwards
+ *                compatibility. Use "⏰ Starting Soon:" for the 2h window.
+ * @returns       A title string ready to pass to `submitPost({ title })`.
  */
 export function buildReminderTitle(
   event: Pick<MeetitEvent, "title" | "date" | "location">,
+  prefix: string = "🔔 Event Reminder:",
 ): string {
   const title = event.title || "TBD";
   const date = event.date || "TBD";
   const location = event.location && event.location.trim();
   return location
-    ? `🔔 Event Reminder: ${title} — ${date} @ ${location}`
-    : `🔔 Event Reminder: ${title} — ${date}`;
+    ? `${prefix} ${title} — ${date} @ ${location}`
+    : `${prefix} ${title} — ${date}`;
 }
 
 /**

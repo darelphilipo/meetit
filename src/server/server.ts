@@ -988,6 +988,10 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
     const tzValue = timezone.replace(/^[+-]/, ""); // e.g. "05:30"
     const tzOffset = tzSign + tzValue; // e.g. "+05:30" or "-05:00"
     const reminderHours = Number(await settings.get("reminder_hours")) || 24;
+    // e30: Second reminder window (default 2 hours). Mods can set to 0 to disable.
+    // The dedup key is per-window so both windows can fire in the same CRON run
+    // (e.g., for a last-minute event where neither window has fired yet).
+    const reminderHours2 = Number(await settings.get("reminder_hours_2")) || 0;
     // Fetch moderator list once per CRON run; used in reminder body so attendees
     // can reach mods directly from the post. Empty list = line omitted entirely.
     const modList = parseModList(await settings.get("mod_usernames"));
@@ -1022,46 +1026,57 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
       const nowTs = Date.now();
       const hoursUntilEvent = (eventTs - nowTs) / 3600000;
 
-      // Retry window: also allow posts up to 1h after event start (was: skip past events).
-      // This covers CRON downtime — a missed reminder still fires once the next tick runs.
-      if (hoursUntilEvent > reminderHours || hoursUntilEvent < -1) continue;
-      const remindedKey = `meetit:reminded:${eventId}`;
-      if (await redis.get(remindedKey)) continue;
-      // e28.9: Log the attendees count included in this reminder body so we can
-      // verify the "N going" section was built. 0 = section omitted.
-      const reminderAttendees = attendeesByEvent[event.id] || [];
-      const reminderLogMsg = `[CRON] Reminder post for ${event.title} attendees=${reminderAttendees.length} (cap=20)`;
-      console.log(reminderLogMsg);
-      serverLog("info", reminderLogMsg);
-      try {
-        // Use submitPost (not submitCustomPost) to create a plain text post.
-        // submitCustomPost always renders the app iframe on new.reddit/mobile,
-        // which is bad for discussion: the body is hidden behind the iframe and
-        // there's no obvious entry point for comments. A plain text post shows
-        // the body on every Reddit client and gets the full comment thread UI.
-        // See: https://developers.reddit.com/docs/capabilities/server/reddit-api#submitting-a-post
-        const post = await reddit.submitPost({
-          title: buildReminderTitle(event),
-          text: buildReminderBody(
-            event,
-            (event.organizer && event.organizer.trim()) || fallbackOrganizer,
-            modList,
-            // e28: pass attendee list so the post body shows who is going.
-            attendeesByEvent[event.id] || [],
-            context.subredditName,
-            meetitAppPostUrl,
-          ),
-        });
-        // Set dedup flag ONLY after successful post so failures retry on next tick.
-        await redis.set(remindedKey, "true");
-        await redis.expire(remindedKey, 86400);
-        const successMsg = `[CRON] Reminder post sent for ${event.title} (postId=${post?.id ?? "unknown"})`;
-        console.log(successMsg);
-        serverLog("info", successMsg);
-      } catch (e) {
-        const errMsg = `[CRON] Post failed for ${event.title}: ${e instanceof Error ? e.message : e}`;
-        console.error(errMsg);
-        serverLog("error", errMsg);
+      // e30: Two reminder windows — 24h (🔔) and 2h (⏰). Each window has its own
+      // dedup key so both can fire in the same CRON run for last-minute events.
+      // Mods disable the 2h window by setting reminder_hours_2 to 0.
+      const windows: { hours: number; key: string; prefix: string }[] = [
+        { hours: reminderHours, key: "24h", prefix: "🔔 Event Reminder:" },
+      ];
+      if (reminderHours2 > 0) {
+        windows.push({ hours: reminderHours2, key: "2h", prefix: "⏰ Starting Soon:" });
+      }
+      for (const win of windows) {
+        // Retry window: also allow posts up to 1h after event start (was: skip past events).
+        // This covers CRON downtime — a missed reminder still fires once the next tick runs.
+        if (hoursUntilEvent > win.hours || hoursUntilEvent < -1) continue;
+        const remindedKey = `meetit:reminded:${eventId}:${win.key}`;
+        if (await redis.get(remindedKey)) continue;
+        // e28.9: Log the attendees count included in this reminder body so we can
+        // verify the "N going" section was built. 0 = section omitted.
+        const reminderAttendees = attendeesByEvent[event.id] || [];
+        const reminderLogMsg = `[CRON] Reminder (${win.key}) post for ${event.title} attendees=${reminderAttendees.length} (cap=20)`;
+        console.log(reminderLogMsg);
+        serverLog("info", reminderLogMsg);
+        try {
+          // Use submitPost (not submitCustomPost) to create a plain text post.
+          // submitCustomPost always renders the app iframe on new.reddit/mobile,
+          // which is bad for discussion: the body is hidden behind the iframe and
+          // there's no obvious entry point for comments. A plain text post shows
+          // the body on every Reddit client and gets the full comment thread UI.
+          // See: https://developers.reddit.com/docs/capabilities/server/reddit-api#submitting-a-post
+          const post = await reddit.submitPost({
+            title: buildReminderTitle(event, win.prefix),
+            text: buildReminderBody(
+              event,
+              (event.organizer && event.organizer.trim()) || fallbackOrganizer,
+              modList,
+              // e28: pass attendee list so the post body shows who is going.
+              attendeesByEvent[event.id] || [],
+              context.subredditName,
+              meetitAppPostUrl,
+            ),
+          });
+          // Set dedup flag ONLY after successful post so failures retry on next tick.
+          await redis.set(remindedKey, "true");
+          await redis.expire(remindedKey, 86400);
+          const successMsg = `[CRON] Reminder (${win.key}) post sent for ${event.title} (postId=${post?.id ?? "unknown"})`;
+          console.log(successMsg);
+          serverLog("info", successMsg);
+        } catch (e) {
+          const errMsg = `[CRON] Post failed for ${event.title} (${win.key}): ${e instanceof Error ? e.message : e}`;
+          console.error(errMsg);
+          serverLog("error", errMsg);
+        }
       }
     }
 

@@ -274,6 +274,22 @@ test("buildReminderTitle falls back to TBD for missing title and date", () => {
   assert.equal(title, "🔔 Event Reminder: TBD — TBD @ Some Place");
 });
 
+test("buildReminderTitle accepts a custom prefix for the 2h window (e30)", () => {
+  const title = buildReminderTitle(
+    { title: "Coffee Meetup", date: "2026-06-25", location: "Central Park" },
+    "⏰ Starting Soon:",
+  );
+  assert.equal(title, "⏰ Starting Soon: Coffee Meetup — 2026-06-25 @ Central Park");
+});
+
+test("buildReminderTitle with custom prefix omits @ location when location is empty (e30)", () => {
+  const title = buildReminderTitle(
+    { title: "Coffee Meetup", date: "2026-06-25", location: "" },
+    "⏰ Starting Soon:",
+  );
+  assert.equal(title, "⏰ Starting Soon: Coffee Meetup — 2026-06-25");
+});
+
 // =====================================================================
 // buildReminderBody — maps link + Meetit app deep link (e26)
 // =====================================================================
