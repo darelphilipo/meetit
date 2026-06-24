@@ -2726,18 +2726,19 @@ function handleAction(action: string, id: string | null) {
     case "export-csv": if (id) exportAttendeesCSV(id); break;
     case "add-to-calendar": {
       if (!id) { log("add-to-calendar WARNING: empty id"); break; }
-      log("add-to-calendar id=" + id);
+      log("add-to-calendar id=" + id + " tz=" + (appTimezone || "(default)"));
       // Fetch event details on demand — cachedHomeEvents may lack description/mapUrl.
       // Use a per-button lock to prevent double-fire from rapid taps.
       var calLock = "addcal-" + id;
-      if (isLocked(calLock)) break;
+      if (isLocked(calLock)) { log("add-to-calendar lock held, ignoring duplicate click"); break; }
       lock(calLock);
+      log("add-to-calendar fetching event-details");
       fetch(API_BASE + "/api/event-details", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: id }) })
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (data && data.type === "event-details" && data.data && data.data.event) {
             var url = buildGoogleCalendarUrl(data.data.event);
-            log("add-to-calendar navigating to: " + url.substring(0, 80) + "...");
+            log("add-to-calendar URL built: " + url.substring(0, 120) + (url.length > 120 ? "..." : ""));
             navigateTo(url);
             showToast("Opening Google Calendar 📅", "success");
           } else {

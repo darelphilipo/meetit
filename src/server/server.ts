@@ -1026,21 +1026,40 @@ async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {
       const nowTs = Date.now();
       const hoursUntilEvent = (eventTs - nowTs) / 3600000;
 
-      // e30: Two reminder windows — 24h (🔔) and 2h (⏰). Each window has its own
-      // dedup key so both can fire in the same CRON run for last-minute events.
-      // Mods disable the 2h window by setting reminder_hours_2 to 0.
-      const windows: { hours: number; key: string; prefix: string }[] = [
-        { hours: reminderHours, key: "24h", prefix: "🔔 Event Reminder:" },
-      ];
-      if (reminderHours2 > 0) {
-        windows.push({ hours: reminderHours2, key: "2h", prefix: "⏰ Starting Soon:" });
+    // e30: Two reminder windows — 24h (🔔) and 2h (⏰). Each window has its own
+    // dedup key so both can fire in the same CRON run for last-minute events.
+    // Mods disable the 2h window by setting reminder_hours_2 to 0.
+    const windows: { hours: number; key: string; prefix: string }[] = [
+      { hours: reminderHours, key: "24h", prefix: "🔔 Event Reminder:" },
+    ];
+    if (reminderHours2 > 0) {
+      windows.push({ hours: reminderHours2, key: "2h", prefix: "⏰ Starting Soon:" });
+    }
+    // e30 logging: log the active windows once per CRON run so it's easy to
+    // verify in devvit-cli logs whether the 2h window is enabled (e.g., when
+    // debugging "why didn't the 2h reminder fire?" — check this log first).
+    const windowsLogMsg = `[CRON] active windows: ${windows.map(function(w) { return w.key + "(" + w.hours + "h)"; }).join(", ")}`;
+    console.log(windowsLogMsg);
+    serverLog("info", windowsLogMsg);
+    for (const win of windows) {
+      // Retry window: also allow posts up to 1h after event start (was: skip past events).
+      // This covers CRON downtime — a missed reminder still fires once the next tick runs.
+      if (hoursUntilEvent > win.hours || hoursUntilEvent < -1) {
+        // e30 logging: log skipped events with the reason so it's possible to
+        // tell from logs why a particular event didn't get a reminder in this window.
+        const skipLogMsg = `[CRON] (${win.key}) skipping ${event.title} hoursUntilEvent=${hoursUntilEvent.toFixed(2)} not in [-1, ${win.hours}]`;
+        console.log(skipLogMsg);
+        serverLog("info", skipLogMsg);
+        continue;
       }
-      for (const win of windows) {
-        // Retry window: also allow posts up to 1h after event start (was: skip past events).
-        // This covers CRON downtime — a missed reminder still fires once the next tick runs.
-        if (hoursUntilEvent > win.hours || hoursUntilEvent < -1) continue;
-        const remindedKey = `meetit:reminded:${eventId}:${win.key}`;
-        if (await redis.get(remindedKey)) continue;
+      const remindedKey = `meetit:reminded:${eventId}:${win.key}`;
+      if (await redis.get(remindedKey)) {
+        // e30 logging: log dedup hits so it's visible when a window is "done" for an event.
+        const dedupLogMsg = `[CRON] (${win.key}) already sent for ${event.title} (dedup key set)`;
+        console.log(dedupLogMsg);
+        serverLog("info", dedupLogMsg);
+        continue;
+      }
         // e28.9: Log the attendees count included in this reminder body so we can
         // verify the "N going" section was built. 0 = section omitted.
         const reminderAttendees = attendeesByEvent[event.id] || [];
