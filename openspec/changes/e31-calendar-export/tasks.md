@@ -1,50 +1,59 @@
 # e31-calendar-export Tasks
 
-## 1. Add buildGoogleCalendarUrl helper
+## 1. Revert in-app e31 client-side changes
 
-- [x] 1.1 Add helper function to `app.ts` near other date utilities
-- [x] 1.2 Helper takes a MeetitEvent and returns a Google Calendar URL
-- [x] 1.3 Convert local date+time to UTC using `appTimezone`
-- [x] 1.4 End time defaults to start + 1 hour
-- [x] 1.5 Append `mapUrl` to description as separate line if present
+- [x] 1.1 Remove `buildGoogleCalendarUrl` helper from `app.ts`
+- [x] 1.2 Remove the "📅 Add to Calendar" button from event details Card 2
+- [x] 1.3 Remove the "📅 Add to Calendar" button from RSVP success card
+- [x] 1.4 Remove the `case "add-to-calendar":` action handler
 
-## 2. Add button to event details Card 2
+## 2. Add server-side buildGoogleCalendarUrl helper
 
-- [x] 2.1 Insert "📅 Add to Calendar" row below the existing Maps row in `s2` (around app.ts:1087)
-- [x] 2.2 Use the same visual style as the Maps row (surface, border, padding)
-- [x] 2.3 Button has `data-action="add-to-calendar"` and the event id
+- [x] 2.1 Add `buildGoogleCalendarUrl(event, timezone)` to `src/shared/meetit.ts`
+- [x] 2.2 Default timezone to "+05:30" when not provided
+- [x] 2.3 Return "" for missing or malformed date
+- [x] 2.4 Convert local date+time to UTC for the `dates` parameter
+- [x] 2.5 Default end time to start + 1 hour
+- [x] 2.6 Append mapUrl to details when present
 
-## 3. Modify RSVP success card
+## 3. Add calendar link to buildReminderBody
 
-- [x] 3.1 Update the `hasRsvped=true` branch of `s4` (around app.ts:1100)
-- [x] 3.2 Add "📅 Add to Calendar" button as a separate row above Update/Leave
-- [x] 3.3 Keep Update/Leave in a horizontal flex row below the calendar button
-- [x] 3.4 Maintain existing width: 100% max-width: 260px
+- [x] 3.1 Insert `## 📅 [Add to Google Calendar](...)` section after the Maps section
+- [x] 3.2 Omit section when calendarUrl is empty (missing/malformed date)
 
-## 4. Add action handler
+## 4. Add calendar link to buildRsvpShareBody
 
-- [x] 4.1 Add `case "add-to-calendar":` to the action dispatcher (around app.ts:2726)
-- [x] 4.2 Per-button lock to prevent double-fire
-- [x] 4.3 Show "Opening Google Calendar..." toast
-- [x] 4.4 Fetch `/api/event-details` to get full event data (description, mapUrl)
-- [x] 4.5 Build URL with `buildGoogleCalendarUrl()`
-- [x] 4.6 Navigate via `navigateTo(url)`
-- [x] 4.7 Error handling: show "Couldn't load event" or "Network error" on failure
-- [x] 4.8 Add log lines: `add-to-calendar id=X`, `add-to-calendar navigating to: ...`
+- [x] 4.1 Insert same section after the Maps section
+- [x] 4.2 Omit section when calendarUrl is empty
 
-## 5. Create spec
+## 5. Add unit tests
 
-- [x] 5.1 Create `openspec/specs/calendar-export/spec.md` with 3 requirements
-- [x] 5.2 Each requirement has 2-3 scenarios (total 6)
+- [x] 5.1 Test buildGoogleCalendarUrl with full data (date + time + location + mapUrl)
+- [x] 5.2 Test buildGoogleCalendarUrl with empty date
+- [x] 5.3 Test buildGoogleCalendarUrl with malformed date
+- [x] 5.4 Test buildGoogleCalendarUrl defaults time to 00:00
+- [x] 5.5 Test buildGoogleCalendarUrl defaults timezone to +05:30
+- [x] 5.6 Test buildGoogleCalendarUrl omits mapUrl when not provided
+- [x] 5.7 Test buildGoogleCalendarUrl appends mapUrl when provided
+- [x] 5.8 Test buildReminderBody includes calendar link after Maps
+- [x] 5.9 Test buildReminderBody omits calendar link when date is missing
+- [x] 5.10 Test buildRsvpShareBody includes calendar link after Maps
+- [x] 5.11 Test buildRsvpShareBody omits calendar link when date is missing
 
-## 6. Verify
+## 6. Update spec
 
-- [x] 6.1 `npm test` — 54/54 still pass (no new tests needed for client-side helper)
-- [x] 6.2 `openspec validate --strict` — all pass
-- [x] 6.3 `npx tsc --build` — no new errors
+- [x] 6.1 Rewrite `openspec/specs/calendar-export/spec.md` to reflect the new approach (link in posts, not button)
+- [x] 6.2 Add 3 requirements with 9 scenarios
+- [x] 6.3 Rewrite `openspec/changes/e31-calendar-export/proposal.md` with the new approach and "what changed from the original plan" section
 
-## 7. Commit and document
+## 7. Verify
 
-- [x] 7.1 Commit: `feat(calendar): add Google Calendar export on event details + RSVP success`
-- [x] 7.2 Push to origin
-- [x] 7.3 Manual test on r/meetup_hub2_dev (deferred to post-merge)
+- [x] 7.1 `npm test` — 65/65 pass (11 new)
+- [x] 7.2 `openspec validate --strict` — all pass
+- [x] 7.3 `npx tsc --build` — no new errors
+
+## 8. Commit and document
+
+- [x] 8.1 Commit: `feat(calendar): add Google Calendar link to reminder + share posts`
+- [x] 8.2 Push to origin
+- [x] 8.3 Manual test on r/meetup_hub2_dev (deferred to post-merge)

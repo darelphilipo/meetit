@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildAttendees,
+  buildGoogleCalendarUrl,
   buildReminderBody,
   buildReminderTitle,
   buildRsvpShareBody,
@@ -489,4 +490,89 @@ test("buildReminderBody caps the going list at 20 with +N more", () => {
   const body = buildReminderBody(FULL_EVENT, "alice", [], attendees, "meetup_hub2_dev");
   assert.match(body, /## 👥 30 going:/);
   assert.match(body, /\+10 more/);
+});
+
+// =====================================================================
+// e31: buildGoogleCalendarUrl — server-side helper for post body calendar link
+// =====================================================================
+
+test("buildGoogleCalendarUrl returns a valid Google Calendar URL with full data", () => {
+  const url = buildGoogleCalendarUrl(
+    { title: "Coffee Meetup", date: "2026-06-25", time: "22:50", location: "Central Park", description: "Casual chat", mapUrl: "https://maps.google.com/?q=CP" },
+    "+05:30",
+  );
+  assert.match(url, /^https:\/\/calendar\.google\.com\/calendar\/render\?action=TEMPLATE/);
+  // URLSearchParams uses `+` for spaces in the encoded URL
+  assert.match(url, /text=Coffee(\+|%20)Meetup/);
+  // 22:50 IST (+05:30) = 17:20 UTC; end = 18:20 UTC
+  // The `/` in dates is left as-is (Google Calendar accepts both `/` and `%2F`)
+  assert.match(url, /dates=20260625T172000Z\/20260625T182000Z/);
+  assert.match(url, /location=Central%20Park/);
+  assert.match(url, /details=/);
+});
+
+test("buildGoogleCalendarUrl returns empty string when date is missing", () => {
+  const url = buildGoogleCalendarUrl({ title: "X", date: "", time: "10:00" }, "+05:30");
+  assert.equal(url, "");
+});
+
+test("buildGoogleCalendarUrl returns empty string when date is malformed", () => {
+  const url = buildGoogleCalendarUrl({ title: "X", date: "not-a-date", time: "10:00" }, "+05:30");
+  assert.equal(url, "");
+});
+
+test("buildGoogleCalendarUrl defaults time to 00:00 when empty", () => {
+  const url = buildGoogleCalendarUrl({ title: "All-day", date: "2026-06-25", time: "" }, "+05:30");
+  // 00:00 IST on 2026-06-25 = 18:30 UTC on 2026-06-24. End = 01:00 IST = 19:30 UTC on 2026-06-24.
+  assert.match(url, /dates=20260624T183000Z\/20260624T193000Z/);
+});
+
+test("buildGoogleCalendarUrl defaults timezone to +05:30 when empty", () => {
+  const url = buildGoogleCalendarUrl({ title: "X", date: "2026-06-25", time: "10:00", location: "" }, "");
+  // 10:00 IST (+05:30) = 04:30 UTC
+  assert.match(url, /dates=20260625T043000Z\/20260625T053000Z/);
+});
+
+test("buildGoogleCalendarUrl omits mapUrl in details when not provided", () => {
+  const url = buildGoogleCalendarUrl({ title: "X", date: "2026-06-25", time: "10:00" }, "+05:30");
+  // The details param should not contain the map emoji
+  const detailsMatch = url.match(/details=([^&]*)/);
+  assert.ok(detailsMatch);
+  assert.ok(!detailsMatch[1].includes("%F0%9F%97%BA")); // 🗺️ not URL-encoded
+});
+
+test("buildGoogleCalendarUrl appends mapUrl to details when present", () => {
+  const url = buildGoogleCalendarUrl(
+    { title: "X", date: "2026-06-25", time: "10:00", mapUrl: "https://maps.google.com/?q=CP" },
+    "+05:30",
+  );
+  // The 🗺️ is URL-encoded in the URL
+  assert.match(url, /%F0%9F%97%BA/);
+  assert.match(url, /https%3A%2F%2Fmaps\.google\.com/);
+});
+
+test("buildReminderBody includes a Google Calendar link after the Maps link (e31)", () => {
+  const body = buildReminderBody(FULL_EVENT, "alice", [], []);
+  // Find the calendar section
+  assert.match(body, /## 📅 \[Add to Google Calendar\]\(https:\/\/calendar\.google\.com/);
+  // It should appear AFTER the maps section (if any) or after the time/location blocks
+  const mapIdx = body.indexOf("## 🗺️");
+  const calIdx = body.indexOf("## 📅 [Add to Google Calendar]");
+  if (mapIdx >= 0) assert.ok(calIdx > mapIdx, "calendar link should come after maps link");
+});
+
+test("buildReminderBody omits calendar link when event.date is missing", () => {
+  const event = { ...FULL_EVENT, date: "" };
+  const body = buildReminderBody(event, "alice", [], []);
+  assert.doesNotMatch(body, /Add to Google Calendar/);
+});
+
+test("buildRsvpShareBody includes a Google Calendar link after Maps (e31)", () => {
+  const { body } = buildRsvpShareBody(SHARE_EVENT, "alice", [], "meetup_hub2_dev");
+  assert.match(body, /## 📅 \[Add to Google Calendar\]\(https:\/\/calendar\.google\.com/);
+});
+
+test("buildRsvpShareBody omits calendar link when event.date is missing", () => {
+  const { body } = buildRsvpShareBody({ ...SHARE_EVENT, date: "" }, "alice", [], "meetup_hub2_dev");
+  assert.doesNotMatch(body, /Add to Google Calendar/);
 });

@@ -169,6 +169,67 @@ function stripUsernamePrefix(raw: string | null | undefined): string {
 }
 
 /**
+ * Build a Google Calendar "Add Event" URL from a Meetit event. Pure function —
+ * no Devvit imports, no context, no I/O. Safe to unit-test with `node:test`.
+ *
+ * The returned URL opens Google Calendar's "Add Event" page with the event's
+ * title, start date+time, end date+time (start + 1 hour), location, and
+ * description prefilled. Users see Reddit's native external-link confirmation
+ * dialog when clicking the link in a post body, then land on Google Calendar
+ * in their browser (no Devvit webview involved — works on iOS, Android, and
+ * desktop Reddit clients).
+ *
+ * Date conversion: the event's `date` (YYYY-MM-DD) and `time` (HH:MM) are
+ * interpreted as local time in the supplied `timezone` offset string (e.g.,
+ * `"+05:30"` or `"-05:00"`). The resulting Date is converted to UTC for the
+ * Google Calendar `dates` parameter format (`YYYYMMDDTHHMMSSZ`).
+ *
+ * End time: defaults to start + 1 hour. Events don't have an end-time field.
+ *
+ * URL length: Google Calendar accepts URLs up to ~8000 chars. Long descriptions
+ * are NOT truncated here — callers should truncate if needed. The Maps URL is
+ * appended to the description (separated by `\n\n🗺️ `) when present, which adds
+ * a small amount of length.
+ *
+ * @param event     The MeetitEvent (title, date, time, location, description, mapUrl)
+ * @param timezone  Timezone offset string like `"+05:30"` (defaults to IST)
+ * @returns         A fully-formed Google Calendar URL, or `""` if `date` is missing
+ */
+export function buildGoogleCalendarUrl(
+  event: Pick<MeetitEvent, "title" | "date" | "time" | "location" | "description" | "mapUrl">,
+  timezone: string = "+05:30",
+): string {
+  if (!event || !event.date) return "";
+  const tz = timezone || "+05:30";
+  const time = event.time || "00:00";
+  // Parse local date+time in the supplied timezone, then to UTC.
+  const startLocal = new Date(event.date + "T" + time + ":00" + tz);
+  // Defensive: if the date string is malformed, return empty rather than producing a bogus URL.
+  if (isNaN(startLocal.getTime())) return "";
+  // End time defaults to start + 1 hour.
+  const endLocal = new Date(startLocal.getTime() + 60 * 60 * 1000);
+  // Google Calendar `dates` format: YYYYMMDDTHHMMSSZ (UTC) joined with `/`.
+  // toISOString() gives 2026-06-26T17:20:00.000Z — strip dashes/colons/dots.
+  const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  let details = event.description || "";
+  if (event.mapUrl) details += (details ? "\n\n" : "") + "🗺️ " + event.mapUrl;
+  // Build the URL manually with encodeURIComponent for proper percent-encoding
+  // (spaces → %20, not +). URLSearchParams is not available in the shared
+  // tsconfig (it lives in the DOM lib, not ES2023) and would also encode
+  // spaces as `+` which is technically valid but less readable in tests.
+  const base = "https://calendar.google.com/calendar/render?";
+  const enc = (v: string) => encodeURIComponent(v);
+  const qs = [
+    "action=TEMPLATE",
+    "text=" + enc(event.title || "Meetit Event"),
+    "dates=" + fmt(startLocal) + "/" + fmt(endLocal),
+    "location=" + enc(event.location || ""),
+    "details=" + enc(details),
+  ].join("&");
+  return base + qs;
+}
+
+/**
  * Build a markdown body for a reminder post. Pure function — no Devvit imports,
  * no context, no I/O. Safe to unit-test with `node:test`.
  *
@@ -235,6 +296,16 @@ export function buildReminderBody(
   const mapUrl = event.mapUrl && event.mapUrl.trim();
   if (mapUrl) {
     sections.push(`## 🗺️ [Open in Google Maps](${mapUrl})`);
+  }
+
+  // e31: Google Calendar "Add Event" link. Inline in the post body (not a
+  // button) because the Devvit webview sandbox blocks external navigation
+  // (window.open / window.location.href crash the post iframe). The link is
+  // rendered in the native Reddit client where external links work fine.
+  // Section is omitted when event.date is missing or the URL can't be built.
+  const calendarUrl = buildGoogleCalendarUrl(event);
+  if (calendarUrl) {
+    sections.push(`## 📅 [Add to Google Calendar](${calendarUrl})`);
   }
 
   if (event.description && event.description.trim()) {
@@ -406,6 +477,15 @@ export function buildRsvpShareBody(
   const mapUrl = event.mapUrl && event.mapUrl.trim();
   if (mapUrl) {
     bodyParts.push(`## 🗺️ [Open in Google Maps](${mapUrl})`);
+  }
+
+  // e31: Google Calendar "Add Event" link. Same rationale as in
+  // buildReminderBody — Devvit webview sandbox blocks external navigation,
+  // so the link goes in the post body where it renders in the native
+  // Reddit client. Omitted when date is missing or URL can't be built.
+  const calendarUrl = buildGoogleCalendarUrl(event);
+  if (calendarUrl) {
+    bodyParts.push(`## 📅 [Add to Google Calendar](${calendarUrl})`);
   }
 
   // Description (truncated to 300 chars; escaped; omitted if empty)
