@@ -6,21 +6,21 @@ When a user re-RSVPs to an event with a different email/phone, the RSVP sorted s
 
 ## Status: partial
 
-## Audit (2026-06-19)
+## Audit (2026-06-25)
 
-**Partially implemented — toast done, banner still missing.** Progress since last audit:
+**Partially implemented — toast done, banner + logging still missing.** Current state:
 
 | Area | Status | Location |
 |------|--------|----------|
-| Pre-fill fetch | ✅ Done | `app.ts:1857` `showUpdateRsvpOverlay()` |
-| Pre-fill fields | ✅ Done | `app.ts:1856` `showRsvpOverlay(id, email, phone)` |
-| Endpoint `/api/my-rsvp` | ✅ Done | `server.ts` |
+| Pre-fill fetch | ✅ Done | `app.ts:1729` `showUpdateRsvpOverlay()` |
+| Pre-fill fields | ✅ Done | `app.ts:1728` `showRsvpOverlay(id, email, phone)` |
+| Endpoint `/api/my-rsvp` | ✅ Done | `server.ts:758-772` |
 | Confirmation toast | ✅ Done | `app.ts:1794` `showToast(isUpdate ? "Contact info updated ✅" : ...)` |
 | Internal logging | ❌ Missing | No `rsvp-updated` log per spec |
 | Overlay body banner | ❌ Missing | No "✏️ You're updating your RSVP" text in overlay body |
 | Manual test | ❌ Not done | No recorded test |
 
-**What's left:** ~15 minutes — add the overlay body banner text. Toast is already implemented.
+**What's left:** ~15 minutes — add the overlay body banner text. Toast is already implemented. Banner and logging tasks remain pending as of 2026-06-25.
 
 ## What Changes
 

@@ -12,7 +12,7 @@ Both bugs are silent — no UI feedback, no error visible to the user. The sessi
 
 ## Category: edge-enhancement
 
-## Status: deprioritized (2026-06-17)
+## Status: wontfix (archived 2026-06-25) — code already safe, flag resets on caught error paths
 
 ## What Changes
 

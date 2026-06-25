@@ -4,26 +4,17 @@ The CRON reminder fires when `hoursUntilEvent <= reminderHours && hoursUntilEven
 
 ## Priority: 2/5
 
-## Status: proposed
+## Status: implemented (via e30, archived 2026-06-25)
 
-## Audit (2026-06-19)
+## Code History
 
-**Bug is still present.** Current code at `server.ts:771`:
-```ts
-if (hoursUntilEvent > reminderHours || hoursUntilEvent < 0) continue;       // line 771 — skips past events, no retry window
-const remindedKey = `meetit:reminded:${eventId}`;
-if (await redis.get(remindedKey)) continue;                                    // line 773
-await redis.set(remindedKey, "true");                                          // line 774 — flag set BEFORE post attempt
-await redis.expire(remindedKey, 86400);                                        // line 775
-await reddit.submitCustomPost({...});                                          // line 778 — if this fails, flag already set
-```
+**Original bug (as of 2026-06-19):** `onCheckEvents` (`server.ts:771`) had two issues:
+1. `hoursUntilEvent < 0` skipped past events entirely — no retry window
+2. `remindedKey` set before `submitCustomPost` — a failed post never retried
 
-Two issues remain:
-1. No retry window: `hoursUntilEvent < 0` skips past events entirely
-2. `remindedKey` set before `submitCustomPost` — a failed post never retries
+**Fixed by e30 (commit `c9e7631`):** The CRON was refactored to loop over windows `[24h, 2h]`. The condition at line 1050 uses `hoursUntilEvent > win.hours || hoursUntilEvent < -1`, allowing retry within 1h after event start. The `remindedKey` (now per-window: `meetit:reminded:${eventId}:24h` and `:2h`) is set AFTER `submitPost` succeeds (line 1092). Both issues are resolved.
 
-**Recommendation:** ~30 minutes. See tasks for details.
-Tasks: 0/19 — all still pending.
+**Note:** The original proposal referenced modmail (`sendPrivateMessage`) for reminders. The shipped code uses `submitPost` (plain text posts) instead, which was decided in e24.
 
 ## What Changes
 
