@@ -528,6 +528,13 @@
       <div style="position:relative;margin:auto;width:85%;max-width:360px;background:#fff;border:var(--border);box-shadow:var(--shadow-md);padding:24px;z-index:1;display:flex;flex-direction:column;align-items:center;gap:16px;">
         <div style="font-size:48px;">⚠️</div>
         <div id="confirm-message" style="font-size:16px;font-weight:700;text-align:center;line-height:1.4;color:var(--on-surface);"></div>
+        <!-- pitch-feedback-loop: optional reason input. Hidden by default; the
+             promptForReason() helper sets data-reason-mode="1" to show it. -->
+        <div id="confirm-reason-wrap" style="width:100%;display:none;flex-direction:column;gap:6px;">
+          <label for="confirm-reason-input" style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;align-self:flex-start;">Reason (max 100 chars)</label>
+          <textarea id="confirm-reason-input" maxlength="100" rows="3" style="width:100%;border:var(--border);padding:8px;font-family:var(--font);font-size:14px;resize:none;box-sizing:border-box;" placeholder="Why are you dismissing this idea?"></textarea>
+          <div id="confirm-reason-counter" style="font-size:11px;color:var(--muted);align-self:flex-end;">0 / 100</div>
+        </div>
         <div style="display:flex;gap:10px;width:100%;">
           <button class="btn btn-white btn-compact" id="confirm-cancel-btn" style="flex:1;">Cancel</button>
           <button class="btn btn-pink btn-compact" id="confirm-ok-btn" style="flex:1;">Yes, Do It</button>

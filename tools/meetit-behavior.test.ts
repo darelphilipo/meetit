@@ -12,6 +12,10 @@ import {
   isConfiguredModerator,
   isSubmissionOwner,
   normalizeUsername,
+  parseQueryParam,
+  pitchEffectiveStatus,
+  stripQueryString,
+  validateDismissReason,
 } from "../src/shared/meetit.ts";
 
 test("isConfiguredModerator only allows configured usernames", () => {
@@ -575,4 +579,88 @@ test("buildRsvpShareBody includes a Google Calendar link after Maps (e31)", () =
 test("buildRsvpShareBody omits calendar link when event.date is missing", () => {
   const { body } = buildRsvpShareBody({ ...SHARE_EVENT, date: "" }, "alice", [], "meetup_hub2_dev");
   assert.doesNotMatch(body, /Add to Google Calendar/);
+});
+
+// ===== pitch-feedback-loop =====
+
+test("parseQueryParam returns the value of a single param", () => {
+  assert.equal(parseQueryParam("/api/pitched-ideas?status=pending", "status"), "pending");
+});
+
+test("parseQueryParam decodes URL-encoded values", () => {
+  assert.equal(parseQueryParam("/api/foo?reason=Spam%20duplicate", "reason"), "Spam duplicate");
+});
+
+test("parseQueryParam returns undefined when param is absent", () => {
+  assert.equal(parseQueryParam("/api/pitched-ideas", "status"), undefined);
+  assert.equal(parseQueryParam("/api/pitched-ideas?other=x", "status"), undefined);
+});
+
+test("parseQueryParam returns empty string for ?status= (explicit empty)", () => {
+  assert.equal(parseQueryParam("/api/foo?status=", "status"), "");
+});
+
+test("parseQueryParam handles multiple params", () => {
+  assert.equal(parseQueryParam("/api/foo?a=1&status=dismissed&b=2", "status"), "dismissed");
+});
+
+test("parseQueryParam returns undefined for undefined URL", () => {
+  assert.equal(parseQueryParam(undefined, "status"), undefined);
+});
+
+test("stripQueryString returns just the path", () => {
+  assert.equal(stripQueryString("/api/pitched-ideas?status=pending"), "/api/pitched-ideas");
+  assert.equal(stripQueryString("/api/pitched-ideas"), "/api/pitched-ideas");
+  assert.equal(stripQueryString(undefined), "/");
+  assert.equal(stripQueryString("/?x=1"), "/");
+});
+
+test("pitchEffectiveStatus returns 'dismissed' for soft-dismissed pitches", () => {
+  const idea = { id: "x", status: "dismissed", dismissReason: "spam" };
+  assert.equal(pitchEffectiveStatus(idea), "dismissed");
+});
+
+test("pitchEffectiveStatus returns 'pending' for legacy pitches with no status field", () => {
+  const idea = { id: "x", title: "old pitch" };
+  assert.equal(pitchEffectiveStatus(idea), "pending");
+});
+
+test("pitchEffectiveStatus returns 'pending' for null/undefined/empty input", () => {
+  assert.equal(pitchEffectiveStatus(null), "pending");
+  assert.equal(pitchEffectiveStatus(undefined), "pending");
+  assert.equal(pitchEffectiveStatus({}), "pending");
+});
+
+test("pitchEffectiveStatus ignores unknown status values (treats them as pending)", () => {
+  // Defensive: any value other than the literal string "dismissed" falls back
+  // to "pending". This is intentional — we don't trust the stored status
+  // field to invent new states.
+  assert.equal(pitchEffectiveStatus({ status: "converted" }), "pending");
+  assert.equal(pitchEffectiveStatus({ status: "" }), "pending");
+});
+
+test("validateDismissReason rejects missing/empty/non-string", () => {
+  assert.equal(validateDismissReason(undefined), "Reason required");
+  assert.equal(validateDismissReason(""), "Reason required");
+  assert.equal(validateDismissReason("   "), "Reason required");
+  assert.equal(validateDismissReason(null), "Reason required");
+  assert.equal(validateDismissReason(42), "Reason required");
+});
+
+test("validateDismissReason accepts a valid reason", () => {
+  assert.equal(validateDismissReason("Spam"), null);
+  assert.equal(validateDismissReason("  Trim me  "), null); // trims whitespace
+});
+
+test("validateDismissReason rejects reasons over 100 chars", () => {
+  const long = "x".repeat(101);
+  assert.equal(validateDismissReason(long), "Reason must be 100 characters or less");
+  const exactly = "y".repeat(100);
+  assert.equal(validateDismissReason(exactly), null); // exactly 100 is fine
+});
+
+test("validateDismissReason treats 100-char limit as character count after trim", () => {
+  // 100 chars of "x" plus 10 spaces (trimmed to 100) is valid
+  const padded = "   " + "x".repeat(100) + "   ";
+  assert.equal(validateDismissReason(padded), null);
 });
