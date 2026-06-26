@@ -1843,7 +1843,14 @@ async function runCleanupAged() {
   if (isLocked("cleanup-aged")) return;
   lock("cleanup-aged");
   if (!await confirmDestructive('Run cleanup now? This will hard-delete events and pitches older than the configured threshold. This cannot be undone.')) { unlock("cleanup-aged"); return; }
-  setBtnLoading('[data-action="run-cleanup-aged"]', true, "⏳ Running...");
+  // ui-polish-pass: manual loading state for the cleanup button. Don't use
+  // setBtnLoading() because it sets opacity:0.5, which makes the white
+  // button on the dark mod header look "hollow" / semi-transparent. Instead,
+  // we keep the button at full opacity and just change the emoji to show
+  // a "working" state.
+  var cleanupBtn = document.querySelector('[data-action="run-cleanup-aged"]') as HTMLElement | null;
+  var origEmoji = cleanupBtn ? cleanupBtn.textContent : "";
+  if (cleanupBtn) { cleanupBtn.textContent = "⏳"; (cleanupBtn as any).disabled = true; cleanupBtn.style.pointerEvents = "none"; }
   var res;
   try {
     res = await fetch(API_BASE + "/api/cleanup-aged", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
@@ -1863,7 +1870,7 @@ async function runCleanupAged() {
   } catch (e) {
     showToast("Network error", "error");
   } finally {
-    setBtnLoading('[data-action="run-cleanup-aged"]', false);
+    if (cleanupBtn) { cleanupBtn.textContent = origEmoji || "🧹"; (cleanupBtn as any).disabled = false; cleanupBtn.style.pointerEvents = "auto"; }
     unlock("cleanup-aged");
   }
 }
