@@ -34,6 +34,8 @@ export type AppSettings = {
   use_brutalist_borders: boolean;
   show_debug_panel: boolean;
   timezone: string;
+  cleanup_after_days: number;
+  pause_cleanup: boolean;
 };
 
 export type RsvpFormData = {
@@ -88,6 +90,7 @@ export const ApiEndpoint = {
   ExportAttendees: "/api/export-attendees",
   ServerLogs: "/api/server-logs",
   RsvpShare: "/api/rsvp-share",
+  CleanupAged: "/api/cleanup-aged",
 } as const;
 
 export type ApiEndpoint = (typeof ApiEndpoint)[keyof typeof ApiEndpoint];

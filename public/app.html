@@ -408,6 +408,12 @@
         <div class="tab mod-tab" data-mtab="published" data-action="switch-mod-tab">✅ Published</div>
         <div class="tab mod-tab" data-mtab="pitches" data-action="switch-mod-tab">💡 Pitches</div>
       </div>
+      <!-- aged-cleanup-mode: pause banner + manual cleanup button, only visible to mods -->
+      <div id="mod-cleanup-bar" style="display:none;padding:8px 16px;border-bottom:var(--border);background:#fef3c7;font-size:12px;font-weight:600;">
+        <div id="mod-cleanup-pause-banner" style="display:none;margin-bottom:6px;">⚠️ Auto cleanup is paused — only manual cleanup will run.</div>
+        <button class="btn btn-white btn-compact" data-action="run-cleanup-aged">🧹 Run cleanup now</button>
+        <span id="mod-cleanup-status" style="margin-left:8px;color:var(--muted);font-weight:500;"></span>
+      </div>
       <div class="overlay-body" id="pending-events-container" style="padding:0;position:relative;"></div>
       <div class="overlay-footer">
         <button class="footer-btn footer-btn-prev hidden" id="mod-prev-btn" data-action="mod-prev">← Back</button>
