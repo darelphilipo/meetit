@@ -122,9 +122,14 @@ export function stripQueryString(rawUrl: string | undefined): string {
 
 // pitch-feedback-loop: normalize a pitch's effective status. Legacy pitches
 // (no `status` field, written before this change) are treated as "pending".
+// pitch-approve: extended to return "approved" when status === "approved".
+// Case-sensitive — defensive against schema drift (rejects "Approved" /
+// "APPROVED" as not matching the literal "approved" string).
 // Pure function — safe to unit test.
-export function pitchEffectiveStatus(idea: any): "pending" | "dismissed" {
-  return idea && idea.status === "dismissed" ? "dismissed" : "pending";
+export function pitchEffectiveStatus(idea: any): "pending" | "dismissed" | "approved" {
+  if (idea && idea.status === "approved") return "approved";
+  if (idea && idea.status === "dismissed") return "dismissed";
+  return "pending";
 }
 
 // pitch-feedback-loop: validate a mod-supplied dismiss reason. Returns an
@@ -148,6 +153,31 @@ export function decideDebugPanelVisibility(
   showDebugPanelSetting: boolean,
 ): "show" | "hide" {
   return isMod === true && showDebugPanelSetting === true ? "show" : "hide";
+}
+
+// pitch-approve: build the DM template sent to a pitcher when their pitch is
+// approved. Pure function — no Devvit imports, no I/O. Deterministic: same
+// input always produces the same output (no timestamps in body, no random
+// IDs) so it's trivially testable. Strips any leading `u/` from the username
+// before re-prefixing, mirroring the buildReminderBody / buildRsvpShareBody
+// pattern (LEARNINGS §49).
+export function buildApproveDm(pitch: { title: string; submittedBy: string }): { subject: string; body: string } {
+  const cleanUsername = stripUsernamePrefix(pitch?.submittedBy) || "anonymous";
+  const cleanTitle = (pitch?.title || "your idea").trim();
+  return {
+    subject: "✅ Your Meetit pitch was approved!",
+    body: [
+      `Hi u/${cleanUsername},`,
+      "",
+      `Great news — your pitch "${cleanTitle}" was approved by the mods! 🎉`,
+      "",
+      "They think this would be a great event for the community. Ready to make it happen?",
+      "",
+      "👉 Submit it as an event from the app's [+] menu.",
+      "",
+      "— Meetit Mods",
+    ].join("\n"),
+  };
 }
 
 /**

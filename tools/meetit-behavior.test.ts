@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildApproveDm,
   buildAttendees,
   buildGoogleCalendarUrl,
   buildReminderBody,
@@ -695,4 +696,67 @@ test("decideDebugPanelVisibility: only shows when both flags are strictly true",
   assert.equal(decideDebugPanelVisibility(1 as any, true), "hide");
   assert.equal(decideDebugPanelVisibility(true, 1 as any), "hide");
   assert.equal(decideDebugPanelVisibility("true" as any, true), "hide");
+});
+
+// pitch-approve: extended pitchEffectiveStatus to return "approved" too.
+test("pitchEffectiveStatus returns 'approved' for status === 'approved'", () => {
+  assert.equal(pitchEffectiveStatus({ status: "approved" }), "approved");
+  assert.equal(pitchEffectiveStatus({ status: "approved", approvedAt: "2026-06-26T10:00:00.000Z" }), "approved");
+});
+
+test("pitchEffectiveStatus still returns 'dismissed' for status === 'dismissed'", () => {
+  // Back-compat: the pitch-feedback-loop behavior is preserved.
+  assert.equal(pitchEffectiveStatus({ status: "dismissed", dismissReason: "spam" }), "dismissed");
+});
+
+test("pitchEffectiveStatus is case-sensitive (rejects 'Approved' / 'APPROVED')", () => {
+  // Defensive against schema drift: only the literal lowercase "approved"
+  // counts. Mixed-case or all-caps falls back to "pending".
+  assert.equal(pitchEffectiveStatus({ status: "Approved" }), "pending");
+  assert.equal(pitchEffectiveStatus({ status: "APPROVED" }), "pending");
+  assert.equal(pitchEffectiveStatus({ status: "Dismissed" }), "pending");
+});
+
+test("pitchEffectiveStatus returns 'pending' for null/undefined/empty status", () => {
+  assert.equal(pitchEffectiveStatus(null), "pending");
+  assert.equal(pitchEffectiveStatus(undefined), "pending");
+  assert.equal(pitchEffectiveStatus({}), "pending");
+  assert.equal(pitchEffectiveStatus({ status: "" }), "pending");
+  assert.equal(pitchEffectiveStatus({ status: "pending" }), "pending");
+});
+
+// pitch-approve: buildApproveDm template helper. Pure, deterministic, testable.
+test("buildApproveDm produces expected subject + body for u/-prefixed username", () => {
+  const dm = buildApproveDm({ title: "Board game night", submittedBy: "u/alice" });
+  assert.equal(dm.subject, "✅ Your Meetit pitch was approved!");
+  assert.match(dm.body, /Hi u\/alice,/);
+  assert.match(dm.body, /"Board game night"/);
+  assert.match(dm.body, /\[\+\] menu/);
+  assert.match(dm.body, /— Meetit Mods/);
+});
+
+test("buildApproveDm normalizes bare username (no u/ prefix)", () => {
+  // Defensive: form data may store usernames with or without the u/ prefix
+  // (LEARNINGS §49). The DM should always render with exactly one u/.
+  const dm = buildApproveDm({ title: "Hike at sunrise", submittedBy: "bob" });
+  assert.match(dm.body, /Hi u\/bob,/);
+  assert.doesNotMatch(dm.body, /u\/u\//);
+});
+
+test("buildApproveDm is deterministic (same input → same output)", () => {
+  const input = { title: "Chess tournament", submittedBy: "u/carol" };
+  const dm1 = buildApproveDm(input);
+  const dm2 = buildApproveDm(input);
+  assert.equal(dm1.subject, dm2.subject);
+  assert.equal(dm1.body, dm2.body);
+});
+
+test("buildApproveDm handles empty/null title and submittedBy gracefully", () => {
+  // Defensive: malformed input shouldn't crash. The title falls back to
+  // "your idea" and the username falls back to "anonymous".
+  const dm = buildApproveDm({ title: "", submittedBy: "" });
+  assert.match(dm.body, /Hi u\/anonymous,/);
+  assert.match(dm.body, /"your idea"/);
+  const dm2 = buildApproveDm({ title: null as any, submittedBy: null as any });
+  assert.match(dm2.body, /Hi u\/anonymous,/);
 });

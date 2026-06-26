@@ -121,6 +121,9 @@ async function onRequest(
     case ApiEndpoint.DismissIdea:
       body = await onDismissIdea(req);
       break;
+    case ApiEndpoint.ApproveIdea:
+      body = await onApproveIdea(req);
+      break;
     case ApiEndpoint.DeletePending:
       body = await onDeletePending(req);
       break;
@@ -672,19 +675,25 @@ async function onPitchedIdeas(req: IncomingMessage): Promise<ApiResponse> {
   const authError = await requireMod();
   if (authError) return authError;
   const raw = queryParam(req, "status");
-  const filter: "pending" | "dismissed" | "all" =
-    raw === "dismissed" || raw === "all" ? raw : "pending";
+  // pitch-approve: filter accepts "approved" as a third state. Unknown /
+  // missing values default to "pending" (back-compat with the
+  // pitch-feedback-loop change).
+  const filter: "pending" | "dismissed" | "approved" | "all" =
+    raw === "dismissed" || raw === "approved" || raw === "all" ? raw : "pending";
   const ideas = await redis.hGetAll("meetit:pitched_ideas");
   const ideasList = Object.values(ideas).map((val) => safeJSONParse(val)).filter((i): i is any => i !== null);
   // Counts across the full set (independent of the current filter), so the
-  // client can render a "View dismissed (N)" link from the pending view.
-  const counts = { pending: 0, dismissed: 0, all: ideasList.length };
+  // client can render "View dismissed (N)" and "View approved (N)" links
+  // from the pending view. pitch-approve: extended to include approved.
+  const counts = { pending: 0, approved: 0, dismissed: 0, all: ideasList.length };
   for (const idea of ideasList) {
-    if (pitchEffectiveStatus(idea) === "dismissed") counts.dismissed++;
+    const s = pitchEffectiveStatus(idea);
+    if (s === "dismissed") counts.dismissed++;
+    else if (s === "approved") counts.approved++;
     else counts.pending++;
   }
   const filtered = filter === "all" ? ideasList : ideasList.filter((i) => pitchEffectiveStatus(i) === filter);
-  console.log(`[PITCHES] status=${filter} n=${filtered.length} (counts pending=${counts.pending} dismissed=${counts.dismissed})`);
+  console.log(`[PITCHES] status=${filter} n=${filtered.length} (counts pending=${counts.pending} approved=${counts.approved} dismissed=${counts.dismissed})`);
   return { type: "pitched-ideas", ideas: filtered, counts };
 }
 
@@ -751,6 +760,71 @@ async function onDismissIdea(req: IncomingMessage): Promise<ApiResponse> {
   console.log(msg);
   serverLog("info", msg);
   return { type: "dismiss-idea", success: true };
+}
+
+// pitch-approve: mod approves a pending pitch. Soft-saves with
+// status="approved" + approvedAt + approvedBy. Best-effort DM to the pitcher.
+// Idempotent: re-approving an already-approved pitch is a no-op (no duplicate
+// DM, no re-write). The mod path requires a successful requireMod() check;
+// the owner's own pitch cannot be self-approved through this endpoint (the
+// owner's delete path is dismissIdea without a reason).
+async function onApproveIdea(req: IncomingMessage): Promise<ApiResponse> {
+  const authError = await requireMod();
+  if (authError) return authError;
+  const { ideaId } = await readJSON<{ ideaId: string }>(req);
+  if (!ideaId) return { error: "Missing ideaId", status: 400 };
+  const ideaJson = await redis.hGet("meetit:pitched_ideas", ideaId);
+  if (!ideaJson) {
+    const msg = `[APPROVE-IDEA] pitch ${ideaId} not found`;
+    console.log(msg);
+    serverLog("warn", msg);
+    return { error: "Idea not found", status: 404 };
+  }
+  const idea = safeJSONParse(ideaJson) as Record<string, any> | null;
+  if (!idea) {
+    const msg = `[APPROVE-IDEA] pitch ${ideaId} not found (malformed JSON)`;
+    console.log(msg);
+    serverLog("warn", msg);
+    return { error: "Idea not found", status: 404 };
+  }
+  // pitch-approve: idempotency guard. Re-approving an already-approved pitch
+  // is a no-op — prevents a double-click (or two mods clicking at the same
+  // time) from spamming the pitcher with duplicate DMs.
+  if (idea.status === "approved") {
+    const msg = `[APPROVE-IDEA] ignored: pitch ${ideaId} already has status="approved"`;
+    console.log(msg);
+    serverLog("info", msg);
+    return { type: "approve-idea", success: true };
+  }
+  const mod = context.username || "unknown";
+  const approvedIdea = {
+    ...idea,
+    status: "approved",
+    approvedAt: new Date().toISOString(),
+    approvedBy: mod,
+  };
+  await redis.hSet("meetit:pitched_ideas", { [ideaId]: JSON.stringify(approvedIdea) });
+  // Best-effort DM. Failure does NOT block the approve (the status is
+  // already set). The pitcher still sees the "Approved" line in My Stuff
+  // even if the DM doesn't arrive.
+  const submittedBy = (idea.submittedBy as string) || "anonymous";
+  const dm = buildApproveDm({ title: (idea.title as string) || "your idea", submittedBy });
+  try {
+    await reddit.sendPrivateMessage({
+      to: submittedBy,
+      subject: dm.subject,
+      text: dm.body,
+    });
+    const okMsg = `[APPROVE-IDEA] Idea ${ideaId} approved by u/${mod}, DM sent to u/${submittedBy}`;
+    console.log(okMsg);
+    serverLog("info", okMsg);
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    const failMsg = `[APPROVE-IDEA] DM failed for u/${submittedBy}: ${errMsg} (status still set to approved)`;
+    console.log(failMsg);
+    serverLog("warn", failMsg);
+  }
+  return { type: "approve-idea", success: true };
 }
 
 async function onDeletePending(req: IncomingMessage): Promise<ApiResponse> {
