@@ -65,6 +65,12 @@
         "label": "Use Brutalist Borders",
         "defaultValue": true
       },
+      "show_debug_panel": {
+        "type": "boolean",
+        "label": "Show Debug Log Panel (mods only)",
+        "helpText": "Off by default. When enabled, mods see a 🐛 button to open the in-app debug log panel (server logs merged with client logs).",
+        "defaultValue": false
+      },
       "mod_usernames": {
         "type": "string",
         "label": "Moderator Usernames (comma-separated)",

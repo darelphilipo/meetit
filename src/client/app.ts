@@ -11,6 +11,9 @@ var detailStep1 = "", detailStep2 = "", detailStep3 = "", detailStep4 = "";
 var homeCardIdx = 0;
 var cachedHomeEvents: any[] = [];
 var cachedHomeIsMod = false;
+// debug-panel-install-gate: cached value of the show_debug_panel App
+// Installation Setting. Off by default; only revealed alongside the mod gate.
+var cachedShowDebugPanel = false;
 var homeShareUrl = "";
 var homeLoadSeq = 0;
 var detailLoading = false;
@@ -154,12 +157,24 @@ function applyDebugPanelVisibility() {
   // and let the subsequent /api/init call re-log with the real username.
   var user = currentUsername || usernameCached;
   var userDisplay = user ? "u/" + user : "username-pending";
-  if (cachedHomeIsMod) {
+  // debug-panel-install-gate: BOTH the mod flag AND the show_debug_panel
+  // install setting must be true. The install setting defaults to false,
+  // so the panel is opt-in. The server-side requireMod() gate on
+  // /api/server-logs is the real security boundary; this client-side gate
+  // is just UX (don't render the button at all if the install hasn't
+  // opted in).
+  var decision = decideDebugPanelVisibility(cachedHomeIsMod, cachedShowDebugPanel);
+  if (decision === "show") {
     btn.style.display = ""; // restore default (block-ish via CSS)
-    log("[H1-PRIVACY] applyDebugPanelVisibility: SHOWING debug toggle for mod " + userDisplay);
+    log("[DEBUG] panel enabled for mod " + userDisplay + " (isMod=true, showDebugPanel=true)");
   } else {
     btn.style.display = "none";
-    log("[H1-PRIVACY] applyDebugPanelVisibility: HIDING debug toggle for non-mod " + userDisplay + " (cachedHomeIsMod=" + cachedHomeIsMod + ")");
+    if (cachedHomeIsMod && !cachedShowDebugPanel) {
+      // Mod is loaded but the install setting is off — hint where to enable it.
+      log("[DEBUG] panel hidden — enable show_debug_panel in App Installation Settings (mod " + userDisplay + ")");
+    } else {
+      log("[H1-PRIVACY] applyDebugPanelVisibility: HIDING debug toggle for non-mod " + userDisplay + " (cachedHomeIsMod=" + cachedHomeIsMod + ")");
+    }
   }
 }
 
@@ -324,6 +339,9 @@ async function loadHome() {
         var currentId = currentEvent && currentEvent.id;
         cachedHomeEvents = allEvents;
         cachedHomeIsMod = data.data.isMod;
+        // debug-panel-install-gate: also cache the show_debug_panel setting
+        // (default false if missing) and re-apply the visibility decision.
+        cachedShowDebugPanel = !!(data.data.settings && data.data.settings.show_debug_panel === true);
         applyDebugPanelVisibility(); // H1 fix: reveal debug toggle for mods
         homeShareUrl = data.data.shareUrl || "";
         if (currentId) {
@@ -2576,7 +2594,7 @@ var usernameCached: string | null = null, prefillLoading = false;
 async function prefillOrganizer() { if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; } if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; } if (prefillLoading) return; prefillLoading = true; try { var res = await fetch(API_BASE + "/api/init"); var data = await res.json(); if (data.type === "init" && data.username) { currentUsername = data.username; usernameCached = data.username; (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username; } if (data.type === "init" && data.timezone) { setAppTimezone(data.timezone); } // H1 fix: set isMod from init so the debug panel can be revealed
   // before /api/home returns. The server also returns isMod in the init
   // response (see server.ts:onInit).
-  if (data.type === "init" && typeof data.isMod === "boolean") { cachedHomeIsMod = data.isMod; applyDebugPanelVisibility(); } } catch (e) { log("error: prefillOrganizer " + e); } prefillLoading = false; }
+  if (data.type === "init" && typeof data.isMod === "boolean") { cachedHomeIsMod = data.isMod; cachedShowDebugPanel = !!(data.settings && data.settings.show_debug_panel === true); applyDebugPanelVisibility(); } } catch (e) { log("error: prefillOrganizer " + e); } prefillLoading = false; }
 
 // ======= OVERLAY HELPERS =======
 function openOverlay(id: string) { log("OPEN overlay " + id); document.getElementById(id)!.classList.add("active"); }

@@ -223,21 +223,25 @@ function parseModList(raw: unknown): string[] {
 
 async function getSettings(): Promise<AppSettings> {
   try {
-    const [primary, secondary, borders, tz] = await Promise.all([
+    const [primary, secondary, borders, showDebug, tz] = await Promise.all([
       settings.get("primary_color"),
       settings.get("secondary_color"),
       settings.get("use_brutalist_borders"),
+      settings.get("show_debug_panel"),
       settings.get("timezone"),
     ]);
+    const showDebugPanel = (showDebug as boolean) === true;
+    console.log(`[SETTINGS] show_debug_panel=${showDebugPanel}`);
     return {
       primary_color: (primary as string) || "#ffff00",
       secondary_color: (secondary as string) || "#ff69b4",
       use_brutalist_borders: (borders as boolean) !== false,
+      show_debug_panel: showDebugPanel,
       timezone: normalizeTimezone(tz),
     };
   } catch (e) {
     console.error(`getSettings error: ${e}`);
-    return { primary_color: "#ffff00", secondary_color: "#ff69b4", use_brutalist_borders: true, timezone: "+05:30" };
+    return { primary_color: "#ffff00", secondary_color: "#ff69b4", use_brutalist_borders: true, show_debug_panel: false, timezone: "+05:30" };
   }
 }
 
