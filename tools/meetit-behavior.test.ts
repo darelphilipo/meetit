@@ -307,7 +307,7 @@ test("buildReminderTitle with custom prefix omits @ location when location is em
 
 test("buildReminderBody includes a Google Maps section when event.mapUrl is set", () => {
   const body = buildReminderBody({ ...FULL_EVENT, mapUrl: "https://maps.google.com/?q=Cubbon+Park" }, "alice", [], []);
-  assert.match(body, /## 🗺️ \[Open in Google Maps\]\(https:\/\/maps\.google\.com\/\?q=Cubbon\+Park\)/);
+  assert.match(body, /## 🗺️ \[Google Maps \/ Virtual Event Link\]\(https:\/\/maps\.google\.com\/\?q=Cubbon\+Park\)/);
 });
 
 test("buildReminderBody omits the maps section when event.mapUrl is empty", () => {
@@ -368,7 +368,7 @@ test("buildRsvpShareBody returns a title and body for a full event", () => {
   // Body should contain all four sections
   assert.match(body, /## 📅 2026-06-21 at 18:30/);
   assert.match(body, /## 📍 Koramangala Social/);
-  assert.match(body, /## 🗺️ \[Open in Google Maps\]\(https:\/\/maps\.google\.com/);
+  assert.match(body, /## 🗺️ \[Google Maps \/ Virtual Event Link\]\(https:\/\/maps\.google\.com/);
   assert.match(body, /## 📝 Lightning talks and side projects\. Bring your laptop!/);
   // Footer with subreddit link
   assert.match(body, /Posted via \[Meetit\]\(https:\/\/www\.reddit\.com\/r\/meetup_hub2_dev\)/);

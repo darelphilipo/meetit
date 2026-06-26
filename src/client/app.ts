@@ -420,7 +420,7 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
       emoji: "🐱", title: "Wow, so empty!",
       body: "No events yet — be the first spark ✨",
       ctas: [
-        { label: "💡 Pitch Idea", action: "create-pitch", variant: "pink" },
+        { label: "💡 Pitch a Meetup", action: "create-pitch", variant: "pink" },
         { label: "📋 Submit Event", action: "create-event", variant: "white" },
       ],
       context: "home",
@@ -732,7 +732,7 @@ function renderMyPitchCard(opts: { noFade?: boolean } = {}) {
     el.innerHTML = renderEmptyState({
       emoji: "💡", title: "No pitches yet",
       body: "Got an idea? Pitch it from the Create menu.",
-      ctas: [{ label: "💡 Pitch an Idea", action: "create-pitch", variant: "pink" }],
+      ctas: [{ label: "💡 Pitch a Meetup", action: "create-pitch", variant: "pink" }],
       compact: true, context: "my-stuff-pitches",
     });
     return;
@@ -1134,7 +1134,7 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
     '<div id="desc-nav-' + e.id + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:4px 8px 0 8px;min-height:28px;">' +
       (hasMore ? '<button class="btn btn-white btn-pager btn-desc-next" data-id="' + e.id + '" data-action="desc-next">Read more →</button>' : '') +
     '</div>';
-  if (e.mapUrl) { s2 +=       '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy btn-copy-link" data-id="' + escapeAttr(e.mapUrl) + '" data-action="copy-link">📋 Copy</button></div>'; }
+  if (e.mapUrl) { s2 +=       '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Map / Virtual Event Link</span><button class="copy-btn btn-copy btn-copy-link" data-id="' + escapeAttr(e.mapUrl) + '" data-action="copy-link">📋 Copy</button></div>'; }
   s2 += '</div>';
 
   // Card 3: Who's Going
@@ -1226,15 +1226,11 @@ function detailPrev() {
 function modNext() { var tab = modTab; log("modNext tab=" + tab); var idx = (modCardIdx[tab] || 0) + 1; var items = modItems[tab] || []; if (idx >= items.length) idx = items.length - 1; modCardIdx[tab] = idx; renderModCard(tab, { noFade: true }); updateCardDots("mod", idx, items.length); updateCardNav("mod", idx, items.length); }
 function modPrev() { var tab = modTab; log("modPrev tab=" + tab); var idx = (modCardIdx[tab] || 0) - 1; if (idx < 0) idx = 0; modCardIdx[tab] = idx; renderModCard(tab, { noFade: true }); updateCardDots("mod", idx, (modItems[tab] || []).length); updateCardNav("mod", idx, (modItems[tab] || []).length); }
 var modTab = "pending";
-// pitch-feedback-loop: tracks the active filter for the mod Pitches tab
-// ("pending" | "dismissed" | "all"). Survives tab switches within the mod
-// dashboard. The View-dismissed / Back-to-pending links update this and
-// invalidate the cache before reloading.
-var modPitchesFilter: "pending" | "dismissed" | "approved" | "all" = "pending";
-// pitch-feedback-loop: per-filter counts from the last /api/pitched-ideas
-// response, used to render the "View dismissed (N)" link. Kept here so the
-// counts survive a renderModPitches() re-render without re-fetching.
-var modPitchesCounts: { pending: number; approved: number; dismissed: number; all: number } = { pending: 0, approved: 0, dismissed: 0, all: 0 };
+// ui-polish-pass: mod Pitches tab is now filter-free. Mods only see pending
+// pitches; approve and dismiss both remove the pitch from the mod's view
+// immediately. The server still returns counts in the response (for the
+// [PITCHES] log line audit) but the client doesn't read them.
+const MOD_PITCHES_FILTER = "pending";
 function showModDashboard() {
   log("showModDashboard resetting active class to pending (was " + modTab + ")");
   openOverlay("mod-screen");
@@ -1242,16 +1238,14 @@ function showModDashboard() {
   document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) {
     t.classList.toggle("active", (t as HTMLElement).dataset.mtab === "pending");
   });
-  // aged-cleanup-mode: reveal the cleanup bar to mods, and show the pause
-  // banner if the install setting is on. The bar is hidden for non-mods
-  // (the server-side requireMod() gate on /api/cleanup-aged is the real
-  // security boundary; this is just UX).
-  var cleanupBar = document.getElementById("mod-cleanup-bar");
-  if (cleanupBar) cleanupBar.style.display = cachedHomeIsMod ? "block" : "none";
+  // aged-cleanup-mode + ui-polish-pass: show the threshold in the header
+  // subtitle and the pause banner if the install setting is on. The cleanup
+  // 🧹 button is now a sibling of the X close button in the header (always
+  // shown to mods). The bar element is removed — see app.html.
+  var subtitle = document.getElementById("mod-cleanup-subtitle");
+  if (subtitle) subtitle.textContent = "Cleanup threshold: " + cachedCleanupAfterDays + " days";
   var pauseBanner = document.getElementById("mod-cleanup-pause-banner");
   if (pauseBanner) pauseBanner.style.display = cachedHomeIsMod && cachedPauseCleanup ? "block" : "none";
-  var status = document.getElementById("mod-cleanup-status");
-  if (status) status.textContent = "Threshold: " + cachedCleanupAfterDays + " days";
   delete modTabCache["published"];
   delete modTabCache["pitches"];
   loadModTab("pending");
@@ -1294,7 +1288,7 @@ async function loadModTab(tab: string) {
       // the pending queue. Counts are stored in the cache alongside the
       // filtered ideas so renderModPitches can render the "View dismissed
       // (N)" link without an extra fetch.
-      var res2 = await fetch(API_BASE + "/api/pitched-ideas?status=" + modPitchesFilter);
+      var res2 = await fetch(API_BASE + "/api/pitched-ideas?status=" + MOD_PITCHES_FILTER);
       var d2 = await res2.json();
       if (d2.type === "pitched-ideas") {
         modTabCache[tab] = { data: d2, timestamp: Date.now() };
@@ -1523,96 +1517,26 @@ function renderModPublished(events: any[]) {
   }
   renderModCard("published");
 }
-function renderModPitches(ideas: any[], counts?: { pending: number; approved: number; dismissed: number; all: number }) {
-  log("renderModPitches filter=" + modPitchesFilter + " count=" + ideas.length);
+function renderModPitches(ideas: any[], _counts?: { pending: number; approved: number; dismissed: number; all: number }) {
+  // ui-polish-pass: simplified. No filter UI. Mods only see pending pitches;
+  // approve and dismiss both remove the pitch from the mod's view immediately.
+  // The server still returns counts (for the [PITCHES] log line audit) but
+  // the client doesn't read them anymore.
+  log("renderModPitches count=" + ideas.length);
   modItems["pitches"] = ideas;
-  if (counts) modPitchesCounts = counts;
   // Do NOT reset modCardIdx["pitches"] here — see renderModPending comment.
   if (ideas.length === 0) {
-    // pitch-feedback-loop: empty state is filter-aware. If the mod is
-    // viewing the dismissed tab and there are none, the message should
-    // reflect that. The "← Back to pending" link is also filter-aware.
-    // pitch-approve: extended with "approved" filter — empty title and
-    // body depend on which filter is active.
-    var c = modPitchesCounts;
-    var backLink = (modPitchesFilter !== "pending" && c.pending > 0)
-      ? '<button class="btn btn-white btn-empty" data-action="mod-pitches-back" style="margin-top:12px;">← Back to pending</button>'
-      : "";
-    var dismissedLink = (modPitchesFilter === "pending" && c.dismissed > 0)
-      ? '<button class="btn btn-white btn-empty" data-action="mod-pitches-view-dismissed" style="margin-top:12px;">🗑️ View dismissed (' + c.dismissed + ')</button>'
-      : "";
-    // pitch-approve: "✅ View approved (N)" link parallel to the dismissed
-    // link, shown when the mod is on the default pending view and at least
-    // one approved pitch exists.
-    var approvedLink = (modPitchesFilter === "pending" && c.approved > 0)
-      ? '<button class="btn btn-white btn-empty" data-action="mod-pitches-view-approved" style="margin-top:12px;">✅ View approved (' + c.approved + ')</button>'
-      : "";
-    var emptyTitle = modPitchesFilter === "dismissed" ? "No dismissed pitches"
-      : modPitchesFilter === "approved" ? "No approved pitches"
-      : "No pitched ideas";
-    var emptyBody = modPitchesFilter === "dismissed" ? "Nothing has been dismissed yet."
-      : modPitchesFilter === "approved" ? "Approved pitches will appear here."
-      : "Community pitches will appear here.";
     document.getElementById("pending-events-container")!.innerHTML =
       renderEmptyState({
-        emoji: "💡", title: emptyTitle, body: emptyBody, context: "mod-pitches",
-      }) + approvedLink + dismissedLink + backLink;
+        emoji: "💡", title: "No pitched ideas",
+        body: "Community pitches will appear here.",
+        context: "mod-pitches",
+      });
     updateCardDots("mod", 0, 0);
     updateCardNav("mod", 0, 0);
     return;
   }
-  // pitch-feedback-loop: when not in the default view, inject a "← Back to
-  // pending" link at the top so the mod can return to the active queue.
-  if (modPitchesFilter !== "pending") {
-    var modContainer = document.getElementById("pending-events-container")!;
-    // Defer the prepend to after renderModCard() injects the card; use a
-    // microtask so the container has the card HTML by the time we prepend.
-    Promise.resolve().then(function () {
-      if (!modContainer.querySelector('[data-action="mod-pitches-back"]')) {
-        var back = document.createElement("div");
-        back.style.padding = "8px 16px";
-        back.innerHTML = '<button class="btn btn-white btn-compact" data-action="mod-pitches-back">← Back to pending</button>';
-        modContainer.prepend(back);
-      }
-    });
-  } else if (modPitchesCounts.dismissed > 0 || modPitchesCounts.approved > 0) {
-    // pitch-feedback-loop: in the default pending view, append a "View
-    // dismissed (N)" link below the card so the mod can find their own
-    // dismisses. The link is filter-aware: it switches to the dismissed
-    // view without losing the current state.
-    // pitch-approve: extended — also append "✅ View approved (N)" when
-    // approved count > 0. Both links render in the same flex row, each
-    // in its own appendChild so they're visually separated.
-    var modContainer2 = document.getElementById("pending-events-container")!;
-    Promise.resolve().then(function () {
-      if (modPitchesCounts.approved > 0 && !modContainer2.querySelector('[data-action="mod-pitches-view-approved"]')) {
-        var approvedLinkRow = document.createElement("div");
-        approvedLinkRow.style.padding = "8px 16px";
-        approvedLinkRow.style.textAlign = "center";
-        approvedLinkRow.innerHTML = '<button class="btn btn-white btn-compact" data-action="mod-pitches-view-approved">✅ View approved (' + modPitchesCounts.approved + ')</button>';
-        modContainer2.appendChild(approvedLinkRow);
-      }
-      if (modPitchesCounts.dismissed > 0 && !modContainer2.querySelector('[data-action="mod-pitches-view-dismissed"]')) {
-        var link = document.createElement("div");
-        link.style.padding = "8px 16px";
-        link.style.textAlign = "center";
-        link.innerHTML = '<button class="btn btn-white btn-compact" data-action="mod-pitches-view-dismissed">🗑️ View dismissed (' + modPitchesCounts.dismissed + ')</button>';
-        modContainer2.appendChild(link);
-      }
-    });
-  }
   renderModCard("pitches");
-}
-
-// pitch-feedback-loop: filter-switch helpers for the mod Pitches tab.
-// Both invalidate the cache and re-render via loadModTab("pitches").
-function setModPitchesFilter(filter: "pending" | "dismissed" | "all") {
-  if (modPitchesFilter === filter) return;
-  modPitchesFilter = filter;
-  delete modTabCache["pitches"];
-  // modCardIdx is preserved (per renderModPending comment) so the user
-  // returns to roughly the same card position after toggling filters.
-  loadModTab("pitches");
 }
 
 // ======= LOADING HELPER =======
@@ -1873,13 +1797,13 @@ async function dismissIdea(id: string) {
     });
     if (res.ok) {
       showToast("Idea dismissed", "success");
-      // pitch-dismiss-refresh: replace the optimistic splice + re-render with
-      // a server refetch via loadModTab. The optimistic path left
-      // modPitchesCounts stale (counts were never passed to renderModPitches),
-      // so the "🗑️ View dismissed (N)" link didn't appear until the next
-      // tab switch or page refresh. The refetch pattern matches approveEvent
-      // and deleteEvent, restoring the consistency the LEARNINGS §35 audit
-      // recommended.
+      // pitch-dismiss-refresh: refetch via loadModTab instead of optimistic
+      // splice + re-render. The refetch pattern matches approveEvent and
+      // deleteEvent, restoring the consistency the LEARNINGS §35 audit
+      // recommended. ui-polish-pass: the cross-filter counts are no longer
+      // displayed in the UI (the filter UI is gone), but the refetch pattern
+      // is still correct because the dismissed pitch must disappear from
+      // the mod's view.
       log("dismissIdea refetching pitches tab (was optimistic splice)");
       delete modTabCache["pitches"];
       log("dismissIdea cache invalidated, cache hit on next load?=" + (modTabCache["pitches"] ? "yes" : "no"));
@@ -2078,7 +2002,7 @@ async function showModEventDetails(id: string) {
     '<div id="mod-desc-nav-' + id + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:4px 8px 0 8px;min-height:28px;">' +
       (descFull.length > DESC_SHORT_LENGTH ? '<button class="btn btn-white btn-pager" data-id="' + id + '" data-action="mod-detail-desc-next">Read more →</button>' : '') +
     '</div>';
-  if (item.mapUrl) { s2 += '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy btn-copy-link" data-id="' + escapeAttr(item.mapUrl) + '" data-action="copy-link">📋 Copy</button></div>'; }
+  if (item.mapUrl) { s2 += '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Map / Virtual Event Link</span><button class="copy-btn btn-copy btn-copy-link" data-id="' + escapeAttr(item.mapUrl) + '" data-action="copy-link">📋 Copy</button></div>'; }
   s2 += '</div>';
 
   // Card 3: Who's Going
@@ -3005,10 +2929,8 @@ function handleAction(action: string, id: string | null) {
     case "open-my-stuff": openMyStuff(); break;
     case "show-mod": showModDashboard(); break;
     case "switch-mod-tab": if (id) switchModTab(id); break;
-    // pitch-feedback-loop: filter switches for the mod Pitches tab
-    case "mod-pitches-view-dismissed": setModPitchesFilter("dismissed"); break;
-    case "mod-pitches-view-approved": setModPitchesFilter("approved"); break;
-    case "mod-pitches-back": setModPitchesFilter("pending"); break;
+    // ui-polish-pass: filter switches for the mod Pitches tab removed.
+    // (The filter UI is gone — see the simplified renderModPitches above.)
     case "switch-my-stuff-tab": if (id) switchMyStuffTab(id); break;
     case "detail-next": detailNext(); break;
     case "detail-prev": detailPrev(); break;
