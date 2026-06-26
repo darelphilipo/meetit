@@ -448,11 +448,13 @@ export function buildReminderBody(
     sections.push(`## 📍 ${event.location.trim()}`);
   }
 
-  // Google Maps link (e26): render only if event.mapUrl is present and non-empty.
-  // We do not validate the URL — the form is the trust boundary.
+  // Google Maps / Virtual Event link (e26 + ui-polish-pass): render only if
+  // event.mapUrl is present and non-empty. The field accepts any link the
+  // organizer wants attendees to use (Google Maps, Zoom, Google Meet, Jitsi,
+  // etc.) — the form is the trust boundary, we just render the link as-is.
   const mapUrl = event.mapUrl && event.mapUrl.trim();
   if (mapUrl) {
-    sections.push(`## 🗺️ [Open in Google Maps](${mapUrl})`);
+    sections.push(`## 🗺️ [Google Maps / Virtual Event Link](${mapUrl})`);
   }
 
   // e31: Google Calendar "Add Event" link. Inline in the post body (not a
@@ -630,10 +632,12 @@ export function buildRsvpShareBody(
     bodyParts.push(`## 📍 ${event.location.trim()}`);
   }
 
-  // Google Maps link (omitted if no mapUrl)
+  // Google Maps / Virtual Event link (ui-polish-pass): same generalization
+  // as buildReminderBody — the field accepts any link the organizer wants
+  // attendees to use (Google Maps, Zoom, Google Meet, etc.).
   const mapUrl = event.mapUrl && event.mapUrl.trim();
   if (mapUrl) {
-    bodyParts.push(`## 🗺️ [Open in Google Maps](${mapUrl})`);
+    bodyParts.push(`## 🗺️ [Google Maps / Virtual Event Link](${mapUrl})`);
   }
 
   // e31: Google Calendar "Add Event" link. Same rationale as in
