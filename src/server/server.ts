@@ -13,7 +13,7 @@ import {
   type RsvpAttendee,
   type SubmitEventFormData,
 } from "../shared/api.ts";
-import { buildAttendees, buildReminderBody, buildReminderTitle, buildRsvpShareBody, createPendingEvent, csvEscape, isConfiguredModerator, isSubmissionOwner, normalizeUsername } from "../shared/meetit.ts";
+import { buildAttendees, buildReminderBody, buildReminderTitle, buildRsvpShareBody, createPendingEvent, csvEscape, isConfiguredModerator, isSubmissionOwner, normalizeUsername, parseQueryParam, pitchEffectiveStatus, stripQueryString, validateDismissReason } from "../shared/meetit.ts";
 import { once } from "node:events";
 
 const MAX_SERVER_LOGS = 100;
@@ -51,6 +51,13 @@ export async function serverOnRequest(
   }
 }
 
+// pitch-feedback-loop: strip query string from URL so the switch can match
+// the path-only endpoint, while preserving the original URL on req for
+// handlers that need to parse query params (e.g. ?status=).
+function endpointPath(rawUrl: string | undefined): string {
+  return stripQueryString(rawUrl);
+}
+
 async function onRequest(
   req: IncomingMessage,
   rsp: ServerResponse,
@@ -62,7 +69,7 @@ async function onRequest(
     return;
   }
 
-  const endpoint = url as ApiEndpoint | InternalEndpoint;
+  const endpoint = endpointPath(url) as ApiEndpoint | InternalEndpoint;
   const apiMsg = `[API] ${req.method || "POST"} ${endpoint}`;
   console.log(apiMsg);
   serverLog("info", apiMsg);
@@ -106,7 +113,7 @@ async function onRequest(
       body = await onPendingEvents();
       break;
     case ApiEndpoint.PitchedIdeas:
-      body = await onPitchedIdeas();
+      body = await onPitchedIdeas(req);
       break;
     case ApiEndpoint.AllApprovedEvents:
       body = await onAllApprovedEvents();
@@ -171,7 +178,7 @@ type ApiResponse =
   | { type: "submit-event"; success: boolean }
   | { type: "approve-event"; success: boolean }
   | { type: "pending-events"; events: MeetitEvent[] }
-  | { type: "pitched-ideas"; ideas: any[] }
+  | { type: "pitched-ideas"; ideas: any[]; counts: { pending: number; dismissed: number; all: number } }
   | { type: "all-approved-events"; events: any[] }
   | { type: "dismiss-idea"; success: boolean }
   | { type: "delete-pending"; success: boolean }
@@ -554,8 +561,25 @@ async function onPitchIdea(req: IncomingMessage): Promise<ApiResponse> {
   if (proposedTime) idea.proposedTime = proposedTime;
   await redis.hSet("meetit:pitched_ideas", { [ideaId]: JSON.stringify(idea) });
 
-  // Notification comment disabled - submitComment not available in Devvit Web
-  // await notifyMods(`💡 New pitch idea...`);
+  // pitch-feedback-loop: best-effort DM confirmation. Failure does NOT block
+  // the submission (the pitch is already saved). The My Stuff row + toast are
+  // the source of truth; the DM is a courtesy.
+  try {
+    await reddit.sendPrivateMessage({
+      to: username,
+      subject: "💡 Your idea was received",
+      text: `Hey u/${username}! Your pitch "${title}" was received. Mods will review it soon. Track its status in My Stuff → Pitches (👤 → 💡 Pitches). — Meetit`,
+    });
+    const dmOk = `[PITCH] DM confirmation sent to u/${username}`;
+    console.log(dmOk);
+    serverLog("info", dmOk);
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    const dmFail = `[PITCH] DM confirmation failed for u/${username}: ${errMsg}`;
+    console.log(dmFail);
+    serverLog("warn", dmFail);
+  }
+
   return { type: "pitch-idea", success: true };
 }
 
@@ -634,13 +658,30 @@ async function onPendingEvents(): Promise<ApiResponse> {
   return { type: "pending-events", events };
 }
 
-async function onPitchedIdeas(): Promise<ApiResponse> {
+// pitch-feedback-loop: extract the `?status=` query param from the request
+// URL. Returns the raw value or undefined if absent.
+function queryParam(req: IncomingMessage, name: string): string | undefined {
+  return parseQueryParam(req.url, name);
+}
+
+async function onPitchedIdeas(req: IncomingMessage): Promise<ApiResponse> {
   const authError = await requireMod();
   if (authError) return authError;
+  const raw = queryParam(req, "status");
+  const filter: "pending" | "dismissed" | "all" =
+    raw === "dismissed" || raw === "all" ? raw : "pending";
   const ideas = await redis.hGetAll("meetit:pitched_ideas");
   const ideasList = Object.values(ideas).map((val) => safeJSONParse(val)).filter((i): i is any => i !== null);
-  console.log(`[PITCHES] ${ideasList.length} pitched ideas`);
-  return { type: "pitched-ideas", ideas: ideasList };
+  // Counts across the full set (independent of the current filter), so the
+  // client can render a "View dismissed (N)" link from the pending view.
+  const counts = { pending: 0, dismissed: 0, all: ideasList.length };
+  for (const idea of ideasList) {
+    if (pitchEffectiveStatus(idea) === "dismissed") counts.dismissed++;
+    else counts.pending++;
+  }
+  const filtered = filter === "all" ? ideasList : ideasList.filter((i) => pitchEffectiveStatus(i) === filter);
+  console.log(`[PITCHES] status=${filter} n=${filtered.length} (counts pending=${counts.pending} dismissed=${counts.dismissed})`);
+  return { type: "pitched-ideas", ideas: filtered, counts };
 }
 
 async function onAllApprovedEvents(): Promise<ApiResponse> {
@@ -663,17 +704,48 @@ async function onAllApprovedEvents(): Promise<ApiResponse> {
 }
 
 async function onDismissIdea(req: IncomingMessage): Promise<ApiResponse> {
-  const { ideaId } = await readJSON<{ ideaId: string }>(req);
+  const { ideaId, reason } = await readJSON<{ ideaId: string; reason?: string }>(req);
+  if (!ideaId) return { error: "Missing ideaId", status: 400 };
   const ideaJson = await redis.hGet("meetit:pitched_ideas", ideaId);
-  if (ideaJson) {
-    const idea = JSON.parse(ideaJson) as { submittedBy?: unknown };
-    if (!isSubmissionOwner(context.username, idea.submittedBy)) {
-      const authError = await requireMod();
-      if (authError) return authError;
-    }
+  if (!ideaJson) return { error: "Idea not found", status: 404 };
+  const idea = safeJSONParse(ideaJson) as { submittedBy?: unknown } | null;
+  if (!idea) return { error: "Idea not found", status: 404 };
+
+  // pitch-feedback-loop: branch by actor. The OWNER path keeps the legacy
+  // hDel behavior (no reason, no status field, row vanishes from My Stuff)
+  // and takes priority over mod status — if the user submitted the pitch,
+  // they can always remove it from their own view without a reason, even
+  // if they also happen to be a mod. The MOD path soft-saves with
+  // status="dismissed" + a required reason so the pitcher sees a status
+  // line in My Stuff instead of a vanishing row.
+  const isOwner = isSubmissionOwner(context.username, idea.submittedBy);
+  const modError = await requireMod();
+  const isMod = modError === undefined;
+  if (!isOwner && !isMod) return modError || { error: "Not authorized", status: 403 };
+
+  if (isOwner) {
+    await redis.hDel("meetit:pitched_ideas", [ideaId]);
+    const msg = `[DISMISS] Idea ${ideaId} hard-deleted by owner u/${context.username}`;
+    console.log(msg);
+    serverLog("info", msg);
+    return { type: "dismiss-idea", success: true };
   }
-  await redis.hDel("meetit:pitched_ideas", [ideaId]);
-  console.log(`[DISMISS] Idea ${ideaId} removed`);
+
+  // Mod path: require reason, soft-save.
+  const reasonError = validateDismissReason(reason);
+  if (reasonError) return { error: reasonError, status: 400 };
+  const trimmed = (reason as string).trim();
+  const dismissedIdea = {
+    ...idea,
+    status: "dismissed",
+    dismissReason: trimmed,
+    dismissedAt: new Date().toISOString(),
+    dismissedBy: context.username || "unknown",
+  };
+  await redis.hSet("meetit:pitched_ideas", { [ideaId]: JSON.stringify(dismissedIdea) });
+  const msg = `[DISMISS] Idea ${ideaId} soft-dismissed by u/${context.username}: ${trimmed}`;
+  console.log(msg);
+  serverLog("info", msg);
   return { type: "dismiss-idea", success: true };
 }
 

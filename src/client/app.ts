@@ -712,11 +712,22 @@ function renderMyPitchCard(opts: { noFade?: boolean } = {}) {
   if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   myStuffDescPageIdx[key] = 0;
 
+  // pitch-feedback-loop: render a status line that reflects the mod's action.
+  // Pending (default / legacy) shows "📋 pending review".
+  // Dismissed shows the reason + when + who, instead of vanishing silently.
+  var statusLine: string;
+  if (p.status === "dismissed") {
+    var dBy = p.dismissedBy ? ' by u/' + escapeHtml(p.dismissedBy) : '';
+    var dAt = p.dismissedAt ? ' · on ' + escapeHtml(new Date(p.dismissedAt).toLocaleDateString()) : '';
+    statusLine = '<div style="font-size:12px;color:#b91c1c;font-weight:600;margin-bottom:4px;">❌ Dismissed: ' + escapeHtml(p.dismissReason || "(no reason given)") + dAt + dBy + '</div>';
+  } else {
+    statusLine = '<div style="font-size:11px;color:var(--muted);font-weight:500;margin-bottom:4px;">📋 Pending review</div>';
+  }
   var headerHtml = '<h3 class="card-title-md" style="margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(p.title) + '</h3>' +
     (p.proposedDate
       ? '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px;">💡 Proposed: ' + escapeHtml(p.proposedDate) + (p.proposedTime ? ' at ' + escapeHtml(p.proposedTime) : '') + '</div>'
       : '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px;">📅 Pitched: ' + escapeHtml(new Date(p.submittedAt).toLocaleDateString()) + '</div>') +
-    '<div style="font-size:11px;color:var(--muted);font-weight:500;">Status: ' + escapeHtml(p.status || "pending") + '</div>';
+    statusLine;
 
   var bodyHtml = '<div id="my-stuff-desc-box-' + key + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
       '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
@@ -1176,6 +1187,15 @@ function detailPrev() {
 function modNext() { var tab = modTab; log("modNext tab=" + tab); var idx = (modCardIdx[tab] || 0) + 1; var items = modItems[tab] || []; if (idx >= items.length) idx = items.length - 1; modCardIdx[tab] = idx; renderModCard(tab, { noFade: true }); updateCardDots("mod", idx, items.length); updateCardNav("mod", idx, items.length); }
 function modPrev() { var tab = modTab; log("modPrev tab=" + tab); var idx = (modCardIdx[tab] || 0) - 1; if (idx < 0) idx = 0; modCardIdx[tab] = idx; renderModCard(tab, { noFade: true }); updateCardDots("mod", idx, (modItems[tab] || []).length); updateCardNav("mod", idx, (modItems[tab] || []).length); }
 var modTab = "pending";
+// pitch-feedback-loop: tracks the active filter for the mod Pitches tab
+// ("pending" | "dismissed" | "all"). Survives tab switches within the mod
+// dashboard. The View-dismissed / Back-to-pending links update this and
+// invalidate the cache before reloading.
+var modPitchesFilter: "pending" | "dismissed" | "all" = "pending";
+// pitch-feedback-loop: per-filter counts from the last /api/pitched-ideas
+// response, used to render the "View dismissed (N)" link. Kept here so the
+// counts survive a renderModPitches() re-render without re-fetching.
+var modPitchesCounts: { pending: number; dismissed: number; all: number } = { pending: 0, dismissed: 0, all: 0 };
 function showModDashboard() {
   log("showModDashboard resetting active class to pending (was " + modTab + ")");
   openOverlay("mod-screen");
@@ -1196,7 +1216,14 @@ async function loadModTab(tab: string) {
     log("loadModTab using cache " + tab);
     if (tab === "pending") renderModPending(cached.data);
     else if (tab === "published") renderModPublished(cached.data);
-    else if (tab === "pitches") renderModPitches(cached.data);
+    // pitch-feedback-loop: backward-compat — older cached entries may store
+    // the raw ideas array (no counts). If so, fall back to an empty counts
+    // object so the dismissed link just doesn't render.
+    else if (tab === "pitches") {
+      var c = cached.data;
+      if (Array.isArray(c)) renderModPitches(c, { pending: c.length, dismissed: 0, all: c.length });
+      else renderModPitches(c.ideas || [], c.counts || { pending: 0, dismissed: 0, all: 0 });
+    }
     return;
   }
   // Skip if already fetching this tab
@@ -1213,9 +1240,16 @@ async function loadModTab(tab: string) {
       var d = await res.json();
       if (d.type === "all-approved-events") { modTabCache[tab] = { data: d.events, timestamp: Date.now() }; renderModPublished(d.events); }
     } else if (tab === "pitches") {
-      var res2 = await fetch(API_BASE + "/api/pitched-ideas");
+      // pitch-feedback-loop: append ?status= so the mod's default view is
+      // the pending queue. Counts are stored in the cache alongside the
+      // filtered ideas so renderModPitches can render the "View dismissed
+      // (N)" link without an extra fetch.
+      var res2 = await fetch(API_BASE + "/api/pitched-ideas?status=" + modPitchesFilter);
       var d2 = await res2.json();
-      if (d2.type === "pitched-ideas") { modTabCache[tab] = { data: d2.ideas, timestamp: Date.now() }; renderModPitches(d2.ideas); }
+      if (d2.type === "pitched-ideas") {
+        modTabCache[tab] = { data: d2, timestamp: Date.now() };
+        renderModPitches(d2.ideas, d2.counts);
+      }
     }
   } catch (e) {
     log("error: loadModTab " + e);
@@ -1432,21 +1466,76 @@ function renderModPublished(events: any[]) {
   }
   renderModCard("published");
 }
-function renderModPitches(ideas: any[]) {
-  log("renderModPitches count=" + ideas.length);
+function renderModPitches(ideas: any[], counts?: { pending: number; dismissed: number; all: number }) {
+  log("renderModPitches filter=" + modPitchesFilter + " count=" + ideas.length);
   modItems["pitches"] = ideas;
+  if (counts) modPitchesCounts = counts;
   // Do NOT reset modCardIdx["pitches"] here — see renderModPending comment.
   if (ideas.length === 0) {
-    document.getElementById("pending-events-container")!.innerHTML = renderEmptyState({
-      emoji: "💡", title: "No pitched ideas",
-      body: "Community pitches will appear here.",
-      context: "mod-pitches",
-    });
+    // pitch-feedback-loop: empty state is filter-aware. If the mod is
+    // viewing the dismissed tab and there are none, the message should
+    // reflect that. The "← Back to pending" link is also filter-aware.
+    var c = modPitchesCounts;
+    var backLink = (modPitchesFilter !== "pending" && c.pending > 0)
+      ? '<button class="btn btn-white btn-empty" data-action="mod-pitches-back" style="margin-top:12px;">← Back to pending</button>'
+      : "";
+    var dismissedLink = (modPitchesFilter === "pending" && c.dismissed > 0)
+      ? '<button class="btn btn-white btn-empty" data-action="mod-pitches-view-dismissed" style="margin-top:12px;">🗑️ View dismissed (' + c.dismissed + ')</button>'
+      : "";
+    var emptyTitle = modPitchesFilter === "dismissed" ? "No dismissed pitches" : "No pitched ideas";
+    var emptyBody = modPitchesFilter === "dismissed"
+      ? "Nothing has been dismissed yet."
+      : "Community pitches will appear here.";
+    document.getElementById("pending-events-container")!.innerHTML =
+      renderEmptyState({
+        emoji: "💡", title: emptyTitle, body: emptyBody, context: "mod-pitches",
+      }) + dismissedLink + backLink;
     updateCardDots("mod", 0, 0);
     updateCardNav("mod", 0, 0);
     return;
   }
+  // pitch-feedback-loop: when not in the default view, inject a "← Back to
+  // pending" link at the top so the mod can return to the active queue.
+  if (modPitchesFilter !== "pending") {
+    var modContainer = document.getElementById("pending-events-container")!;
+    // Defer the prepend to after renderModCard() injects the card; use a
+    // microtask so the container has the card HTML by the time we prepend.
+    Promise.resolve().then(function () {
+      if (!modContainer.querySelector('[data-action="mod-pitches-back"]')) {
+        var back = document.createElement("div");
+        back.style.padding = "8px 16px";
+        back.innerHTML = '<button class="btn btn-white btn-compact" data-action="mod-pitches-back">← Back to pending</button>';
+        modContainer.prepend(back);
+      }
+    });
+  } else if (modPitchesCounts.dismissed > 0) {
+    // pitch-feedback-loop: in the default pending view, append a "View
+    // dismissed (N)" link below the card so the mod can find their own
+    // dismisses. The link is filter-aware: it switches to the dismissed
+    // view without losing the current state.
+    var modContainer2 = document.getElementById("pending-events-container")!;
+    Promise.resolve().then(function () {
+      if (!modContainer2.querySelector('[data-action="mod-pitches-view-dismissed"]')) {
+        var link = document.createElement("div");
+        link.style.padding = "8px 16px";
+        link.style.textAlign = "center";
+        link.innerHTML = '<button class="btn btn-white btn-compact" data-action="mod-pitches-view-dismissed">🗑️ View dismissed (' + modPitchesCounts.dismissed + ')</button>';
+        modContainer2.appendChild(link);
+      }
+    });
+  }
   renderModCard("pitches");
+}
+
+// pitch-feedback-loop: filter-switch helpers for the mod Pitches tab.
+// Both invalidate the cache and re-render via loadModTab("pitches").
+function setModPitchesFilter(filter: "pending" | "dismissed" | "all") {
+  if (modPitchesFilter === filter) return;
+  modPitchesFilter = filter;
+  delete modTabCache["pitches"];
+  // modCardIdx is preserved (per renderModPending comment) so the user
+  // returns to roughly the same card position after toggling filters.
+  loadModTab("pitches");
 }
 
 // ======= LOADING HELPER =======
@@ -1558,6 +1647,46 @@ function confirmDestructive(msg: string): Promise<boolean> {
   });
 }
 
+// pitch-feedback-loop: prompt the mod for a reason before a destructive
+// dismiss. Reuses the existing #confirm-overlay; the reason text input
+// (hidden by default in HTML) is revealed while the promise is pending.
+// Returns the typed reason, or null if the mod cancels.
+function promptForReason(message: string): Promise<string | null> {
+  var truncated = message.length > 80 ? message.substring(0, 77) + "..." : message;
+  log("promptForReason: " + truncated);
+  document.getElementById("confirm-message")!.textContent = truncated;
+  var wrap = document.getElementById("confirm-reason-wrap")! as HTMLElement;
+  var input = document.getElementById("confirm-reason-input") as HTMLTextAreaElement;
+  var counter = document.getElementById("confirm-reason-counter")!;
+  var okBtn = document.getElementById("confirm-ok-btn") as HTMLButtonElement;
+  // Reset state from any prior invocation.
+  input.value = "";
+  counter.textContent = "0 / 100";
+  wrap.style.display = "flex";
+  input.focus();
+  // Live counter
+  var onInput = function () { counter.textContent = input.value.length + " / 100"; };
+  input.addEventListener("input", onInput);
+  // Submit-on-Enter (Shift+Enter inserts a newline)
+  var onKey = function (e: KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      okBtn.click();
+    }
+  };
+  input.addEventListener("keydown", onKey);
+  openOverlay("confirm-overlay");
+  return new Promise(function (resolve) {
+    var el = document.getElementById("confirm-overlay")!;
+    (el as any)._reasonResolve = function (value: string | null) {
+      wrap.style.display = "none";
+      input.removeEventListener("input", onInput);
+      input.removeEventListener("keydown", onKey);
+      resolve(value);
+    };
+  });
+}
+
 // ======= ACTIONS =======
 var actionLocks: Record<string, boolean> = {};
 function isLocked(key: string): boolean { return !!actionLocks[key]; }
@@ -1645,15 +1774,46 @@ async function deleteEvent(id: string, type: string) { log("deleteEvent id=" + i
       }
       delete modTabCache[type];
     } else { await tryShowServerError(res, "Delete failed"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } } catch (e) { showToast("Network error", "error"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } finally { unlock(k); } }
-async function dismissIdea(id: string) { log("dismissIdea id=" + id); var k = "dismiss-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Dismiss "' + title + '"? This cannot be undone.')) { unlock(k); return; } setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', true, "⏳ Dismissing..."); var res; try { res = await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) });     if (res.ok) { showToast("Idea dismissed", "success");       // Optimistically remove from modItems
+async function dismissIdea(id: string) {
+  log("dismissIdea id=" + id);
+  var k = "dismiss-" + id;
+  if (isLocked(k)) return;
+  lock(k);
+  var title = getItemTitle(id, modItems);
+  // pitch-feedback-loop: mod path requires a reason. Use promptForReason
+  // (which extends the existing confirm overlay) instead of the plain
+  // confirmDestructive. The reason is sent in the body; the server
+  // soft-saves with status="dismissed" + dismissReason/dismissedAt/dismissedBy.
+  var reason = await promptForReason('Dismiss "' + title + '"? Add a short reason — the pitcher will see it.');
+  if (reason === null) { unlock(k); return; }
+  setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', true, "⏳ Dismissing...");
+  var res;
+  try {
+    res = await fetch(API_BASE + "/api/dismiss-idea", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ideaId: id, reason: reason }),
+    });
+    if (res.ok) {
+      showToast("Idea dismissed", "success");
+      // Optimistically remove from modItems
       var pitchItems = modItems["pitches"] || [];
-      var dismissIdx = pitchItems.findIndex(function(i: any) { return i.id === id; });
+      var dismissIdx = pitchItems.findIndex(function (i: any) { return i.id === id; });
       if (dismissIdx >= 0) { pitchItems.splice(dismissIdx, 1); log("optimistic dismiss: removed " + id + " from pitches"); }
       // Re-render mod dashboard if user is viewing it
       var modScreen3 = document.getElementById("mod-screen");
       if (modScreen3 && modScreen3.classList.contains("active") && modTab === "pitches") { renderModPitches(modItems["pitches"] || []); }
       delete modTabCache["pitches"];
-    } else { await tryShowServerError(res, "Dismiss failed"); } } catch (e) { showToast("Network error", "error"); } finally { setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', false); unlock(k); } }
+    } else {
+      await tryShowServerError(res, "Dismiss failed");
+    }
+  } catch (e) {
+    showToast("Network error", "error");
+  } finally {
+    setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', false);
+    unlock(k);
+  }
+}
 async function deletePitch(id: string) { log("deletePitch id=" + id); var title = getItemTitle(id, { myPitches: myPitches }); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) return; var k = "pitch-" + id; if (isLocked(k)) return; lock(k); setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', true, "⏳ Deleting..."); var res; try { res = await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) });     if (res.ok) { showToast("Deleted", "success");       // Optimistically remove from myPitches
       var pitchIdx = myPitches.findIndex(function(p: any) { return p.id === id; });
       if (pitchIdx >= 0) {
@@ -2220,7 +2380,9 @@ async function submitPitch() {
     var res = await fetch(API_BASE + "/api/pitch-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     var data = await res.json();
     if (data.type === "pitch-idea" && data.success) {
-      showToast("Idea sent! ✅", "success");
+      // pitch-feedback-loop: warmer toast that points the user at My Stuff
+      // for status tracking (the source of truth for "did anyone see my pitch?").
+      showToast("Idea received! 🎉 Mods will review it — check My Stuff for status.", "success");
       setBtnLoading("#pitch-submit-btn", false);
       closeOverlay("pitch-overlay");
       loadHome();
@@ -2691,6 +2853,9 @@ function handleAction(action: string, id: string | null) {
     case "open-my-stuff": openMyStuff(); break;
     case "show-mod": showModDashboard(); break;
     case "switch-mod-tab": if (id) switchModTab(id); break;
+    // pitch-feedback-loop: filter switches for the mod Pitches tab
+    case "mod-pitches-view-dismissed": setModPitchesFilter("dismissed"); break;
+    case "mod-pitches-back": setModPitchesFilter("pending"); break;
     case "switch-my-stuff-tab": if (id) switchMyStuffTab(id); break;
     case "detail-next": detailNext(); break;
     case "detail-prev": detailPrev(); break;
@@ -2828,9 +2993,24 @@ document.addEventListener("DOMContentLoaded", function () {
   });
   document.querySelector(".btn-submit-rsvp")?.addEventListener("click", submitRsvp);
   // Custom confirm overlay buttons
-  document.getElementById("confirm-ok-btn")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var r = (el as any)._confirmResolve; if (r) { log("confirm OK"); r(true); (el as any)._confirmResolve = null; } });
-  document.getElementById("confirm-cancel-btn")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var r = (el as any)._confirmResolve; if (r) { log("confirm cancelled"); r(false); (el as any)._confirmResolve = null; } });
-  document.getElementById("confirm-backdrop")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var r = (el as any)._confirmResolve; if (r) { log("confirm backdrop dismissed"); r(false); (el as any)._confirmResolve = null; } });
+  document.getElementById("confirm-ok-btn")!.addEventListener("click", function () {
+    closeOverlay("confirm-overlay");
+    var el = document.getElementById("confirm-overlay")!;
+    // pitch-feedback-loop: prefer _reasonResolve when promptForReason is active
+    var rr = (el as any)._reasonResolve;
+    if (rr) {
+      var inputEl = document.getElementById("confirm-reason-input") as HTMLTextAreaElement;
+      var value = (inputEl?.value || "").trim();
+      log("reason confirm: " + (value ? "ok" : "empty-cancel"));
+      rr(value.length > 0 ? value : null);
+      (el as any)._reasonResolve = null;
+      return;
+    }
+    var r = (el as any)._confirmResolve;
+    if (r) { log("confirm OK"); r(true); (el as any)._confirmResolve = null; }
+  });
+  document.getElementById("confirm-cancel-btn")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var rr = (el as any)._reasonResolve; if (rr) { log("reason cancelled"); rr(null); (el as any)._reasonResolve = null; return; } var r = (el as any)._confirmResolve; if (r) { log("confirm cancelled"); r(false); (el as any)._confirmResolve = null; } });
+  document.getElementById("confirm-backdrop")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var rr = (el as any)._reasonResolve; if (rr) { log("reason backdrop dismissed"); rr(null); (el as any)._reasonResolve = null; return; } var r = (el as any)._confirmResolve; if (r) { log("confirm backdrop dismissed"); r(false); (el as any)._confirmResolve = null; } });
 
   // ONE event delegation listener - replaces all bindButtons() calls
   document.body.addEventListener("click", function(e) {

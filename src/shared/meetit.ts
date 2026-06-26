@@ -93,6 +93,52 @@ export function normalizeUsername(username: string): string {
   return username.trim().toLowerCase().replace(/^u\//, "");
 }
 
+// pitch-feedback-loop: extract a single query-string parameter from a URL.
+// Returns the raw (URL-decoded) value, or undefined if absent. Empty string
+// is a valid value (e.g. "?status="). Pure function — safe to unit test.
+export function parseQueryParam(rawUrl: string | undefined, name: string): string | undefined {
+  if (!rawUrl) return undefined;
+  const q = rawUrl.indexOf("?");
+  if (q === -1) return undefined;
+  const search = rawUrl.substring(q + 1);
+  for (const pair of search.split("&")) {
+    if (!pair) continue;
+    const eq = pair.indexOf("=");
+    const key = eq === -1 ? pair : pair.substring(0, eq);
+    if (key !== name) continue;
+    const raw = eq === -1 ? "" : pair.substring(eq + 1);
+    try { return decodeURIComponent(raw); } catch { return raw; }
+  }
+  return undefined;
+}
+
+// pitch-feedback-loop: strip the query string from a URL, returning just
+// the path. Used to route `/api/foo?status=pending` to the `foo` handler.
+export function stripQueryString(rawUrl: string | undefined): string {
+  if (!rawUrl) return "/";
+  const q = rawUrl.indexOf("?");
+  return q === -1 ? rawUrl : rawUrl.substring(0, q);
+}
+
+// pitch-feedback-loop: normalize a pitch's effective status. Legacy pitches
+// (no `status` field, written before this change) are treated as "pending".
+// Pure function — safe to unit test.
+export function pitchEffectiveStatus(idea: any): "pending" | "dismissed" {
+  return idea && idea.status === "dismissed" ? "dismissed" : "pending";
+}
+
+// pitch-feedback-loop: validate a mod-supplied dismiss reason. Returns an
+// error message for invalid input, or null if valid. Rules:
+//   - non-empty after trim
+//   - 100 characters or fewer
+export function validateDismissReason(reason: unknown): string | null {
+  if (typeof reason !== "string") return "Reason required";
+  const trimmed = reason.trim();
+  if (trimmed.length === 0) return "Reason required";
+  if (trimmed.length > 100) return "Reason must be 100 characters or less";
+  return null;
+}
+
 /**
  * The maximum number of attendee usernames rendered in a share/reminder post.
  * Beyond this cap, posts show "+X more" instead of bloating the body.
