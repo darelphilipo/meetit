@@ -255,14 +255,13 @@
   .icon-btn:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 #1c1c0f; }
     .icon-btn:active { box-shadow: none; transform: translate(3px,3px) scale(0.97); transition-duration: 80ms; }
   .icon-btn:focus-visible { outline: 3px solid var(--secondary); outline-offset: 2px; }
-  /* ui-polish-pass: the mod cleanup button on the dark mod header.
-     Override the default icon-btn active state — the white button on a
-     dark background with a removed box-shadow looks "hollow" / "disappearing"
-     because the shadow offset is what gives the brutalist floating look.
-     Keep the shadow on active and add a subtle border color change for
-     feedback. Also force size to 36x36 to match the X close button. */
-  .icon-btn.btn-run-cleanup { width: 36px; height: 36px; min-width: 36px; font-size: 16px; }
-  .icon-btn.btn-run-cleanup:active { box-shadow: 3px 3px 0 var(--border-color); transform: none; border-color: var(--secondary); }
+  /* ui-polish-pass: the mod cleanup button uses the same .close-btn class
+     as the X close button so they match in size, border, and shadow.
+     The only override is the :active state — the default close-btn
+     :active removes the box-shadow which makes the white button look
+     "hollow" / floating on the dark mod header. Keep the shadow on
+     active and add a subtle border color change for feedback. */
+  .close-btn.btn-run-cleanup:active { box-shadow: var(--shadow-sm); transform: none; border-color: var(--secondary); }
   /* Create menu popup */
   .backdrop { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 900; }
   .create-menu { display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #fff; border: var(--border); box-shadow: var(--shadow-md); z-index: 901; padding: 16px; width: 260px; }
@@ -415,7 +414,7 @@
           <h2 style="color:var(--surface);margin:0;">🛡️ Mod Dashboard</h2>
           <div id="mod-cleanup-subtitle" style="font-size:10px;color:var(--outline-v);font-weight:500;margin-top:2px;line-height:1.2;">Threshold: 30 days</div>
         </div>
-        <div class="icon-btn btn-run-cleanup" data-action="run-cleanup-aged" title="Run cleanup now" aria-label="Run cleanup now" role="button" tabindex="0" style="margin-left:auto;">🧹</div>
+        <div class="close-btn btn-run-cleanup" data-action="run-cleanup-aged" title="Run cleanup now" aria-label="Run cleanup now" role="button" tabindex="0" style="margin-left:auto;">🧹</div>
         <div class="close-btn close-overlay" data-action="close-overlay">✕</div>
       </div>
       <div id="mod-cleanup-pause-banner" style="display:none;padding:6px 16px;border-bottom:var(--border);background:#fef3c7;font-size:11px;font-weight:600;color:#92400e;">⚠️ Auto cleanup is paused — only manual cleanup will run.</div>
