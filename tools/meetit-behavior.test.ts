@@ -15,6 +15,7 @@ import {
   formatAttendeeList,
   isConfiguredModerator,
   isEventAgedOut,
+  isEventPast,
   isPitchAgedOut,
   isSubmissionOwner,
   normalizeUsername,
@@ -918,4 +919,44 @@ test("buildCleanupLogEntry is deterministic (same inputs → same output)", () =
   const counts = { eventsActive: 0, eventsPending: 0, pitches: 5 };
   const meta = { thresholdDays: 30, trigger: "cron" as const, user: "system" };
   assert.equal(buildCleanupLogEntry(now, counts, meta), buildCleanupLogEntry(now, counts, meta));
+});
+
+// FIX-01 (pre-launch-bugs): organizer (event owner) should be allowed to
+// see contact details in addition to mods. The current onRsvpList
+// implementation now checks isSubmissionOwner as well as isMod. (This
+// test documents the contract; the integration is verified manually.)
+test("FIX-01: isSubmissionOwner recognizes case-insensitive organizer match", () => {
+  assert.equal(isSubmissionOwner("alice", "alice"), true);
+  assert.equal(isSubmissionOwner("Alice", "alice"), true);
+  assert.equal(isSubmissionOwner("u/alice", "alice"), true);
+  assert.equal(isSubmissionOwner("alice", "u/alice"), true);
+  assert.equal(isSubmissionOwner("bob", "alice"), false);
+  assert.equal(isSubmissionOwner("", "alice"), false);
+  assert.equal(isSubmissionOwner("alice", ""), false);
+});
+
+// FIX-02 (pre-launch-bugs): isEventPast returns true for yesterday, false
+// for today and future. Defensive: false for missing or malformed dates.
+test("FIX-02: isEventPast returns true for events with yesterday's date", () => {
+  const now = new Date("2026-06-26T15:00:00Z");
+  assert.equal(isEventPast({ date: "2026-06-25" }, now), true);
+});
+
+test("FIX-02: isEventPast returns false for events with today's date", () => {
+  const now = new Date("2026-06-26T15:00:00Z");
+  assert.equal(isEventPast({ date: "2026-06-26" }, now), false);
+});
+
+test("FIX-02: isEventPast returns false for events with tomorrow's date", () => {
+  const now = new Date("2026-06-26T15:00:00Z");
+  assert.equal(isEventPast({ date: "2026-06-27" }, now), false);
+});
+
+test("FIX-02: isEventPast returns false for missing or malformed dates (defensive default)", () => {
+  const now = new Date("2026-06-26T15:00:00Z");
+  assert.equal(isEventPast({ date: "" }, now), false);
+  assert.equal(isEventPast({ date: "not-a-date" }, now), false);
+  assert.equal(isEventPast({}, now), false);
+  assert.equal(isEventPast(null, now), false);
+  assert.equal(isEventPast(undefined, now), false);
 });

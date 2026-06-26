@@ -2560,15 +2560,17 @@ function eventNext() {
     // Description -> Review step. Validate desc, populate review, advance.
     var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim();
     if (!desc) { showToast("Add a description", "error"); return; }
-    var titleEl = (document.getElementById("event-title") as HTMLInputElement).value;
-    var dateEl = (document.getElementById("event-date") as HTMLInputElement).value;
-    var timeEl = (document.getElementById("event-time") as HTMLInputElement).value;
-    var locEl = (document.getElementById("event-location") as HTMLInputElement).value;
-    var catEl = (document.getElementById("event-category") as HTMLSelectElement).value;
-    var catLabel = catEl ? (catEl.charAt(0).toUpperCase() + catEl.slice(1)) : "";
-    (document.getElementById("event-review-title-preview") as HTMLElement).textContent = titleEl;
+    // FIX-03 (pre-launch-bugs): rename step-3 vars so they don't collide
+    // with the step-2 HTMLElement refs of the same name (TS2403).
+    var titleVal = (document.getElementById("event-title") as HTMLInputElement).value;
+    var dateVal = (document.getElementById("event-date") as HTMLInputElement).value;
+    var timeVal = (document.getElementById("event-time") as HTMLInputElement).value;
+    var locVal = (document.getElementById("event-location") as HTMLInputElement).value;
+    var catVal = (document.getElementById("event-category") as HTMLSelectElement).value;
+    var catLabel = catVal ? (catVal.charAt(0).toUpperCase() + catVal.slice(1)) : "";
+    (document.getElementById("event-review-title-preview") as HTMLElement).textContent = titleVal;
     (document.getElementById("event-review-meta-preview") as HTMLElement).textContent =
-      "📅 " + dateEl + " at " + timeEl + " · 📍 " + locEl + (catLabel ? " · 🏷️ " + catLabel : "");
+      "📅 " + dateVal + " at " + timeVal + " · 📍 " + locVal + (catLabel ? " · 🏷️ " + catLabel : "");
     var descPreviewEl = document.getElementById("event-review-desc-preview") as HTMLElement;
     if (desc.length > DESC_SHORT_LENGTH) {
       // Long desc: render pager with explicit Previous/Next buttons (e18 design D3)

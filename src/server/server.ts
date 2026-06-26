@@ -13,7 +13,7 @@ import {
   type RsvpAttendee,
   type SubmitEventFormData,
 } from "../shared/api.ts";
-import { buildAnnouncementTitle, buildApproveDm, buildAttendees, buildCleanupLogEntry, buildReminderBody, buildReminderTitle, buildRsvpShareBody, createPendingEvent, csvEscape, isConfiguredModerator, isEventAgedOut, isPitchAgedOut, isSubmissionOwner, normalizeUsername, parseQueryParam, pickAgedItems, pitchEffectiveStatus, stripQueryString, validateDismissReason } from "../shared/meetit.ts";
+import { buildAnnouncementTitle, buildApproveDm, buildAttendees, buildCleanupLogEntry, buildReminderBody, buildReminderTitle, buildRsvpShareBody, createPendingEvent, csvEscape, isConfiguredModerator, isEventAgedOut, isEventPast, isPitchAgedOut, isSubmissionOwner, normalizeUsername, parseQueryParam, pickAgedItems, pitchEffectiveStatus, stripQueryString, validateDismissReason } from "../shared/meetit.ts";
 import { once } from "node:events";
 
 const MAX_SERVER_LOGS = 100;
@@ -177,7 +177,7 @@ const InternalEndpoint = {
 type InternalEndpoint = (typeof InternalEndpoint)[keyof typeof InternalEndpoint];
 
 type ApiResponse =
-  | { type: "init"; postId: string; username: string; settings: AppSettings; timezone: string }
+  | { type: "init"; postId: string; username: string; isMod: boolean; settings: AppSettings; timezone: string }
   | { type: "home"; data: HomeState }
   | { type: "event-details"; data: EventDetails }
   | { type: "rsvp"; success: boolean; wasExisting?: boolean }
@@ -191,8 +191,10 @@ type ApiResponse =
   | { type: "pitched-ideas"; ideas: any[]; counts: { pending: number; dismissed: number; all: number } }
   | { type: "all-approved-events"; events: any[] }
   | { type: "dismiss-idea"; success: boolean }
+  | { type: "approve-idea"; success: boolean }
   | { type: "delete-pending"; success: boolean }
   | { type: "delete-published"; success: boolean }
+  | { type: "cleanup-aged"; eventsActive: number; eventsPending: number; pitches: number }
   | { type: "my-submissions"; pitches: any[]; events: MeetitEvent[]; rsvps: any[] }
   | { type: "my-rsvp"; email: string; phone: string }
   | { type: "export-attendees"; csv: string; filename: string }
@@ -325,6 +327,23 @@ async function addRsvp(eventId: string, username: string, email: string, phone: 
   await redis.zAdd(key, { score: Date.now(), member: userKey });
   if (email || phone) {
     await redis.hSet(`meetit:rsvp_details:${eventId}`, { [userKey]: JSON.stringify({ email: email || "", phone: phone || "" }) });
+    const writeMsg = `[FIX-04-WRITE] rsvp-details-written eventId=${eventId} user=${userKey} hasEmail=${!!email} hasPhone=${!!phone}`;
+    console.log(writeMsg);
+    serverLog("info", writeMsg);
+  } else {
+    // FIX-04 (pre-launch-bugs): blank email AND blank phone means the user
+    // wants their contact info removed. Currently the hash entry would
+    // linger, so mods and CSV exports would still see the old data. hDel it.
+    const deleted = await redis.hDel(`meetit:rsvp_details:${eventId}`, [userKey]);
+    if (deleted > 0) {
+      const clearMsg = `[FIX-04-CLEAR] rsvp-details-cleared eventId=${eventId} user=${userKey} (hDel returned ${deleted})`;
+      console.log(clearMsg);
+      serverLog("info", clearMsg);
+    } else {
+      const noopMsg = `[FIX-04-CLEAR] rsvp-details-noop eventId=${eventId} user=${userKey} (no prior contact info to clear)`;
+      console.log(noopMsg);
+      serverLog("info", noopMsg);
+    }
   }
   const verifyScore = await redis.zScore(key, userKey);
   console.log(`[RSVP] ${username} → ${eventId} | score=${verifyScore} | email=${!!email} phone=${!!phone}`);
@@ -438,6 +457,19 @@ async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
   // C6: Verify event exists before allowing RSVP
   const event = await getActiveEvent(eventId);
   if (!event) return { error: "Event not found", status: 404 };
+  // FIX-02 (pre-launch-bugs): block RSVP to past events. Defensive explicit
+  // date check; the UI prevents this, but direct API calls and stale Redis
+  // state could otherwise allow it. isEventPast returns false (allow) for
+  // malformed dates so a typo doesn't silently block valid RSVPs.
+  if (isEventPast(event)) {
+    const blockMsg = `[FIX-02-BLOCK] rsvp-past-event-blocked eventId=${eventId} eventDate=${event.date} user=${context.username || "anon"}`;
+    console.warn(blockMsg);
+    serverLog("warn", blockMsg);
+    return { error: "Cannot RSVP to past events", status: 400 };
+  }
+  const allowMsg = `[FIX-02-ALLOW] rsvp eventId=${eventId} eventDate=${event.date} user=${context.username || "anon"}`;
+  console.log(allowMsg);
+  serverLog("info", allowMsg);
   const username = context.username;
   if (!username) return { error: "Authentication required", status: 401 };
   // BUG7: detect re-RSVP so client can show "Contact info updated"
@@ -965,10 +997,32 @@ async function onRsvpList(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId, includeContactDetails } = await readJSON<{ eventId: string; includeContactDetails?: boolean }>(req);
   if (!eventId) return { error: "Missing eventId", status: 400 };
   const results = await redis.zRange(`meetit:rsvps:${eventId}`, "-inf", "+inf", { by: "score" });
-  console.log(`[RSVP-LIST] ${eventId} | ${results.length} attendees | contact=${!!includeContactDetails}`);
+  // FIX-01 (pre-launch-bugs): organizer (event owner) should be able to see
+  // contact details, matching onExportAttendees. Fetch event to determine
+  // owner. If fetch fails, default to mod-only (the previous behavior).
+  let isOwner = false;
+  try {
+    const eventJson = await redis.hGet("meetit:active_events", eventId);
+    if (eventJson) {
+      const event = JSON.parse(eventJson) as MeetitEvent;
+      isOwner = isSubmissionOwner(context.username, event.organizer);
+    }
+  } catch (e) { /* owner check is best-effort; default false is safe */ }
+  const userIsMod = await isMod();
+  const canViewContactDetails = Boolean(includeContactDetails) && (userIsMod || isOwner);
+  // FIX-01: log every contact-detail request with the access path so
+  // regressions are visible in the in-app debug panel.
+  const accessPath = userIsMod ? "mod" : isOwner ? "owner" : "none";
+  const fix01Msg = `[FIX-01] rsvp-list eventId=${eventId} requester=${context.username || "anon"} path=${accessPath} count=${results.length} contact=${!!includeContactDetails}`;
+  console.log(fix01Msg);
+  serverLog("info", fix01Msg);
+  if (includeContactDetails && !canViewContactDetails) {
+    const warnMsg = `[FIX-01-WARN] rsvp-list eventId=${eventId} requester=${context.username || "anon"} contact-stripped path=none`;
+    console.warn(warnMsg);
+    serverLog("warn", warnMsg);
+  }
   // Fetch contact details from companion hash
   const detailsHash = await redis.hGetAll(`meetit:rsvp_details:${eventId}`);
-  const canViewContactDetails = Boolean(includeContactDetails) && (await isMod());
   const attendees = buildAttendees(results, detailsHash, canViewContactDetails);
   return { type: "rsvp-list", attendees };
 }
