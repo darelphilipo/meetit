@@ -544,6 +544,22 @@ export function buildReminderTitle(
     : `${prefix} ${title} — ${date}`;
 }
 
+// event-announcement-post: title builder for the announcement post that's
+// created immediately on event approval. Mirrors the format of buildReminderTitle
+// but with a distinct prefix and emoji so the announcement is visually
+// recognizable in the subreddit feed. Pure function — no Devvit imports,
+// no I/O, deterministic.
+export function buildAnnouncementTitle(
+  event: Pick<MeetitEvent, "title" | "date" | "location">,
+): string {
+  const title = (event.title && event.title.trim()) || "New Meetup";
+  const date = event.date || "TBD";
+  const location = event.location && event.location.trim();
+  return location
+    ? `📅 [New Meetup] ${title} — ${date} @ ${location}`
+    : `📅 [New Meetup] ${title} — ${date}`;
+}
+
 /**
  * The maximum length (in characters) of a description included in a share post.
  * Social-share posts that look like essays don't get engagement. Longer

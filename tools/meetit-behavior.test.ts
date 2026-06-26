@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildAnnouncementTitle,
   buildApproveDm,
   buildAttendees,
   buildCleanupLogEntry,
@@ -291,6 +292,48 @@ test("buildReminderTitle accepts a custom prefix for the 2h window (e30)", () =>
     "⏰ Starting Soon:",
   );
   assert.equal(title, "⏰ Starting Soon: Coffee Meetup — 2026-06-25 @ Central Park");
+});
+
+// event-announcement-post: buildAnnouncementTitle format
+test("buildAnnouncementTitle includes title, date, and @ location when all present", () => {
+  const title = buildAnnouncementTitle({
+    title: "Bangalore Tech Chai",
+    date: "2026-06-21",
+    location: "Cubbon Park",
+  });
+  assert.equal(title, "📅 [New Meetup] Bangalore Tech Chai — 2026-06-21 @ Cubbon Park");
+});
+
+test("buildAnnouncementTitle omits @ location when location is empty", () => {
+  const title = buildAnnouncementTitle({
+    title: "Coffee Meetup",
+    date: "2026-06-25",
+    location: "",
+  });
+  assert.equal(title, "📅 [New Meetup] Coffee Meetup — 2026-06-25");
+});
+
+test("buildAnnouncementTitle omits @ location when location is whitespace-only", () => {
+  const title = buildAnnouncementTitle({
+    title: "Coffee Meetup",
+    date: "2026-06-25",
+    location: "   ",
+  });
+  assert.equal(title, "📅 [New Meetup] Coffee Meetup — 2026-06-25");
+});
+
+test("buildAnnouncementTitle falls back to 'New Meetup' for missing title and TBD for missing date", () => {
+  const title = buildAnnouncementTitle({
+    title: "",
+    date: "",
+    location: "Some Place",
+  });
+  assert.equal(title, "📅 [New Meetup] New Meetup — TBD @ Some Place");
+});
+
+test("buildAnnouncementTitle is deterministic (same input -> same output)", () => {
+  const input = { title: "Hike", date: "2026-07-01", location: "Sunrise Point" };
+  assert.equal(buildAnnouncementTitle(input), buildAnnouncementTitle(input));
 });
 
 test("buildReminderTitle with custom prefix omits @ location when location is empty (e30)", () => {
