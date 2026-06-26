@@ -1796,14 +1796,19 @@ async function dismissIdea(id: string) {
     });
     if (res.ok) {
       showToast("Idea dismissed", "success");
-      // Optimistically remove from modItems
-      var pitchItems = modItems["pitches"] || [];
-      var dismissIdx = pitchItems.findIndex(function (i: any) { return i.id === id; });
-      if (dismissIdx >= 0) { pitchItems.splice(dismissIdx, 1); log("optimistic dismiss: removed " + id + " from pitches"); }
+      // pitch-dismiss-refresh: replace the optimistic splice + re-render with
+      // a server refetch via loadModTab. The optimistic path left
+      // modPitchesCounts stale (counts were never passed to renderModPitches),
+      // so the "🗑️ View dismissed (N)" link didn't appear until the next
+      // tab switch or page refresh. The refetch pattern matches approveEvent
+      // and deleteEvent, restoring the consistency the LEARNINGS §35 audit
+      // recommended.
+      log("dismissIdea refetching pitches tab (was optimistic splice)");
+      delete modTabCache["pitches"];
+      log("dismissIdea cache invalidated, cache hit on next load?=" + (modTabCache["pitches"] ? "yes" : "no"));
       // Re-render mod dashboard if user is viewing it
       var modScreen3 = document.getElementById("mod-screen");
-      if (modScreen3 && modScreen3.classList.contains("active") && modTab === "pitches") { renderModPitches(modItems["pitches"] || []); }
-      delete modTabCache["pitches"];
+      if (modScreen3 && modScreen3.classList.contains("active") && modTab === "pitches") { loadModTab("pitches"); }
     } else {
       await tryShowServerError(res, "Dismiss failed");
     }

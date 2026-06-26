@@ -8,6 +8,7 @@
 | Test 2: Mod Full Cycle | ✅ PASS | 2026-06-07 | All 6/7 steps executed. Skipped: mod desc pagination (verified in Test 1). RAW1/C11/C1 confirmed. |
 | Test 3: Validation & Edge Cases | 🔶 BUG FOUND | 2026-06-07 | Dismiss pitch stale cache bug found — dismissId missing lock + cache invalidation. Fixed. Skipped: client validation tests. |
 | Test 4: Pitch Feedback Loop | ⏳ PENDING | 2026-06-25 | New in `pitch-feedback-loop`. Soft-dismiss with reason + DM on submit + status badge in My Stuff + View-dismissed link in mod Pitches tab. |
+| Test 4.11: Dismiss Refresh | ⏳ PENDING | 2026-06-26 | New in `pitch-dismiss-refresh`. Verifies "View dismissed (1)" link appears immediately after dismiss (no stale counts). |
 
 ## Quick Reference
 
@@ -118,3 +119,4 @@ Run as a non-mod user, then as a mod, then back as the non-mod user.
 | 4.8 | As non-mod (the original pitcher), open 👤 → 💡 Pitches → tap Next/Prev until the dismissed pitch is showing | Card shows: "❌ Dismissed: Test dismiss · on {today} · by u/{mod}". The [🗑️ Delete] button is still available (owner's hard-delete). | — |
 | 4.9 | As non-mod, on the dismissed pitch, click [🗑️ Delete] → confirm | Toast: "Deleted". Card disappears. | `[DISMISS] Idea {id} hard-deleted by owner u/...` |
 | 4.10 | As non-mod, refresh the page → 👤 → 💡 Pitches | The dismissed-and-deleted pitch is gone. Any surviving pitches still show the "📋 Pending review" line. | — |
+| 4.11 | **pitch-dismiss-refresh** As mod, dismiss the only pending pitch in the queue → look at the empty state | Empty state shows "No pitched ideas" with a "🗑️ View dismissed (1)" link below. The link appears immediately (no tab switch / page refresh needed) — proves counts are refetched, not stale. | `[DISMISS]` log + `loadModTab` refetch + client log: `dismissIdea refetching pitches tab (was optimistic splice)` |
