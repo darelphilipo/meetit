@@ -139,6 +139,17 @@ export function validateDismissReason(reason: unknown): string | null {
   return null;
 }
 
+// debug-panel-install-gate: pure decision function for the debug log panel
+// 🐛 button visibility. Returns "show" only when BOTH the user is a mod AND
+// the install setting is on. Default behavior (both flags false) is HIDE —
+// the panel is opt-in, not opt-out. Pure function — safe to unit test.
+export function decideDebugPanelVisibility(
+  isMod: boolean,
+  showDebugPanelSetting: boolean,
+): "show" | "hide" {
+  return isMod === true && showDebugPanelSetting === true ? "show" : "hide";
+}
+
 /**
  * The maximum number of attendee usernames rendered in a share/reminder post.
  * Beyond this cap, posts show "+X more" instead of bloating the body.

@@ -8,6 +8,7 @@ import {
   buildRsvpShareBody,
   createPendingEvent,
   csvEscape,
+  decideDebugPanelVisibility,
   formatAttendeeList,
   isConfiguredModerator,
   isSubmissionOwner,
@@ -663,4 +664,35 @@ test("validateDismissReason treats 100-char limit as character count after trim"
   // 100 chars of "x" plus 10 spaces (trimmed to 100) is valid
   const padded = "   " + "x".repeat(100) + "   ";
   assert.equal(validateDismissReason(padded), null);
+});
+
+// debug-panel-install-gate: the 🐛 button is only shown when BOTH the user
+// is a mod AND the install setting is on. The visibility decision is a
+// pure function so the matrix can be unit tested.
+test("decideDebugPanelVisibility: mod + setting on → show", () => {
+  assert.equal(decideDebugPanelVisibility(true, true), "show");
+});
+
+test("decideDebugPanelVisibility: mod + setting off → hide", () => {
+  // Mod is loaded but the install hasn't opted in. Default behavior.
+  assert.equal(decideDebugPanelVisibility(true, false), "hide");
+});
+
+test("decideDebugPanelVisibility: non-mod + setting on → hide", () => {
+  // Setting is on but user is not a mod. Defense in depth: even if a
+  // non-mod found the install setting flipped on, they still can't see
+  // the panel.
+  assert.equal(decideDebugPanelVisibility(false, true), "hide");
+});
+
+test("decideDebugPanelVisibility: non-mod + setting off → hide", () => {
+  assert.equal(decideDebugPanelVisibility(false, false), "hide");
+});
+
+test("decideDebugPanelVisibility: only shows when both flags are strictly true", () => {
+  // Truthy-but-not-true values (1, "true", etc.) should NOT bypass the
+  // check — the install setting is read as a strict boolean.
+  assert.equal(decideDebugPanelVisibility(1 as any, true), "hide");
+  assert.equal(decideDebugPanelVisibility(true, 1 as any), "hide");
+  assert.equal(decideDebugPanelVisibility("true" as any, true), "hide");
 });

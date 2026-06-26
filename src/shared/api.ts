@@ -32,6 +32,7 @@ export type AppSettings = {
   primary_color: string;
   secondary_color: string;
   use_brutalist_borders: boolean;
+  show_debug_panel: boolean;
   timezone: string;
 };
 
