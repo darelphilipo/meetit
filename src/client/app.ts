@@ -2,6 +2,10 @@
 // functions are provided by the Devvit webview host).
 declare function navigateTo(url: string): void;
 
+// debug-panel-install-gate: import the pure visibility-decision helper from
+// the shared meetit.ts. esbuild bundles this into public/app.js at build time.
+import { decideDebugPanelVisibility } from "../shared/meetit.ts";
+
 var API_BASE = "";
 var currentEventId: string | null = null;
 var currentUsername: string | null = null;
