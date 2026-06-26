@@ -14,6 +14,11 @@ var cachedHomeIsMod = false;
 // debug-panel-install-gate: cached value of the show_debug_panel App
 // Installation Setting. Off by default; only revealed alongside the mod gate.
 var cachedShowDebugPanel = false;
+// aged-cleanup-mode: cached cleanup settings. The pause flag controls the
+// banner in the mod dashboard. The threshold is shown in the confirm
+// overlay of the manual cleanup button.
+var cachedPauseCleanup = false;
+var cachedCleanupAfterDays = 30;
 var homeShareUrl = "";
 var homeLoadSeq = 0;
 var detailLoading = false;
@@ -342,6 +347,12 @@ async function loadHome() {
         // debug-panel-install-gate: also cache the show_debug_panel setting
         // (default false if missing) and re-apply the visibility decision.
         cachedShowDebugPanel = !!(data.data.settings && data.data.settings.show_debug_panel === true);
+        // aged-cleanup-mode: cache the pause flag and threshold for the mod
+        // dashboard banner + confirm overlay.
+        if (data.data.settings) {
+          cachedPauseCleanup = data.data.settings.pause_cleanup === true;
+          cachedCleanupAfterDays = Number(data.data.settings.cleanup_after_days) || 30;
+        }
         applyDebugPanelVisibility(); // H1 fix: reveal debug toggle for mods
         homeShareUrl = data.data.shareUrl || "";
         if (currentId) {
@@ -1227,6 +1238,16 @@ function showModDashboard() {
   document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) {
     t.classList.toggle("active", (t as HTMLElement).dataset.mtab === "pending");
   });
+  // aged-cleanup-mode: reveal the cleanup bar to mods, and show the pause
+  // banner if the install setting is on. The bar is hidden for non-mods
+  // (the server-side requireMod() gate on /api/cleanup-aged is the real
+  // security boundary; this is just UX).
+  var cleanupBar = document.getElementById("mod-cleanup-bar");
+  if (cleanupBar) cleanupBar.style.display = cachedHomeIsMod ? "block" : "none";
+  var pauseBanner = document.getElementById("mod-cleanup-pause-banner");
+  if (pauseBanner) pauseBanner.style.display = cachedHomeIsMod && cachedPauseCleanup ? "block" : "none";
+  var status = document.getElementById("mod-cleanup-status");
+  if (status) status.textContent = "Threshold: " + cachedCleanupAfterDays + " days";
   delete modTabCache["published"];
   delete modTabCache["pitches"];
   loadModTab("pending");
@@ -1885,10 +1906,39 @@ async function deletePitch(id: string) { log("deletePitch id=" + id); var title 
       var myStuffOverlay3 = document.getElementById("my-stuff-overlay");
       if (myStuffOverlay3 && myStuffOverlay3.classList.contains("active") && myStuffTab === "pitches") { renderMyPitchCard(); }
     } else { await tryShowServerError(res, "Delete failed"); } } catch (e) { showToast("Network error", "error"); } finally { setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', false); unlock(k); } }
-// pitch-approve: mod approves a pitch. Mirrors dismissIdea — lock, confirm,
-// fetch, refetch, unlock. No reason input (approve is a positive signal,
-// not a corrective one). The server is idempotent: re-approving an
-// already-approved pitch returns success without sending a duplicate DM.
+// aged-cleanup-mode: mod triggers a manual cleanup. The server is the source
+// of truth for what's aged; the client just shows the counts in a toast.
+// The pause setting (if any) does NOT block this — the manual button always
+// works, only the auto CRON respects the pause.
+async function runCleanupAged() {
+  log("runCleanupAged");
+  if (isLocked("cleanup-aged")) return;
+  lock("cleanup-aged");
+  if (!await confirmDestructive('Run cleanup now? This will hard-delete events and pitches older than the configured threshold. This cannot be undone.')) { unlock("cleanup-aged"); return; }
+  setBtnLoading('[data-action="run-cleanup-aged"]', true, "⏳ Running...");
+  var res;
+  try {
+    res = await fetch(API_BASE + "/api/cleanup-aged", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    if (res.ok) {
+      var data = await res.json();
+      var c = data || {};
+      var total = (c.eventsActive || 0) + (c.eventsPending || 0) + (c.pitches || 0);
+      if (total === 0) {
+        showToast("Cleanup ran — nothing to delete", "success");
+      } else {
+        showToast("Cleanup ran — removed " + (c.eventsActive || 0) + " active + " + (c.eventsPending || 0) + " pending events, " + (c.pitches || 0) + " pitches", "success");
+      }
+      log("runCleanupAged done: " + JSON.stringify(c));
+    } else {
+      await tryShowServerError(res, "Cleanup failed");
+    }
+  } catch (e) {
+    showToast("Network error", "error");
+  } finally {
+    setBtnLoading('[data-action="run-cleanup-aged"]', false);
+    unlock("cleanup-aged");
+  }
+}
 async function approveIdea(id: string) {
   log("approveIdea id=" + id);
   var k = "approve-" + id;
@@ -2667,7 +2717,7 @@ var usernameCached: string | null = null, prefillLoading = false;
 async function prefillOrganizer() { if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; } if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; } if (prefillLoading) return; prefillLoading = true; try { var res = await fetch(API_BASE + "/api/init"); var data = await res.json(); if (data.type === "init" && data.username) { currentUsername = data.username; usernameCached = data.username; (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username; } if (data.type === "init" && data.timezone) { setAppTimezone(data.timezone); } // H1 fix: set isMod from init so the debug panel can be revealed
   // before /api/home returns. The server also returns isMod in the init
   // response (see server.ts:onInit).
-  if (data.type === "init" && typeof data.isMod === "boolean") { cachedHomeIsMod = data.isMod; cachedShowDebugPanel = !!(data.settings && data.settings.show_debug_panel === true); applyDebugPanelVisibility(); } } catch (e) { log("error: prefillOrganizer " + e); } prefillLoading = false; }
+  if (data.type === "init" && typeof data.isMod === "boolean") { cachedHomeIsMod = data.isMod; cachedShowDebugPanel = !!(data.settings && data.settings.show_debug_panel === true); if (data.settings) { cachedPauseCleanup = data.settings.pause_cleanup === true; cachedCleanupAfterDays = Number(data.settings.cleanup_after_days) || 30; } applyDebugPanelVisibility(); } } catch (e) { log("error: prefillOrganizer " + e); } prefillLoading = false; }
 
 // ======= OVERLAY HELPERS =======
 function openOverlay(id: string) { log("OPEN overlay " + id); document.getElementById(id)!.classList.add("active"); }
@@ -2815,6 +2865,7 @@ function handleAction(action: string, id: string | null) {
     case "delete-published": if (id) deleteEvent(id, "published"); break;
     case "dismiss-idea": if (id) dismissIdea(id); break;
     case "approve-idea": if (id) approveIdea(id); break;
+    case "run-cleanup-aged": runCleanupAged(); break;
     case "delete-pitch": if (id) deletePitch(id); break;
     case "rsvp-now": if (id) showRsvpOverlay(id); break;
     case "update-rsvp": if (id) showUpdateRsvpOverlay(id); break;

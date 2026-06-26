@@ -11,6 +11,7 @@
 | Test 4.11: Dismiss Refresh | ⏳ PENDING | 2026-06-26 | New in `pitch-dismiss-refresh`. Verifies "View dismissed (1)" link appears immediately after dismiss (no stale counts). |
 | Test 5: Debug Panel Install Gate | ⏳ PENDING | 2026-06-26 | New in `debug-panel-install-gate`. 🐛 button hidden by default; only visible when `show_debug_panel` install setting is on AND user is a mod. |
 | Test 6: Approve Pitch | ⏳ PENDING | 2026-06-26 | New in `pitch-approve`. Mod can approve a pitch; pitcher gets DM; pitch moves to "✅ View approved (N)" filter; My Stuff shows "✅ Approved" line. 2-device playtest. |
+| Test 7: Aged Cleanup Mode | ⏳ PENDING | 2026-06-26 | New in `aged-cleanup-mode`. Daily 03:00 UTC auto CRON + manual "🧹 Run cleanup now" button. Threshold 1-365d, pause toggle. 2-device playtest. |
 
 ## Quick Reference
 

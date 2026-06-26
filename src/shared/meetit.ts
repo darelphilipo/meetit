@@ -180,6 +180,76 @@ export function buildApproveDm(pitch: { title: string; submittedBy: string }): {
   };
 }
 
+// aged-cleanup-mode: pure helpers for the daily cleanup CRON. All defensive —
+// return `false` (do NOT age out) for missing or invalid input. A typo in a
+// date field would otherwise silently wipe the event, so we skip-with-warning
+// and let the mod see the warning in the in-app debug panel.
+
+// aged-cleanup-mode: is the event "aged" (its scheduled date+time is more
+// than `thresholdDays` in the past)? Defensive: returns `false` for missing
+// date/time or invalid Date parsing. `settingsTimezone` is the IANA offset
+// string (e.g. "+05:30") — uses the same reconstruction as onCheckEvents.
+export function isEventAgedOut(
+  event: any,
+  now: Date,
+  thresholdDays: number,
+  settingsTimezone: string,
+): boolean {
+  if (!event || typeof event.date !== "string" || typeof event.time !== "string") return false;
+  const tz = settingsTimezone || "+05:30";
+  const eventInstant = new Date(`${event.date}T${event.time}:00${tz}`);
+  if (isNaN(eventInstant.getTime())) return false;
+  return now.getTime() - eventInstant.getTime() > thresholdDays * 86_400_000;
+}
+
+// aged-cleanup-mode: is the pitch "aged" (submittedAt is more than
+// `thresholdDays` ago)? Defensive: returns `false` for missing or invalid
+// submittedAt. Status doesn't matter — pending, dismissed, and approved
+// pitches are all eligible.
+export function isPitchAgedOut(pitch: any, now: Date, thresholdDays: number): boolean {
+  if (!pitch || typeof pitch.submittedAt !== "string") return false;
+  const submitted = new Date(pitch.submittedAt);
+  if (isNaN(submitted.getTime())) return false;
+  return now.getTime() - submitted.getTime() > thresholdDays * 86_400_000;
+}
+
+// aged-cleanup-mode: pick all aged items from a batch. The caller is
+// responsible for splitting events into active vs pending before calling,
+// because the cleanup needs to call hDel on different hashes. Returns the
+// aged subset ready for deletion. Pure function.
+export function pickAgedItems(
+  activeEvents: any[],
+  pendingEvents: any[],
+  pitches: any[],
+  now: Date,
+  thresholdDays: number,
+  settingsTimezone: string,
+): { agedActiveEvents: any[]; agedPendingEvents: any[]; agedPitches: any[] } {
+  return {
+    agedActiveEvents: activeEvents.filter((e) => isEventAgedOut(e, now, thresholdDays, settingsTimezone)),
+    agedPendingEvents: pendingEvents.filter((e) => isEventAgedOut(e, now, thresholdDays, settingsTimezone)),
+    agedPitches: pitches.filter((p) => isPitchAgedOut(p, now, thresholdDays)),
+  };
+}
+
+// aged-cleanup-mode: build the audit log entry. JSON-serialized so it can
+// be stored in a Redis zset. Pure (no Date mutation; the `ts` value is the
+// passed-in `now.toISOString()`). Counts are the per-bucket totals.
+export function buildCleanupLogEntry(
+  now: Date,
+  counts: { eventsActive: number; eventsPending: number; pitches: number },
+  meta: { thresholdDays: number; trigger: "cron" | "manual"; user: string },
+): string {
+  return JSON.stringify({
+    ts: now.toISOString(),
+    events: { active: counts.eventsActive, pending: counts.eventsPending },
+    pitches: counts.pitches,
+    thresholdDays: meta.thresholdDays,
+    trigger: meta.trigger,
+    user: meta.user,
+  });
+}
+
 /**
  * The maximum number of attendee usernames rendered in a share/reminder post.
  * Beyond this cap, posts show "+X more" instead of bloating the body.

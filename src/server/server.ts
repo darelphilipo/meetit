@@ -124,6 +124,9 @@ async function onRequest(
     case ApiEndpoint.ApproveIdea:
       body = await onApproveIdea(req);
       break;
+    case ApiEndpoint.CleanupAged:
+      body = await onCleanupAged(req);
+      break;
     case ApiEndpoint.DeletePending:
       body = await onDeletePending(req);
       break;
@@ -151,6 +154,9 @@ async function onRequest(
     case InternalEndpoint.CheckEvents:
       body = await onCheckEvents(req);
       break;
+    case InternalEndpoint.CheckCleanupAged:
+      body = await onCleanupAged(req);
+      break;
     default:
       endpoint satisfies never;
       body = { error: "not found", status: 404 };
@@ -165,6 +171,7 @@ const InternalEndpoint = {
   OnAppInstall: "/internal/on-app-install",
   OnAppUpgrade: "/internal/on-app-upgrade",
   CheckEvents: "/internal/scheduler/check-events",
+  CheckCleanupAged: "/internal/scheduler/cleanup-aged",
 } as const;
 
 type InternalEndpoint = (typeof InternalEndpoint)[keyof typeof InternalEndpoint];
@@ -226,25 +233,40 @@ function parseModList(raw: unknown): string[] {
 
 async function getSettings(): Promise<AppSettings> {
   try {
-    const [primary, secondary, borders, showDebug, tz] = await Promise.all([
+    const [primary, secondary, borders, showDebug, tz, cleanupDays, pauseCleanup] = await Promise.all([
       settings.get("primary_color"),
       settings.get("secondary_color"),
       settings.get("use_brutalist_borders"),
       settings.get("show_debug_panel"),
       settings.get("timezone"),
+      settings.get("cleanup_after_days"),
+      settings.get("pause_cleanup"),
     ]);
     const showDebugPanel = (showDebug as boolean) === true;
-    console.log(`[SETTINGS] show_debug_panel=${showDebugPanel}`);
+    // aged-cleanup-mode: threshold parsed as a number, validated to 1-365 in
+    // the cleanup handler. Defensive default: 30 (the documented default).
+    const cleanupAfterDays = Math.max(1, Math.min(365, Number(cleanupDays) || 30));
+    const pauseCleanupFlag = (pauseCleanup as boolean) === true;
     return {
       primary_color: (primary as string) || "#ffff00",
       secondary_color: (secondary as string) || "#ff69b4",
       use_brutalist_borders: (borders as boolean) !== false,
       show_debug_panel: showDebugPanel,
       timezone: normalizeTimezone(tz),
+      cleanup_after_days: cleanupAfterDays,
+      pause_cleanup: pauseCleanupFlag,
     };
   } catch (e) {
     console.error(`getSettings error: ${e}`);
-    return { primary_color: "#ffff00", secondary_color: "#ff69b4", use_brutalist_borders: true, show_debug_panel: false, timezone: "+05:30" };
+    return {
+      primary_color: "#ffff00",
+      secondary_color: "#ff69b4",
+      use_brutalist_borders: true,
+      show_debug_panel: false,
+      timezone: "+05:30",
+      cleanup_after_days: 30,
+      pause_cleanup: false,
+    };
   }
 }
 
@@ -1115,6 +1137,130 @@ async function readRaw(req: IncomingMessage): Promise<string> {
   req.on("data", (chunk) => chunks.push(chunk));
   await once(req, "end");
   return `${Buffer.concat(chunks)}`;
+}
+
+// aged-cleanup-mode: hard-deletes events and pitches older than the
+// configured `cleanup_after_days` threshold. Triggered by both the daily
+// auto CRON (03:00 UTC) and the mod-only manual endpoint. Uses a separate
+// distributed lock (meetit:cleanup_lock, 5-min TTL) so it doesn't conflict
+// with the check-events CRON. Best-effort and logged in full.
+async function onCleanupAged(req: IncomingMessage): Promise<ApiResponse | TaskResponse> {
+  const startedAt = Date.now();
+  const isCron = req.url === InternalEndpoint.CheckCleanupAged;
+  // 1. Lock check (CRON only)
+  if (isCron) {
+    const got = await redis.hSetNX("meetit:cleanup_lock", "lock", Date.now().toString());
+    if (!got) {
+      console.log(`[CLEANUP] auto CRON skipped: lock held by another instance`);
+      return { status: "ok", skipped: true };
+    }
+    await redis.expire("meetit:cleanup_lock", 300); // 5-min TTL
+  } else {
+    // 2. Auth check (manual only)
+    const authError = await requireMod();
+    if (authError) return authError;
+  }
+  // 3. Read settings
+  const appSettings = await getSettings();
+  const days = appSettings.cleanup_after_days;
+  // 4. Threshold validation
+  if (!Number.isInteger(days) || days < 1 || days > 365) {
+    const msg = `[CLEANUP] invalid threshold=${days}, must be 1-365`;
+    console.log(msg);
+    serverLog("warn", msg);
+    return { error: "Invalid threshold", status: 400 };
+  }
+  // 5. Pause check (CRON only)
+  if (isCron && appSettings.pause_cleanup) {
+    const msg = `[CLEANUP] skipped: pause_cleanup=true`;
+    console.log(msg);
+    serverLog("info", msg);
+    return { status: "ok", skipped: true };
+  }
+  // 6. Log start
+  const actor = context.username || "system";
+  const startMsg = isCron
+    ? `[CLEANUP] auto CRON tick (threshold=${days}d, pause=${appSettings.pause_cleanup})`
+    : `[CLEANUP] manual trigger by u/${actor} (threshold=${days}d, pause=${appSettings.pause_cleanup})`;
+  console.log(startMsg);
+  serverLog("info", startMsg);
+  // 7. Read data
+  const [activeJson, pendingJson, pitchesJson] = await Promise.all([
+    redis.hGetAll("meetit:active_events"),
+    redis.hGetAll("meetit:pending_events"),
+    redis.hGetAll("meetit:pitched_ideas"),
+  ]);
+  const activeList = Object.values(activeJson).map((v) => safeJSONParse(v)).filter((e): e is any => e !== null);
+  const pendingList = Object.values(pendingJson).map((v) => safeJSONParse(v)).filter((e): e is any => e !== null);
+  const pitchList = Object.values(pitchesJson).map((v) => safeJSONParse(v)).filter((p): p is any => p !== null);
+  // 8. Pick aged items
+  const now = new Date();
+  const picked = pickAgedItems(activeList, pendingList, pitchList, now, days, appSettings.timezone);
+  // 8a. Log defensive skips (events with missing/invalid date)
+  for (const e of activeList) {
+    if (!isEventAgedOut(e, now, days, appSettings.timezone) && (typeof e?.date !== "string" || typeof e?.time !== "string" || isNaN(new Date(`${e.date}T${e.time}:00${appSettings.timezone}`).getTime()))) {
+      const msg = `[CLEANUP] skipping event ${e?.id}: missing/invalid date (date="${e?.date}" time="${e?.time}")`;
+      console.log(msg);
+      serverLog("warn", msg);
+    }
+  }
+  for (const e of pendingList) {
+    if (!isEventAgedOut(e, now, days, appSettings.timezone) && (typeof e?.date !== "string" || typeof e?.time !== "string" || isNaN(new Date(`${e.date}T${e.time}:00${appSettings.timezone}`).getTime()))) {
+      const msg = `[CLEANUP] skipping event ${e?.id}: missing/invalid date (date="${e?.date}" time="${e?.time}")`;
+      console.log(msg);
+      serverLog("warn", msg);
+    }
+  }
+  for (const p of pitchList) {
+    if (!isPitchAgedOut(p, now, days) && (typeof p?.submittedAt !== "string" || isNaN(new Date(p.submittedAt).getTime()))) {
+      const msg = `[CLEANUP] skipping pitch ${p?.id}: missing submittedAt`;
+      console.log(msg);
+      serverLog("warn", msg);
+    }
+  }
+  // 9. Delete aged active events (+ RSVP side data)
+  for (const e of picked.agedActiveEvents) {
+    if (!e?.id) continue;
+    await Promise.all([
+      redis.hDel("meetit:active_events", [e.id]),
+      redis.del(`meetit:rsvps:${e.id}`),
+      redis.del(`meetit:rsvp_details:${e.id}`),
+    ]);
+  }
+  // 10. Delete aged pending events
+  if (picked.agedPendingEvents.length > 0) {
+    const ids = picked.agedPendingEvents.map((e: any) => e.id).filter(Boolean);
+    if (ids.length > 0) await redis.hDel("meetit:pending_events", ids);
+  }
+  // 11. Delete aged pitches (any status)
+  if (picked.agedPitches.length > 0) {
+    const ids = picked.agedPitches.map((p: any) => p.id).filter(Boolean);
+    if (ids.length > 0) await redis.hDel("meetit:pitched_ideas", ids);
+  }
+  // 12. Write audit log
+  const counts = {
+    eventsActive: picked.agedActiveEvents.length,
+    eventsPending: picked.agedPendingEvents.length,
+    pitches: picked.agedPitches.length,
+  };
+  const logEntry = buildCleanupLogEntry(now, counts, {
+    thresholdDays: days,
+    trigger: isCron ? "cron" : "manual",
+    user: isCron ? "system" : actor,
+  });
+  await redis.zAdd("meetit:cleanup_log", { score: now.getTime(), member: logEntry });
+  // Trim audit log to 50 most recent entries
+  await redis.zRemRangeByRank("meetit:cleanup_log", 0, -51);
+  // 13. Log finish
+  const took = Date.now() - startedAt;
+  const totalDeleted = counts.eventsActive + counts.eventsPending + counts.pitches;
+  const finishMsg = totalDeleted === 0
+    ? `[CLEANUP] done: nothing to clean (events=${activeList.length + pendingList.length} pitches=${pitchList.length})`
+    : `[CLEANUP] done: events active=${counts.eventsActive} pending=${counts.eventsPending}, pitches=${counts.pitches} (threshold=${days}d, took=${took}ms)`;
+  console.log(finishMsg);
+  serverLog("info", finishMsg);
+  if (isCron) return { status: "ok", ...counts };
+  return { type: "cleanup-aged", ...counts };
 }
 
 async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {

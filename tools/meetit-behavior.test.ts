@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildApproveDm,
   buildAttendees,
+  buildCleanupLogEntry,
   buildGoogleCalendarUrl,
   buildReminderBody,
   buildReminderTitle,
@@ -12,9 +13,12 @@ import {
   decideDebugPanelVisibility,
   formatAttendeeList,
   isConfiguredModerator,
+  isEventAgedOut,
+  isPitchAgedOut,
   isSubmissionOwner,
   normalizeUsername,
   parseQueryParam,
+  pickAgedItems,
   pitchEffectiveStatus,
   stripQueryString,
   validateDismissReason,
@@ -759,4 +763,116 @@ test("buildApproveDm handles empty/null title and submittedBy gracefully", () =>
   assert.match(dm.body, /"your idea"/);
   const dm2 = buildApproveDm({ title: null as any, submittedBy: null as any });
   assert.match(dm2.body, /Hi u\/anonymous,/);
+});
+
+// aged-cleanup-mode: isEventAgedOut boundary + defensive skips.
+test("isEventAgedOut: event 30 days in the past is NOT aged (boundary)", () => {
+  // Now is 2026-06-26 10:00 IST. Event is 30 days before that, at 10:00 IST.
+  // The boundary is strict: (now - instant) > 30d, so 30d exactly is NOT aged.
+  const now = new Date("2026-06-26T10:00:00.000+05:30");
+  const event = { date: "2026-05-27", time: "10:00" };
+  assert.equal(isEventAgedOut(event, now, 30, "+05:30"), false);
+});
+
+test("isEventAgedOut: event 30 days + 1 second in the past IS aged", () => {
+  const now = new Date("2026-06-26T10:00:01.000+05:30");
+  const event = { date: "2026-05-27", time: "10:00" };
+  assert.equal(isEventAgedOut(event, now, 30, "+05:30"), true);
+});
+
+test("isEventAgedOut: future event is never aged", () => {
+  const now = new Date("2026-06-26T10:00:00.000+05:30");
+  const event = { date: "2027-01-01", time: "10:00" };
+  assert.equal(isEventAgedOut(event, now, 30, "+05:30"), false);
+});
+
+test("isEventAgedOut: missing date returns false (defensive skip)", () => {
+  const now = new Date();
+  assert.equal(isEventAgedOut({ time: "10:00" }, now, 30, "+05:30"), false);
+  assert.equal(isEventAgedOut({ date: "2026-01-01" }, now, 30, "+05:30"), false);
+  assert.equal(isEventAgedOut({}, now, 30, "+05:30"), false);
+  assert.equal(isEventAgedOut(null, now, 30, "+05:30"), false);
+});
+
+test("isEventAgedOut: invalid date/time returns false", () => {
+  const now = new Date();
+  assert.equal(isEventAgedOut({ date: "not-a-date", time: "10:00" }, now, 30, "+05:30"), false);
+  assert.equal(isEventAgedOut({ date: "2026-13-99", time: "25:99" }, now, 30, "+05:30"), false);
+});
+
+// aged-cleanup-mode: isPitchAgedOut boundary + defensive skips.
+test("isPitchAgedOut: pitch 30 days old is NOT aged (boundary)", () => {
+  const now = new Date("2026-06-26T10:00:00.000Z");
+  const pitch = { submittedAt: "2026-05-27T10:00:00.000Z" };
+  assert.equal(isPitchAgedOut(pitch, now, 30), false);
+});
+
+test("isPitchAgedOut: pitch 30 days + 1 second old IS aged", () => {
+  const now = new Date("2026-06-26T10:00:01.000Z");
+  const pitch = { submittedAt: "2026-05-27T10:00:00.000Z" };
+  assert.equal(isPitchAgedOut(pitch, now, 30), true);
+});
+
+test("isPitchAgedOut: missing submittedAt returns false (defensive skip)", () => {
+  const now = new Date();
+  assert.equal(isPitchAgedOut({}, now, 30), false);
+  assert.equal(isPitchAgedOut({ submittedAt: "" }, now, 30), false);
+  assert.equal(isPitchAgedOut({ submittedAt: "not-a-date" }, now, 30), false);
+  assert.equal(isPitchAgedOut(null, now, 30), false);
+});
+
+test("isPitchAgedOut: status does not affect aging (approved/dismissed/pending all eligible)", () => {
+  const now = new Date("2026-06-26T10:00:00.000Z");
+  const oldSubmittedAt = "2025-01-01T00:00:00.000Z";
+  assert.equal(isPitchAgedOut({ status: "pending", submittedAt: oldSubmittedAt }, now, 30), true);
+  assert.equal(isPitchAgedOut({ status: "dismissed", submittedAt: oldSubmittedAt }, now, 30), true);
+  assert.equal(isPitchAgedOut({ status: "approved", submittedAt: oldSubmittedAt }, now, 30), true);
+});
+
+// aged-cleanup-mode: pickAgedItems splits correctly.
+test("pickAgedItems splits aged events into active vs pending", () => {
+  const now = new Date("2026-06-26T10:00:00.000+05:30");
+  const oldActiveEvent = { id: "evt_old_active", date: "2025-01-01", time: "10:00" };
+  const oldPendingEvent = { id: "evt_old_pending", date: "2025-01-01", time: "10:00" };
+  const newActiveEvent = { id: "evt_new_active", date: "2026-12-31", time: "10:00" };
+  const oldPitch = { id: "pitch_old", submittedAt: "2025-01-01T00:00:00.000Z" };
+  const newPitch = { id: "pitch_new", submittedAt: "2026-06-20T00:00:00.000Z" };
+  const result = pickAgedItems(
+    [oldActiveEvent, newActiveEvent],
+    [oldPendingEvent],
+    [oldPitch, newPitch],
+    now,
+    30,
+    "+05:30",
+  );
+  assert.equal(result.agedActiveEvents.length, 1);
+  assert.equal(result.agedActiveEvents[0].id, "evt_old_active");
+  assert.equal(result.agedPendingEvents.length, 1);
+  assert.equal(result.agedPendingEvents[0].id, "evt_old_pending");
+  assert.equal(result.agedPitches.length, 1);
+  assert.equal(result.agedPitches[0].id, "pitch_old");
+});
+
+// aged-cleanup-mode: buildCleanupLogEntry is deterministic and includes all fields.
+test("buildCleanupLogEntry includes ts, events, pitches, thresholdDays, trigger, user", () => {
+  const now = new Date("2026-06-26T10:00:00.000Z");
+  const entry = buildCleanupLogEntry(
+    now,
+    { eventsActive: 3, eventsPending: 1, pitches: 2 },
+    { thresholdDays: 30, trigger: "manual", user: "u/darelphilip" },
+  );
+  const parsed = JSON.parse(entry);
+  assert.equal(parsed.ts, "2026-06-26T10:00:00.000Z");
+  assert.deepEqual(parsed.events, { active: 3, pending: 1 });
+  assert.equal(parsed.pitches, 2);
+  assert.equal(parsed.thresholdDays, 30);
+  assert.equal(parsed.trigger, "manual");
+  assert.equal(parsed.user, "u/darelphilip");
+});
+
+test("buildCleanupLogEntry is deterministic (same inputs → same output)", () => {
+  const now = new Date("2026-06-26T10:00:00.000Z");
+  const counts = { eventsActive: 0, eventsPending: 0, pitches: 5 };
+  const meta = { thresholdDays: 30, trigger: "cron" as const, user: "system" };
+  assert.equal(buildCleanupLogEntry(now, counts, meta), buildCleanupLogEntry(now, counts, meta));
 });
