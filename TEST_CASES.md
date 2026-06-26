@@ -10,6 +10,7 @@
 | Test 4: Pitch Feedback Loop | ⏳ PENDING | 2026-06-25 | New in `pitch-feedback-loop`. Soft-dismiss with reason + DM on submit + status badge in My Stuff + View-dismissed link in mod Pitches tab. |
 | Test 4.11: Dismiss Refresh | ⏳ PENDING | 2026-06-26 | New in `pitch-dismiss-refresh`. Verifies "View dismissed (1)" link appears immediately after dismiss (no stale counts). |
 | Test 5: Debug Panel Install Gate | ⏳ PENDING | 2026-06-26 | New in `debug-panel-install-gate`. 🐛 button hidden by default; only visible when `show_debug_panel` install setting is on AND user is a mod. |
+| Test 6: Approve Pitch | ⏳ PENDING | 2026-06-26 | New in `pitch-approve`. Mod can approve a pitch; pitcher gets DM; pitch moves to "✅ View approved (N)" filter; My Stuff shows "✅ Approved" line. 2-device playtest. |
 
 ## Quick Reference
 

@@ -733,8 +733,14 @@ function renderMyPitchCard(opts: { noFade?: boolean } = {}) {
   // pitch-feedback-loop: render a status line that reflects the mod's action.
   // Pending (default / legacy) shows "📋 pending review".
   // Dismissed shows the reason + when + who, instead of vanishing silently.
+  // pitch-approve: approved shows "✅ Approved on {date} by u/{mod}" with a
+  // CTA pointing the pitcher to the [+] menu to submit the event.
   var statusLine: string;
-  if (p.status === "dismissed") {
+  if (p.status === "approved") {
+    var aBy = p.approvedBy ? ' by u/' + escapeHtml(p.approvedBy) : '';
+    var aAt = p.approvedAt ? ' on ' + escapeHtml(new Date(p.approvedAt).toLocaleDateString()) : '';
+    statusLine = '<div style="font-size:12px;color:#15803d;font-weight:600;margin-bottom:4px;">✅ Approved' + aAt + aBy + ' — submit as event from the [+] menu</div>';
+  } else if (p.status === "dismissed") {
     var dBy = p.dismissedBy ? ' by u/' + escapeHtml(p.dismissedBy) : '';
     var dAt = p.dismissedAt ? ' · on ' + escapeHtml(new Date(p.dismissedAt).toLocaleDateString()) : '';
     statusLine = '<div style="font-size:12px;color:#b91c1c;font-weight:600;margin-bottom:4px;">❌ Dismissed: ' + escapeHtml(p.dismissReason || "(no reason given)") + dAt + dBy + '</div>';
@@ -1209,11 +1215,11 @@ var modTab = "pending";
 // ("pending" | "dismissed" | "all"). Survives tab switches within the mod
 // dashboard. The View-dismissed / Back-to-pending links update this and
 // invalidate the cache before reloading.
-var modPitchesFilter: "pending" | "dismissed" | "all" = "pending";
+var modPitchesFilter: "pending" | "dismissed" | "approved" | "all" = "pending";
 // pitch-feedback-loop: per-filter counts from the last /api/pitched-ideas
 // response, used to render the "View dismissed (N)" link. Kept here so the
 // counts survive a renderModPitches() re-render without re-fetching.
-var modPitchesCounts: { pending: number; dismissed: number; all: number } = { pending: 0, dismissed: 0, all: 0 };
+var modPitchesCounts: { pending: number; approved: number; dismissed: number; all: number } = { pending: 0, approved: 0, dismissed: 0, all: 0 };
 function showModDashboard() {
   log("showModDashboard resetting active class to pending (was " + modTab + ")");
   openOverlay("mod-screen");
@@ -1237,10 +1243,11 @@ async function loadModTab(tab: string) {
     // pitch-feedback-loop: backward-compat — older cached entries may store
     // the raw ideas array (no counts). If so, fall back to an empty counts
     // object so the dismissed link just doesn't render.
+    // pitch-approve: counts now include "approved" as a third value.
     else if (tab === "pitches") {
       var c = cached.data;
-      if (Array.isArray(c)) renderModPitches(c, { pending: c.length, dismissed: 0, all: c.length });
-      else renderModPitches(c.ideas || [], c.counts || { pending: 0, dismissed: 0, all: 0 });
+      if (Array.isArray(c)) renderModPitches(c, { pending: c.length, approved: 0, dismissed: 0, all: c.length });
+      else renderModPitches(c.ideas || [], c.counts || { pending: 0, approved: 0, dismissed: 0, all: 0 });
     }
     return;
   }
@@ -1417,7 +1424,14 @@ function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
       '<button class="btn btn-white btn-icon btn-delete-published" data-id="' + item.id + '" data-action="delete-published" title="Delete event" aria-label="Delete event">🗑️</button>' +
       '</div>';
   } else {
-    actionsHtml = '<button class="btn btn-white btn-action-full btn-dismiss-idea" data-id="' + item.id + '" data-action="dismiss-idea">🗑️ Dismiss</button>';
+    // pitch-approve: two-button row (Approve green + Dismiss white) parallel
+    // to the pending events card (Details | Approve | Decline). flex:1 each
+    // so they split the width equally on wide viewports and wrap to two
+    // rows on narrow ones.
+    actionsHtml = '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button class="btn btn-green btn-action btn-approve-idea" data-id="' + item.id + '" data-action="approve-idea" style="flex:1;">✅ Approve</button>' +
+      '<button class="btn btn-white btn-action btn-dismiss-idea" data-id="' + item.id + '" data-action="dismiss-idea" style="flex:1;">🗑️ Dismiss</button>' +
+      '</div>';
   }
 
   c.innerHTML = buildCardShell({ color: color, headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, noFade: opts.noFade });
@@ -1484,7 +1498,7 @@ function renderModPublished(events: any[]) {
   }
   renderModCard("published");
 }
-function renderModPitches(ideas: any[], counts?: { pending: number; dismissed: number; all: number }) {
+function renderModPitches(ideas: any[], counts?: { pending: number; approved: number; dismissed: number; all: number }) {
   log("renderModPitches filter=" + modPitchesFilter + " count=" + ideas.length);
   modItems["pitches"] = ideas;
   if (counts) modPitchesCounts = counts;
@@ -1493,6 +1507,8 @@ function renderModPitches(ideas: any[], counts?: { pending: number; dismissed: n
     // pitch-feedback-loop: empty state is filter-aware. If the mod is
     // viewing the dismissed tab and there are none, the message should
     // reflect that. The "← Back to pending" link is also filter-aware.
+    // pitch-approve: extended with "approved" filter — empty title and
+    // body depend on which filter is active.
     var c = modPitchesCounts;
     var backLink = (modPitchesFilter !== "pending" && c.pending > 0)
       ? '<button class="btn btn-white btn-empty" data-action="mod-pitches-back" style="margin-top:12px;">← Back to pending</button>'
@@ -1500,14 +1516,22 @@ function renderModPitches(ideas: any[], counts?: { pending: number; dismissed: n
     var dismissedLink = (modPitchesFilter === "pending" && c.dismissed > 0)
       ? '<button class="btn btn-white btn-empty" data-action="mod-pitches-view-dismissed" style="margin-top:12px;">🗑️ View dismissed (' + c.dismissed + ')</button>'
       : "";
-    var emptyTitle = modPitchesFilter === "dismissed" ? "No dismissed pitches" : "No pitched ideas";
-    var emptyBody = modPitchesFilter === "dismissed"
-      ? "Nothing has been dismissed yet."
+    // pitch-approve: "✅ View approved (N)" link parallel to the dismissed
+    // link, shown when the mod is on the default pending view and at least
+    // one approved pitch exists.
+    var approvedLink = (modPitchesFilter === "pending" && c.approved > 0)
+      ? '<button class="btn btn-white btn-empty" data-action="mod-pitches-view-approved" style="margin-top:12px;">✅ View approved (' + c.approved + ')</button>'
+      : "";
+    var emptyTitle = modPitchesFilter === "dismissed" ? "No dismissed pitches"
+      : modPitchesFilter === "approved" ? "No approved pitches"
+      : "No pitched ideas";
+    var emptyBody = modPitchesFilter === "dismissed" ? "Nothing has been dismissed yet."
+      : modPitchesFilter === "approved" ? "Approved pitches will appear here."
       : "Community pitches will appear here.";
     document.getElementById("pending-events-container")!.innerHTML =
       renderEmptyState({
         emoji: "💡", title: emptyTitle, body: emptyBody, context: "mod-pitches",
-      }) + dismissedLink + backLink;
+      }) + approvedLink + dismissedLink + backLink;
     updateCardDots("mod", 0, 0);
     updateCardNav("mod", 0, 0);
     return;
@@ -1526,14 +1550,24 @@ function renderModPitches(ideas: any[], counts?: { pending: number; dismissed: n
         modContainer.prepend(back);
       }
     });
-  } else if (modPitchesCounts.dismissed > 0) {
+  } else if (modPitchesCounts.dismissed > 0 || modPitchesCounts.approved > 0) {
     // pitch-feedback-loop: in the default pending view, append a "View
     // dismissed (N)" link below the card so the mod can find their own
     // dismisses. The link is filter-aware: it switches to the dismissed
     // view without losing the current state.
+    // pitch-approve: extended — also append "✅ View approved (N)" when
+    // approved count > 0. Both links render in the same flex row, each
+    // in its own appendChild so they're visually separated.
     var modContainer2 = document.getElementById("pending-events-container")!;
     Promise.resolve().then(function () {
-      if (!modContainer2.querySelector('[data-action="mod-pitches-view-dismissed"]')) {
+      if (modPitchesCounts.approved > 0 && !modContainer2.querySelector('[data-action="mod-pitches-view-approved"]')) {
+        var approvedLinkRow = document.createElement("div");
+        approvedLinkRow.style.padding = "8px 16px";
+        approvedLinkRow.style.textAlign = "center";
+        approvedLinkRow.innerHTML = '<button class="btn btn-white btn-compact" data-action="mod-pitches-view-approved">✅ View approved (' + modPitchesCounts.approved + ')</button>';
+        modContainer2.appendChild(approvedLinkRow);
+      }
+      if (modPitchesCounts.dismissed > 0 && !modContainer2.querySelector('[data-action="mod-pitches-view-dismissed"]')) {
         var link = document.createElement("div");
         link.style.padding = "8px 16px";
         link.style.textAlign = "center";
@@ -1851,6 +1885,45 @@ async function deletePitch(id: string) { log("deletePitch id=" + id); var title 
       var myStuffOverlay3 = document.getElementById("my-stuff-overlay");
       if (myStuffOverlay3 && myStuffOverlay3.classList.contains("active") && myStuffTab === "pitches") { renderMyPitchCard(); }
     } else { await tryShowServerError(res, "Delete failed"); } } catch (e) { showToast("Network error", "error"); } finally { setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', false); unlock(k); } }
+// pitch-approve: mod approves a pitch. Mirrors dismissIdea — lock, confirm,
+// fetch, refetch, unlock. No reason input (approve is a positive signal,
+// not a corrective one). The server is idempotent: re-approving an
+// already-approved pitch returns success without sending a duplicate DM.
+async function approveIdea(id: string) {
+  log("approveIdea id=" + id);
+  var k = "approve-" + id;
+  if (isLocked(k)) return;
+  lock(k);
+  var title = getItemTitle(id, modItems);
+  if (!await confirmDestructive('Approve "' + title + '"? The pitcher will be notified via DM.')) { unlock(k); return; }
+  setBtnLoading('[data-action="approve-idea"][data-id="' + id + '"]', true, "⏳ Approving...");
+  var res;
+  try {
+    res = await fetch(API_BASE + "/api/approve-idea", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ideaId: id }),
+    });
+    if (res.ok) {
+      showToast("Pitch approved — DM sent", "success");
+      log("approveIdea approved " + id + ", awaiting refetch");
+      // Same refetch pattern as dismissIdea (pitch-dismiss-refresh):
+      // delete cache and loadModTab instead of optimistic update, so the
+      // cross-filter counts (pending / approved / dismissed) are correct
+      // immediately.
+      delete modTabCache["pitches"];
+      var modScreen4 = document.getElementById("mod-screen");
+      if (modScreen4 && modScreen4.classList.contains("active") && modTab === "pitches") { loadModTab("pitches"); }
+    } else {
+      await tryShowServerError(res, "Approve failed");
+    }
+  } catch (e) {
+    showToast("Network error", "error");
+  } finally {
+    setBtnLoading('[data-action="approve-idea"][data-id="' + id + '"]', false);
+    unlock(k);
+  }
+}
 async function cancelMyEvent(id: string) {
   log("cancelMyEvent id=" + id);
   var k = "my-cancel-" + id;
@@ -2741,6 +2814,7 @@ function handleAction(action: string, id: string | null) {
     case "decline-event": if (id) deleteEvent(id, "pending"); break;
     case "delete-published": if (id) deleteEvent(id, "published"); break;
     case "dismiss-idea": if (id) dismissIdea(id); break;
+    case "approve-idea": if (id) approveIdea(id); break;
     case "delete-pitch": if (id) deletePitch(id); break;
     case "rsvp-now": if (id) showRsvpOverlay(id); break;
     case "update-rsvp": if (id) showUpdateRsvpOverlay(id); break;
@@ -2878,6 +2952,7 @@ function handleAction(action: string, id: string | null) {
     case "switch-mod-tab": if (id) switchModTab(id); break;
     // pitch-feedback-loop: filter switches for the mod Pitches tab
     case "mod-pitches-view-dismissed": setModPitchesFilter("dismissed"); break;
+    case "mod-pitches-view-approved": setModPitchesFilter("approved"); break;
     case "mod-pitches-back": setModPitchesFilter("pending"); break;
     case "switch-my-stuff-tab": if (id) switchMyStuffTab(id); break;
     case "detail-next": detailNext(); break;
