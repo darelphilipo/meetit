@@ -13,7 +13,7 @@ import {
   type RsvpAttendee,
   type SubmitEventFormData,
 } from "../shared/api.ts";
-import { buildApproveDm, buildAttendees, buildCleanupLogEntry, buildReminderBody, buildReminderTitle, buildRsvpShareBody, createPendingEvent, csvEscape, isConfiguredModerator, isEventAgedOut, isPitchAgedOut, isSubmissionOwner, normalizeUsername, parseQueryParam, pickAgedItems, pitchEffectiveStatus, stripQueryString, validateDismissReason } from "../shared/meetit.ts";
+import { buildAnnouncementTitle, buildApproveDm, buildAttendees, buildCleanupLogEntry, buildReminderBody, buildReminderTitle, buildRsvpShareBody, createPendingEvent, csvEscape, isConfiguredModerator, isEventAgedOut, isPitchAgedOut, isSubmissionOwner, normalizeUsername, parseQueryParam, pickAgedItems, pitchEffectiveStatus, stripQueryString, validateDismissReason } from "../shared/meetit.ts";
 import { once } from "node:events";
 
 const MAX_SERVER_LOGS = 100;
@@ -676,6 +676,52 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
   }
 
   console.log(`[APPROVE] ${event.title} approved`);
+  serverLog("info", `[APPROVE] ${event.title} approved`);
+
+  // event-announcement-post: create a public announcement post on the
+  // subreddit so the community can start planning and discussing the event
+  // immediately. The post is best-effort — a Reddit API failure does NOT
+  // block the approval (the event is already in meetit:active_events and
+  // the organizer is auto-RSVPed). Failure is logged; the post URL is
+  // stored at meetit:event_post:${eventId} for future reference.
+  try {
+    const meetitAppPostId = (await redis.get("meetit:meetit_app_post_id")) || "";
+    const meetitAppPostUrl = meetitAppPostId
+      ? `https://www.reddit.com/comments/${meetitAppPostId.replace(/^t3_/, "")}/`
+      : undefined;
+    // Look up the mod list (for the "Moderators:" line in the post body).
+    // Falls back to the empty array if the setting is unset. Same pattern
+    // as onCheckEvents.
+    const modListStr = ((await settings.get("mod_usernames")) as string) || "";
+    const modList = modListStr
+      .split(",")
+      .map((m) => m.trim())
+      .filter((m) => m.length > 0);
+    const organizerForBody = (event.organizer && event.organizer.trim()) || context.username || "the organizer";
+    const announcementTitle = buildAnnouncementTitle(event);
+    const announcementBody = buildReminderBody(
+      event,
+      organizerForBody,
+      modList,
+      [], // empty attendees — no one has RSVPed yet on approval
+      context.subredditName,
+      meetitAppPostUrl,
+    );
+    const post = await reddit.submitPost({
+      title: announcementTitle,
+      text: announcementBody,
+    });
+    await redis.set("meetit:event_post:" + eventId, post.url);
+    const annMsg = `[APPROVE] announcement post created url=${post.url} for ${event.title}`;
+    console.log(annMsg);
+    serverLog("info", annMsg);
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    const failMsg = `[APPROVE] announcement post FAILED for ${eventId}: ${errMsg}`;
+    console.log(failMsg);
+    serverLog("warn", failMsg);
+  }
+
   return { type: "approve-event", success: true };
 }
 
