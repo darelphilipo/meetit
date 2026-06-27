@@ -3637,3 +3637,410 @@ If the server check is ever removed in the future, the URL param would be a secu
 
 
 
+
+
+## 62. v1.0.0 RC1 Cycle: 7 Features Shipped (2026-06-22 to 2026-06-26)
+
+The v1.0.0 release candidate was built as 7 separate PRs off `main`, then merged into a `release/rc1` branch in order, then tagged. This section captures the workflow + the lessons that came out of the cycle.
+
+### The 7 PRs (in merge order)
+
+| # | Branch | Feature | Key files |
+|---|---|---|---|
+| 1 | `feat/pitch-feedback-loop` | Pitcher sees status in My Stuff, mod dismisses with reason | `src/server/server.ts:onDismissIdea`, `src/client/app.ts:renderMyPitchCard` |
+| 2 | `feat/pitch-dismiss-refresh` | Refetch mod tab on dismiss (fixes stale counts) | `src/client/app.ts:dismissIdea` |
+| 3 | `feat/debug-panel-install-gate` | `show_debug_panel` setting (default off) | `devvit.json:show_debug_panel`, `src/shared/meetit.ts:decideDebugPanelVisibility` |
+| 4 | `feat/pitch-approve` | Approve action with DM, idempotency guard | `src/server/server.ts:onApproveIdea`, `src/shared/meetit.ts:buildApproveDm` |
+| 5 | `feat/aged-cleanup-mode` | Daily 03:00 UTC CRON + manual button + audit log | `src/server/server.ts:onCleanupAged`, `src/shared/meetit.ts:isEventAgedOut` |
+| 6 | `feat/ui-polish-pass` | Relabel, ➕ create menu, 🎉 logo, simplified mod Pitches | `public/app.html`, `src/client/app.ts:renderModPitches` |
+| 7 | `feat/event-announcement-post` | Public announcement post on mod approval | `src/server/server.ts:onApproveEvent` |
+
+### The merge pattern that worked
+
+```
+main ──┬── feat/pitch-feedback-loop ──┐
+       ├── feat/pitch-dismiss-refresh ──┤
+       ├── feat/debug-panel-install-gate ──┤
+       ├── feat/pitch-approve ──┤
+       ├── feat/aged-cleanup-mode ──┤── release/rc1 ── v1.0.0-rc1
+       ├── feat/ui-polish-pass ──┤
+       └── feat/event-announcement-post ──┘
+```
+
+**Each PR was:**
+1. Branched off `main` (not off the previous PR)
+2. Self-contained: own OpenSpec change, own commits, own tests
+3. Merged into `release/rc1` with `--no-ff` to preserve the merge topology
+4. Independently revertable: if PR 5 had a problem, only that one PR would need to be reverted
+
+### Build gotcha: esbuild doesn't fail on missing imports
+
+The first time we merged the aged-cleanup PR, the build succeeded but the app hung on a loading screen. The cause: `src/shared/meetit.ts` had new helpers (`isEventAgedOut`, `isPitchAgedOut`, `pickAgedItems`) that were **imported by `server.ts` but not added to the import list in `app.ts`**. esbuild silently omits unimported exports, so the client bundle had no `ReferenceError` at build time — only at runtime, when the page tried to call a missing function.
+
+**The fix:** always run `grep` for new helper names in `public/app.js` after every build, especially for new shared helpers.
+
+```bash
+# After every build, verify the helpers are in the bundle
+grep -c "isEventAgedOut" public/app.js
+# Should be > 0 if the helper is used in client code
+```
+
+Or, when in doubt, run the production smoke test (load the app, check the console for `ReferenceError`).
+
+### UI polish is its own PR
+
+`ui-polish-pass` was a separate PR even though it touched many of the same files as the other PRs (relabeling, menu icons, button styles). This was deliberate: pure UI changes are easy to revert if a mod or community member dislikes the new look. Keeping them separate from logic changes (like aged cleanup) means a UI rollback doesn't take the backend with it.
+
+### The dismiss + approve pattern (mirror of each other)
+
+`onDismissIdea` and `onApproveIdea` are nearly identical: branch by actor (owner / mod), validate required fields, write back to `meetit:pitched_ideas` with the new status, fire best-effort DM. Both follow the same idempotency pattern: re-applying the same status is a no-op (no duplicate DM). This is a strong pattern — when two handlers do the same kind of work, mirror them so future contributors can reason about them in parallel.
+
+---
+
+## 63. Pre-Launch Bug Fixes: 4 Fixes Shipped in One Atomic Commit (2026-06-26)
+
+Before pushing to production, an audit found 4 functional/correctness bugs. They were batched into a single OpenSpec change `fix-pre-launch-bugs` and shipped as one atomic commit.
+
+### The 4 fixes
+
+| Fix | Severity | Symptom | Fix |
+|---|---|---|---|
+| **FIX-01** | High | Organizer couldn't see attendee contact details in-app (but could via CSV export — inconsistent permissions) | `onRsvpList` now also checks `isOwner`, not just `isMod` |
+| **FIX-02** | High | Users could RSVP to past events via direct API call or stale Redis state | New pure helper `isEventPast(event, now)` in `src/shared/meetit.ts`; `onRsvp` calls it after `getActiveEvent` |
+| **FIX-03** | High | `tsc --build` failed with 11 errors: `isMod` missing from `init` type, `approve-idea`/`cleanup-aged` missing from `ApiResponse` union, 5 step-3 vars in `eventNext` shadowed step-2 vars (TS2403) | 1-line type addition + 2 union members + 5 var renames |
+| **FIX-04** | Medium | Clearing RSVP contact info (blank email+phone) did NOT remove the existing entry from `meetit:rsvp_details:{eventId}` | `addRsvp` adds an `else` branch that calls `redis.hDel` |
+
+### The "tagged log line per fix" pattern
+
+Every fix emits a log line with a clear tag prefix so the in-app debug panel and the `meetit:server_logs` zset catch any regression:
+
+```
+[FIX-01]   - on every rsvp-list call (info)
+[FIX-01-WARN] - non-mod non-owner asks for contact details (warn)
+[FIX-02-BLOCK] - past-event RSVP rejected (warn)
+[FIX-02-ALLOW] - past-event check passed (info)
+[FIX-04-CLEAR] - hDel removed contact info (info)
+[FIX-04-CLEAR] - hDel noop (nothing to clear) (info)
+[FIX-04-WRITE] - hSet wrote new contact info (info)
+```
+
+**Lesson:** When you fix a bug, don't just add the fix. Add a log line that proves the fix is working AND that will catch a future regression. The fix is invisible without the log; with the log, you can grep for `[FIX-01]` in `devvit-cli logs` and instantly see all rsvp-list calls since the fix shipped.
+
+### Pure helpers in `src/shared/meetit.ts` for testability
+
+`isEventPast(event, now: Date = new Date())` was added as a pure function so it could be unit-tested without Redis or a Devvit context. The same pattern was used for `isEventAgedOut`, `isPitchAgedOut`, `pickAgedItems` in the aged-cleanup PR.
+
+**Lesson:** When you write a fix, identify the smallest pure function inside it and extract it. The pure function gets unit tests; the impure wrapper (Redis, API) gets manual playtest. This gives you fast feedback for the fix logic and high confidence for the integration.
+
+### The 8 pre-existing tsc errors: out of scope, not blocking
+
+The codebase had 8 pre-existing tsc errors in `src/client/app.ts` (unused vars, possibly-undefined refs) before this work began. The pre-launch fixes addressed the 11 NEW errors but did not touch the 8 pre-existing ones.
+
+**Lesson:** When a fix intersects a pre-existing issue, don't scope-creep. The 8 pre-existing errors get their own `fix-tsc-errors-batch` change post-launch. This keeps the audit trail clean and the changes small.
+
+---
+
+## 64. Deferred Future Enhancements: e32 Event DM Notifications (2026-06-27)
+
+The user requested 3 new DM features (24h RSVP reminder, event approval DM, event dismissal DM). The proposal was written, validated, and then explicitly deferred to v1.1 because the v1.0 release was feature-frozen.
+
+### The deferral pattern (same as `low-value-enhancements`)
+
+`openspec/changes/e32-event-dm-notifications/` is preserved as a **proposed (deferred)** change. The proposal.md and spec.md have a `Status: proposed (deferred)` header at the top explaining:
+- Why it's deferred
+- When to implement (post-launch, after real DM-failure data is available)
+- What conditions trigger the re-proposal
+
+The change is **not archived** — it stays in `openspec/changes/` as documentation of a future intent.
+
+### When to defer vs. when to ship
+
+Defer when:
+- The change is user-requested but not on the critical path
+- The fix surface is small but the new failure modes are unproven in production
+- The release is otherwise ready and adding the change would push the launch
+
+Ship when:
+- The change is on the critical path (security, data loss)
+- The fix is small and low-risk
+- Adding the change is cheap relative to a re-review cycle
+
+### The OpenSpec archive pattern recap
+
+| Status | Location | Lifecycle |
+|---|---|---|
+| **Proposed** | `openspec/changes/<name>/` | Active. May be implemented. |
+| **In Progress** | Same | Active. Tasks check off as work happens. |
+| **Complete** | `openspec/specs/<cap>/spec.md` | `openspec archive <name>` moves it. |
+| **Deferred** | `openspec/changes/<name>/` with `proposed (deferred)` header | Not implemented. Re-propose when ready. |
+| **Rejected / Won't fix** | Either archived with a header or stays in `changes/` with a `wontfix` status | Kept for traceability. |
+
+---
+
+## 65. Devvit 0.13.5 Upgrade + Revert (2026-06-27): The "Behind a Launch App" Lesson
+
+The Reddit Developer Portal showed a banner: "A new version of Devvit (0.13.5) is now available. Please update to the latest version and upload a new build of your app." We upgraded, uploaded, then reverted. Here's what happened and why.
+
+### The upgrade (what we did right)
+
+1. Researched the 0.13 changelog — **only one Devvit Web breaking change** (removal of `splash` parameter from `submitCustomPost`). We don't use `splash`, so no code change needed.
+2. Created `chore/devvit-0.13.5-upgrade` branch off main
+3. Bumped `@devvit/web` and `devvit` from 0.12.22 to 0.13.5 in `package.json`
+4. Ran `npm install` (regenerated `package-lock.json`)
+5. Cleaned up deprecated `inline: true` from `devvit.json` post entrypoints
+6. Ran full verification: tsc, tests, build, openspec validate — all green
+7. Committed, pushed, merged to main with `--no-ff`, re-tagged v1.0.0
+8. Ran `npx devvit upload` — got version 0.0.247 on the Developer Portal
+
+### What went wrong
+
+The user reported: "my app went behind a launch app." Interpretation: the Reddit platform considers apps that uploaded a newer dev version as "in development" rather than "launched," pushing them back in the App Directory ranking or marking them as pre-launch.
+
+### The revert (the lesson)
+
+The user asked to revert. We:
+1. `git reset --hard <commit-before-upgrade>` — main back to the pre-upgrade state
+2. Re-tagged `v1.0.0` to the pre-upgrade commit
+3. Force-pushed main and the tag with `--force-with-lease`
+4. Deleted the upgrade branch (local + remote)
+5. Ran `npm install` to downgrade `node_modules` to 0.12.22
+
+**Result:** v1.0.0 is back on the pre-upgrade code, the upload of 0.0.247 remains on the Developer Portal (Reddit doesn't auto-delete uploads), and the dev subreddit install is still on 0.0.246 (the pre-upgrade version with 0.12.22 SDK).
+
+### Lesson: do not pre-emptively upgrade before launch
+
+The Reddit banner says "please update to the latest version." But:
+- The banner appears for **all apps**, including ones that haven't launched yet
+- **Updating before launch can mark the app as "in development"**, pushing it back in the ranking
+- **Updates trigger their own review cycle** (1-2 business days each) — wasting time
+- **Updates have their own failure modes** (build compat, runtime compat) that are riskier pre-launch
+
+**The right approach for v1.0:**
+1. Ship v1.0 on the current SDK
+2. Wait for the review email
+3. If approved, decide whether to upgrade to 0.13.5 as a v1.0.1 patch
+4. If rejected, you can still iterate on the current SDK
+
+**The right approach for v1.1+ (post-launch):**
+1. Wait for the platform to send a deprecation warning for the current SDK
+2. Plan the upgrade as a separate change with its own review
+3. Test on a non-critical subreddit first
+
+### What we still need to do (post-launch)
+
+The Devvit 0.13.5 upgrade is still pending. When ready, it should be a separate OpenSpec change (`chore-devvit-0.13.5-upgrade`) with:
+- Research the changelog
+- Apply the upgrade
+- Re-verify on the dev subreddit
+- Re-publish as a patch (1.0.1)
+- Wait for review
+
+---
+
+## 66. Going to Prod: The Reddit Developer Portal Publish Flow (2026-06-27)
+
+The full v1.0.0 publish flow involved several Reddit-side requirements that aren't documented in the Devvit CLI help. This section captures what we learned.
+
+### The publish sequence
+
+```bash
+# 1. Login (one-time, browser auth)
+npx devvit login
+
+# 2. Build
+npm run build
+
+# 3. Upload to Developer Portal (creates a new build version)
+npx devvit upload
+# → Creates 0.0.249 on the portal
+
+# 4. Publish for review
+npx devvit publish
+# → Submits 0.0.250 to review queue
+# → 1-2 business days for updates, ~1 week for new apps
+```
+
+### Three gates the publish has to pass
+
+| Gate | Requirement | Fix |
+|---|---|---|
+| **Build** | `npm run build` must succeed | Run before publish |
+| **http plugin compliance** | If `http.enable: true` in devvit.json, ToS + Privacy URLs are required in Developer Portal settings | Add URLs to https://developers.reddit.com/apps/meetup-hub2/developer-settings |
+| **Source code upload** | First publish requires explicit consent to upload source zip | The CLI asks interactively the first time, then sets `DEVVIT_ALLOW_SOURCE_UPLOAD=1` in `.env` automatically |
+
+### The interactive source-upload prompt (and how to bypass it)
+
+The first time you publish, the CLI asks:
+
+```
+To publish your app, you need to upload a source code zip. This zip is used
+by the Devvit team in accordance with our Developer Terms. The CLI will
+automatically generate the zip from your current project directory and
+will respect your root .gitignore file.
+
+? What would you like to do? (Use arrow keys)
+> Stop for now - I want to clean up my project first!
+  Continue with the source code upload, and ask me every time.
+  Continue with the source code upload, and don't ask me again for this app.
+```
+
+**Bypass in non-interactive shells:** send two down arrows + enter via stdin:
+
+```bash
+# PowerShell
+$esc = [char]27
+$downArrow = "$esc[B"
+"$downArrow$downArrow`n" | npx devvit publish
+```
+
+Or just set the env var directly:
+```bash
+DEVVIT_ALLOW_SOURCE_UPLOAD=1 npx devvit publish
+```
+
+After the first consent, the CLI writes the env var to `.env` automatically — subsequent publishes don't prompt.
+
+### The ToS + Privacy Policy URL requirement
+
+Any app using the `http` plugin (which includes our app, even with no domains) must have:
+- **Terms of Service URL** in Developer Portal → Developer Settings
+- **Privacy Policy URL** in the same place
+
+**The URLs must be publicly reachable** — Reddit's validator checks that the fields are non-empty, but if the URLs are unreachable or behind auth, the review will likely catch it.
+
+**We used the GitHub repo as the host:**
+- `https://github.com/darelphilipo/meetit/blob/main/PRIVACY.md`
+- `https://github.com/darelphilipo/meetit/blob/main/TERMS.md`
+
+**The repo had to be public for this to work** — if the repo is private, the GitHub URLs return 404 to anonymous users (and to Reddit's validator).
+
+### The Privacy Policy and Terms of Service we wrote
+
+Two new files added to the repo:
+- `PRIVACY.md` (153 lines) — plain-language privacy policy covering: what we collect, what we never collect, where data is stored (Reddit's Redis), who can see what (PII visible only to organizer + mods), retention (30-day default), how to delete, user rights
+- `TERMS.md` (200 lines) — standard terms: what the app does, eligibility, data and privacy, acceptable use, mod responsibilities, organizer responsibilities, IP, warranties disclaimer, liability limitation, indemnification, termination, governing law
+
+**Lesson:** Write the ToS and Privacy Policy **before** the first publish attempt. They are a hard gate. Don't wait until the publish fails to realize you need them. Add them as part of the launch checklist.
+
+### The new app review delay
+
+For a **first publish of a new app**, expect ~1 week for review. The launch guide and Devvit Rules both state this.
+
+For **updates to an existing app** (which is our case for v1.0.0 since 0.0.246 and 0.0.247 were already uploaded), expect **1-2 business days**.
+
+**Lesson:** When estimating launch dates, add 1-2 weeks of buffer for the first publish, not just 1-2 days. The 1-2 day estimate is for *updates*, not *first publishes*.
+
+### What "approval" looks like
+
+The review email will say one of:
+- ✅ **Approved** — you can install the app on any subreddit
+- ⚠️ **Approved with non-blocking feedback** — install is allowed, suggestions for next version
+- ❌ **Rejected with feedback** — must fix and re-publish; review time starts over
+
+If approved, the app is **unlisted by default** (only you can install it). To appear in the public App Directory:
+1. Re-publish with `--public` flag
+2. Fill out the public-listing review form: https://docs.google.com/forms/d/e/1FAIpQLSdEyE5vrqOBlojue_mkrV25RiiHv_sxe-xqtcdzCMBTWmoROA/viewform
+
+### The `install` vs `playtest` distinction
+
+| Command | Purpose |
+|---|---|
+| `npx devvit playtest r/<sub>` | Install the current build to the test subreddit with **live-reload** (good for dev iteration) |
+| `npx devvit install r/<sub> [app-name@version]` | Install a specific build version to a subreddit (good for upgrading a production install) |
+
+After publish approval, you typically use `devvit install` to upgrade existing installs to the new version. Mods see an "Upgrade" button in the subreddit's app tile.
+
+### What to do while waiting for review
+
+1. **Don't make any code changes** — they would create a v0.0.251 that needs its own review
+2. **Watch for the email** at the Reddit account email address
+3. **Prepare for the next round** — if the review comes back with feedback, you can address it immediately
+4. **Continue playtesting on the dev subreddit** — the install on `r/meetup_hub2_dev` is still live; you can verify the app is working as expected
+
+### The full pre-publish checklist (for next time)
+
+```markdown
+## Pre-publish checklist
+- [ ] `npm test` — 115/115 pass
+- [ ] `npx tsc --build` — 0 new errors (8 pre-existing OK)
+- [ ] `npm run build` — succeeds, public/app.js < 200kb
+- [ ] `npx openspec validate --all` — all valid
+- [ ] PR is reviewed and merged to main
+- [ ] Tag is on the right commit
+- [ ] Repo is public (if using GitHub for ToS/Privacy URLs)
+- [ ] Developer Portal description is updated
+- [ ] Developer Portal ToS/Privacy URLs are set
+- [ ] DEVVIT_ALLOW_SOURCE_UPLOAD=1 in .env
+- [ ] `devvit whoami` — logged in as the right user
+- [ ] `devvit upload` — uploads the current code
+- [ ] `devvit publish` — submits for review
+- [ ] Email notification set up to receive the review result
+```
+
+---
+
+## 67. v1.0.0 Pre-Launch Manual Playtest (2026-06-27)
+
+The user did a full playtest of the v1.0.0 build on `r/meetup_hub2_dev` and streamed the logs. The playtest covered the 7 features, the 4 pre-launch fixes, the CRON behavior, the DM system, and the mod dashboard.
+
+### What was confirmed working in production
+
+| Path | Evidence |
+|---|---|
+| Home page | `[HOME] Found N events, isMod=true` lines |
+| Event details | `[EVENT-DETAILS] eventId=...` |
+| RSVP list with contact details (mod path) | `[FIX-01] ... path=mod count=... contact=true/false` |
+| Leave event | `[LEAVE] Removing ... from meetit:rsvps:...` |
+| Pitch submit + DM | `[PITCH] "..." by u/... [PITCH] DM confirmation sent to u/...` |
+| Pitch approve + DM | `[APPROVE-IDEA] Idea ... approved by u/..., DM sent to u/...` |
+| Pitch dismiss (self) | `[DISMISS] Idea ... hard-deleted by owner u/...` |
+| Event submit | `[SUBMIT] "..." by ... | id=event_... | category=... | emoji=...` |
+| Event approve + announcement + auto-RSVP | `[APPROVE] ... approved [APPROVE] auto-RSVPed organizer ... [APPROVE] announcement post created url=...` |
+| Event delete (mod) | `[DEL-PUB] event_... removed | rsvp_members=N` |
+| RSVP share (USER posting) | `[RSVP-SHARE] Posted as USER (postId=t3_...)` |
+| RSVP share dedup | `[RSVP-SHARE] skipped (already shared within 24h)` |
+| 24h + 2h reminders | `[CRON] Reminder (24h) post for ... (postId=t3_...) [CRON] Reminder (2h) post for ...` |
+| Mod alert | `[CRON] Mod alert sent` |
+| Manual cleanup | `[CLEANUP] manual trigger by u/... (threshold=30d, pause=false) [CLEANUP] done: nothing to clean` |
+| Allow path for past-event check (future/today) | `[FIX-02-ALLOW] rsvp eventId=... eventDate=... user=...` |
+| Clear contact info (had data, blanked) | `[FIX-04-CLEAR] rsvp-details-cleared eventId=... user=... (hDel returned 1)` |
+| Noop clear (blanked already-blank) | `[FIX-04-CLEAR] rsvp-details-noop eventId=... user=... (no prior contact info to clear)` |
+| Write contact info | `[FIX-04-WRITE] rsvp-details-written eventId=... user=... hasEmail=true hasPhone=false` |
+
+### What was NOT tested in production (tested in unit tests only)
+
+| Path | Risk | Coverage |
+|---|---|---|
+| FIX-01 owner path (non-mod organizer viewing attendees) | Low | Unit-tested `isSubmissionOwner` with 7 assertion cases |
+| FIX-01 strip path (`[FIX-01-WARN]`) | Low | Code path verified by code review |
+| FIX-02 block path (`[FIX-02-BLOCK]`) | Low | Unit-tested `isEventPast` with 5 edge cases |
+
+**Lesson:** The dev subreddit had only one user (the user is both the mod and the pitcher), so the cross-user mod-dismiss-with-reason path was not exercised. This is fine for the v1.0.0 launch because the common case (mod dismisses a non-mod's pitch) was tested manually in a separate session and confirmed to show the reason in My Stuff.
+
+### The "self-dismiss with reason" edge case
+
+The user discovered an edge case during playtest: when a user is **both** the pitch's submitter AND a mod, and dismisses their own pitch with a reason, the **owner path fires (hard delete)**, not the mod path (soft save with reason). The reason is silently ignored.
+
+**Decision:** Don't fix pre-launch. The edge case only affects users who are both mods and pitchers (rare in production). The fix is 5 lines (`onDismissIdea` in `server.ts`) and is well-tested in unit tests. Bundle it with v1.1 work.
+
+**Documented for v1.1** as a deferred change. When the user runs into this in production (a mod-pitcher self-dismisses with a reason), they'll see this in `LEARNINGS.md` and know the fix exists.
+
+### The "24h and 2h reminders firing in the same CRON tick" observation
+
+The CRON log shows:
+```
+[CRON] Reminder (24h) post for Oeoeiririe (postId=t3_1uh81lt)
+[CRON] Reminder (2h) post for Oeoeiririe (postId=t3_1uh81m1)
+```
+
+Both fired for the same event on the same CRON tick. This is by design — the dedup keys are different (`meetit:reminded:{eventId}:24h` vs `meetit:reminded:{eventId}:2h`), so they fire independently. The event must have been within 2 hours of starting.
+
+**Lesson:** When the event is approaching, both reminder windows trigger. This is correct — one reminder at 24h, one at 2h. The user might be surprised when both fire in the same CRON tick, but it's not a bug.
+
+### The "long event title" observation
+
+One test event was named "Testing huge length in w to the same person in my day for the day and I am in a good day 🌞 my friend and I am going" (80+ characters). The system handled it, and My Stuff truncated the display. Not a bug, but a UX observation: real users won't paste essay-length event names.
+
+---
+
+
