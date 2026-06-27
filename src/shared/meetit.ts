@@ -213,6 +213,20 @@ export function isPitchAgedOut(pitch: any, now: Date, thresholdDays: number): bo
   return now.getTime() - submitted.getTime() > thresholdDays * 86_400_000;
 }
 
+// FIX-02 (pre-launch-bugs): is the event's date strictly before today
+// (server UTC date)? Used as a defensive backstop in onRsvp — the UI
+// already prevents past-event RSVPs, this catches stale Redis state and
+// direct API calls. Defensive: returns `false` for missing/malformed
+// dates so a typo in `event.date` doesn't silently block a valid RSVP.
+// Approximate across timezones (UTC vs local) but the UI prevents this
+// in normal flow, so this is a backstop, not a precise calendar.
+export function isEventPast(event: any, now: Date = new Date()): boolean {
+  if (!event || typeof event.date !== "string" || !event.date) return false;
+  // YYYY-MM-DD in UTC
+  const todayUtc = now.toISOString().slice(0, 10);
+  return event.date < todayUtc;
+}
+
 // aged-cleanup-mode: pick all aged items from a batch. The caller is
 // responsible for splitting events into active vs pending before calling,
 // because the cleanup needs to call hDel on different hashes. Returns the
