@@ -93,6 +93,177 @@ export function normalizeUsername(username: string): string {
   return username.trim().toLowerCase().replace(/^u\//, "");
 }
 
+// pitch-feedback-loop: extract a single query-string parameter from a URL.
+// Returns the raw (URL-decoded) value, or undefined if absent. Empty string
+// is a valid value (e.g. "?status="). Pure function — safe to unit test.
+export function parseQueryParam(rawUrl: string | undefined, name: string): string | undefined {
+  if (!rawUrl) return undefined;
+  const q = rawUrl.indexOf("?");
+  if (q === -1) return undefined;
+  const search = rawUrl.substring(q + 1);
+  for (const pair of search.split("&")) {
+    if (!pair) continue;
+    const eq = pair.indexOf("=");
+    const key = eq === -1 ? pair : pair.substring(0, eq);
+    if (key !== name) continue;
+    const raw = eq === -1 ? "" : pair.substring(eq + 1);
+    try { return decodeURIComponent(raw); } catch { return raw; }
+  }
+  return undefined;
+}
+
+// pitch-feedback-loop: strip the query string from a URL, returning just
+// the path. Used to route `/api/foo?status=pending` to the `foo` handler.
+export function stripQueryString(rawUrl: string | undefined): string {
+  if (!rawUrl) return "/";
+  const q = rawUrl.indexOf("?");
+  return q === -1 ? rawUrl : rawUrl.substring(0, q);
+}
+
+// pitch-feedback-loop: normalize a pitch's effective status. Legacy pitches
+// (no `status` field, written before this change) are treated as "pending".
+// pitch-approve: extended to return "approved" when status === "approved".
+// Case-sensitive — defensive against schema drift (rejects "Approved" /
+// "APPROVED" as not matching the literal "approved" string).
+// Pure function — safe to unit test.
+export function pitchEffectiveStatus(idea: any): "pending" | "dismissed" | "approved" {
+  if (idea && idea.status === "approved") return "approved";
+  if (idea && idea.status === "dismissed") return "dismissed";
+  return "pending";
+}
+
+// pitch-feedback-loop: validate a mod-supplied dismiss reason. Returns an
+// error message for invalid input, or null if valid. Rules:
+//   - non-empty after trim
+//   - 100 characters or fewer
+export function validateDismissReason(reason: unknown): string | null {
+  if (typeof reason !== "string") return "Reason required";
+  const trimmed = reason.trim();
+  if (trimmed.length === 0) return "Reason required";
+  if (trimmed.length > 100) return "Reason must be 100 characters or less";
+  return null;
+}
+
+// debug-panel-install-gate: pure decision function for the debug log panel
+// 🐛 button visibility. Returns "show" only when BOTH the user is a mod AND
+// the install setting is on. Default behavior (both flags false) is HIDE —
+// the panel is opt-in, not opt-out. Pure function — safe to unit test.
+export function decideDebugPanelVisibility(
+  isMod: boolean,
+  showDebugPanelSetting: boolean,
+): "show" | "hide" {
+  return isMod === true && showDebugPanelSetting === true ? "show" : "hide";
+}
+
+// pitch-approve: build the DM template sent to a pitcher when their pitch is
+// approved. Pure function — no Devvit imports, no I/O. Deterministic: same
+// input always produces the same output (no timestamps in body, no random
+// IDs) so it's trivially testable. Strips any leading `u/` from the username
+// before re-prefixing, mirroring the buildReminderBody / buildRsvpShareBody
+// pattern (LEARNINGS §49).
+export function buildApproveDm(pitch: { title: string; submittedBy: string }): { subject: string; body: string } {
+  const cleanUsername = stripUsernamePrefix(pitch?.submittedBy) || "anonymous";
+  const cleanTitle = (pitch?.title || "your idea").trim();
+  return {
+    subject: "✅ Your Meetit pitch was approved!",
+    body: [
+      `Hi u/${cleanUsername},`,
+      "",
+      `Great news — your pitch "${cleanTitle}" was approved by the mods! 🎉`,
+      "",
+      "They think this would be a great event for the community. Ready to make it happen?",
+      "",
+      "👉 Submit it as an event from the app's [+] menu.",
+      "",
+      "— Meetit Mods",
+    ].join("\n"),
+  };
+}
+
+// aged-cleanup-mode: pure helpers for the daily cleanup CRON. All defensive —
+// return `false` (do NOT age out) for missing or invalid input. A typo in a
+// date field would otherwise silently wipe the event, so we skip-with-warning
+// and let the mod see the warning in the in-app debug panel.
+
+// aged-cleanup-mode: is the event "aged" (its scheduled date+time is more
+// than `thresholdDays` in the past)? Defensive: returns `false` for missing
+// date/time or invalid Date parsing. `settingsTimezone` is the IANA offset
+// string (e.g. "+05:30") — uses the same reconstruction as onCheckEvents.
+export function isEventAgedOut(
+  event: any,
+  now: Date,
+  thresholdDays: number,
+  settingsTimezone: string,
+): boolean {
+  if (!event || typeof event.date !== "string" || typeof event.time !== "string") return false;
+  const tz = settingsTimezone || "+05:30";
+  const eventInstant = new Date(`${event.date}T${event.time}:00${tz}`);
+  if (isNaN(eventInstant.getTime())) return false;
+  return now.getTime() - eventInstant.getTime() > thresholdDays * 86_400_000;
+}
+
+// aged-cleanup-mode: is the pitch "aged" (submittedAt is more than
+// `thresholdDays` ago)? Defensive: returns `false` for missing or invalid
+// submittedAt. Status doesn't matter — pending, dismissed, and approved
+// pitches are all eligible.
+export function isPitchAgedOut(pitch: any, now: Date, thresholdDays: number): boolean {
+  if (!pitch || typeof pitch.submittedAt !== "string") return false;
+  const submitted = new Date(pitch.submittedAt);
+  if (isNaN(submitted.getTime())) return false;
+  return now.getTime() - submitted.getTime() > thresholdDays * 86_400_000;
+}
+
+// FIX-02 (pre-launch-bugs): is the event's date strictly before today
+// (server UTC date)? Used as a defensive backstop in onRsvp — the UI
+// already prevents past-event RSVPs, this catches stale Redis state and
+// direct API calls. Defensive: returns `false` for missing/malformed
+// dates so a typo in `event.date` doesn't silently block a valid RSVP.
+// Approximate across timezones (UTC vs local) but the UI prevents this
+// in normal flow, so this is a backstop, not a precise calendar.
+export function isEventPast(event: any, now: Date = new Date()): boolean {
+  if (!event || typeof event.date !== "string" || !event.date) return false;
+  // YYYY-MM-DD in UTC
+  const todayUtc = now.toISOString().slice(0, 10);
+  return event.date < todayUtc;
+}
+
+// aged-cleanup-mode: pick all aged items from a batch. The caller is
+// responsible for splitting events into active vs pending before calling,
+// because the cleanup needs to call hDel on different hashes. Returns the
+// aged subset ready for deletion. Pure function.
+export function pickAgedItems(
+  activeEvents: any[],
+  pendingEvents: any[],
+  pitches: any[],
+  now: Date,
+  thresholdDays: number,
+  settingsTimezone: string,
+): { agedActiveEvents: any[]; agedPendingEvents: any[]; agedPitches: any[] } {
+  return {
+    agedActiveEvents: activeEvents.filter((e) => isEventAgedOut(e, now, thresholdDays, settingsTimezone)),
+    agedPendingEvents: pendingEvents.filter((e) => isEventAgedOut(e, now, thresholdDays, settingsTimezone)),
+    agedPitches: pitches.filter((p) => isPitchAgedOut(p, now, thresholdDays)),
+  };
+}
+
+// aged-cleanup-mode: build the audit log entry. JSON-serialized so it can
+// be stored in a Redis zset. Pure (no Date mutation; the `ts` value is the
+// passed-in `now.toISOString()`). Counts are the per-bucket totals.
+export function buildCleanupLogEntry(
+  now: Date,
+  counts: { eventsActive: number; eventsPending: number; pitches: number },
+  meta: { thresholdDays: number; trigger: "cron" | "manual"; user: string },
+): string {
+  return JSON.stringify({
+    ts: now.toISOString(),
+    events: { active: counts.eventsActive, pending: counts.eventsPending },
+    pitches: counts.pitches,
+    thresholdDays: meta.thresholdDays,
+    trigger: meta.trigger,
+    user: meta.user,
+  });
+}
+
 /**
  * The maximum number of attendee usernames rendered in a share/reminder post.
  * Beyond this cap, posts show "+X more" instead of bloating the body.
@@ -291,11 +462,13 @@ export function buildReminderBody(
     sections.push(`## 📍 ${event.location.trim()}`);
   }
 
-  // Google Maps link (e26): render only if event.mapUrl is present and non-empty.
-  // We do not validate the URL — the form is the trust boundary.
+  // Google Maps / Virtual Event link (e26 + ui-polish-pass): render only if
+  // event.mapUrl is present and non-empty. The field accepts any link the
+  // organizer wants attendees to use (Google Maps, Zoom, Google Meet, Jitsi,
+  // etc.) — the form is the trust boundary, we just render the link as-is.
   const mapUrl = event.mapUrl && event.mapUrl.trim();
   if (mapUrl) {
-    sections.push(`## 🗺️ [Open in Google Maps](${mapUrl})`);
+    sections.push(`## 🗺️ [Google Maps / Virtual Event Link](${mapUrl})`);
   }
 
   // e31: Google Calendar "Add Event" link. Inline in the post body (not a
@@ -383,6 +556,22 @@ export function buildReminderTitle(
   return location
     ? `${prefix} ${title} — ${date} @ ${location}`
     : `${prefix} ${title} — ${date}`;
+}
+
+// event-announcement-post: title builder for the announcement post that's
+// created immediately on event approval. Mirrors the format of buildReminderTitle
+// but with a distinct prefix and emoji so the announcement is visually
+// recognizable in the subreddit feed. Pure function — no Devvit imports,
+// no I/O, deterministic.
+export function buildAnnouncementTitle(
+  event: Pick<MeetitEvent, "title" | "date" | "location">,
+): string {
+  const title = (event.title && event.title.trim()) || "New Meetup";
+  const date = event.date || "TBD";
+  const location = event.location && event.location.trim();
+  return location
+    ? `📅 [New Meetup] ${title} — ${date} @ ${location}`
+    : `📅 [New Meetup] ${title} — ${date}`;
 }
 
 /**
@@ -473,10 +662,12 @@ export function buildRsvpShareBody(
     bodyParts.push(`## 📍 ${event.location.trim()}`);
   }
 
-  // Google Maps link (omitted if no mapUrl)
+  // Google Maps / Virtual Event link (ui-polish-pass): same generalization
+  // as buildReminderBody — the field accepts any link the organizer wants
+  // attendees to use (Google Maps, Zoom, Google Meet, etc.).
   const mapUrl = event.mapUrl && event.mapUrl.trim();
   if (mapUrl) {
-    bodyParts.push(`## 🗺️ [Open in Google Maps](${mapUrl})`);
+    bodyParts.push(`## 🗺️ [Google Maps / Virtual Event Link](${mapUrl})`);
   }
 
   // e31: Google Calendar "Add Event" link. Same rationale as in

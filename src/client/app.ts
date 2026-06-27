@@ -2,6 +2,10 @@
 // functions are provided by the Devvit webview host).
 declare function navigateTo(url: string): void;
 
+// debug-panel-install-gate: import the pure visibility-decision helper from
+// the shared meetit.ts. esbuild bundles this into public/app.js at build time.
+import { decideDebugPanelVisibility } from "../shared/meetit.ts";
+
 var API_BASE = "";
 var currentEventId: string | null = null;
 var currentUsername: string | null = null;
@@ -11,6 +15,14 @@ var detailStep1 = "", detailStep2 = "", detailStep3 = "", detailStep4 = "";
 var homeCardIdx = 0;
 var cachedHomeEvents: any[] = [];
 var cachedHomeIsMod = false;
+// debug-panel-install-gate: cached value of the show_debug_panel App
+// Installation Setting. Off by default; only revealed alongside the mod gate.
+var cachedShowDebugPanel = false;
+// aged-cleanup-mode: cached cleanup settings. The pause flag controls the
+// banner in the mod dashboard. The threshold is shown in the confirm
+// overlay of the manual cleanup button.
+var cachedPauseCleanup = false;
+var cachedCleanupAfterDays = 30;
 var homeShareUrl = "";
 var homeLoadSeq = 0;
 var detailLoading = false;
@@ -154,12 +166,24 @@ function applyDebugPanelVisibility() {
   // and let the subsequent /api/init call re-log with the real username.
   var user = currentUsername || usernameCached;
   var userDisplay = user ? "u/" + user : "username-pending";
-  if (cachedHomeIsMod) {
+  // debug-panel-install-gate: BOTH the mod flag AND the show_debug_panel
+  // install setting must be true. The install setting defaults to false,
+  // so the panel is opt-in. The server-side requireMod() gate on
+  // /api/server-logs is the real security boundary; this client-side gate
+  // is just UX (don't render the button at all if the install hasn't
+  // opted in).
+  var decision = decideDebugPanelVisibility(cachedHomeIsMod, cachedShowDebugPanel);
+  if (decision === "show") {
     btn.style.display = ""; // restore default (block-ish via CSS)
-    log("[H1-PRIVACY] applyDebugPanelVisibility: SHOWING debug toggle for mod " + userDisplay);
+    log("[DEBUG] panel enabled for mod " + userDisplay + " (isMod=true, showDebugPanel=true)");
   } else {
     btn.style.display = "none";
-    log("[H1-PRIVACY] applyDebugPanelVisibility: HIDING debug toggle for non-mod " + userDisplay + " (cachedHomeIsMod=" + cachedHomeIsMod + ")");
+    if (cachedHomeIsMod && !cachedShowDebugPanel) {
+      // Mod is loaded but the install setting is off — hint where to enable it.
+      log("[DEBUG] panel hidden — enable show_debug_panel in App Installation Settings (mod " + userDisplay + ")");
+    } else {
+      log("[H1-PRIVACY] applyDebugPanelVisibility: HIDING debug toggle for non-mod " + userDisplay + " (cachedHomeIsMod=" + cachedHomeIsMod + ")");
+    }
   }
 }
 
@@ -324,6 +348,15 @@ async function loadHome() {
         var currentId = currentEvent && currentEvent.id;
         cachedHomeEvents = allEvents;
         cachedHomeIsMod = data.data.isMod;
+        // debug-panel-install-gate: also cache the show_debug_panel setting
+        // (default false if missing) and re-apply the visibility decision.
+        cachedShowDebugPanel = !!(data.data.settings && data.data.settings.show_debug_panel === true);
+        // aged-cleanup-mode: cache the pause flag and threshold for the mod
+        // dashboard banner + confirm overlay.
+        if (data.data.settings) {
+          cachedPauseCleanup = data.data.settings.pause_cleanup === true;
+          cachedCleanupAfterDays = Number(data.data.settings.cleanup_after_days) || 30;
+        }
         applyDebugPanelVisibility(); // H1 fix: reveal debug toggle for mods
         homeShareUrl = data.data.shareUrl || "";
         if (currentId) {
@@ -387,7 +420,7 @@ function renderHomeCard(state: { eventsByDate: Record<string, any[]>; isMod: boo
       emoji: "🐱", title: "Wow, so empty!",
       body: "No events yet — be the first spark ✨",
       ctas: [
-        { label: "💡 Pitch Idea", action: "create-pitch", variant: "pink" },
+        { label: "💡 Pitch a Meetup", action: "create-pitch", variant: "pink" },
         { label: "📋 Submit Event", action: "create-event", variant: "white" },
       ],
       context: "home",
@@ -699,7 +732,7 @@ function renderMyPitchCard(opts: { noFade?: boolean } = {}) {
     el.innerHTML = renderEmptyState({
       emoji: "💡", title: "No pitches yet",
       body: "Got an idea? Pitch it from the Create menu.",
-      ctas: [{ label: "💡 Pitch an Idea", action: "create-pitch", variant: "pink" }],
+      ctas: [{ label: "💡 Pitch a Meetup", action: "create-pitch", variant: "pink" }],
       compact: true, context: "my-stuff-pitches",
     });
     return;
@@ -712,11 +745,28 @@ function renderMyPitchCard(opts: { noFade?: boolean } = {}) {
   if (!myStuffDescPageTotal[key]) myStuffDescPageTotal[key] = desc.length > DESC_SHORT_LENGTH ? 99 : 1;
   myStuffDescPageIdx[key] = 0;
 
+  // pitch-feedback-loop: render a status line that reflects the mod's action.
+  // Pending (default / legacy) shows "📋 pending review".
+  // Dismissed shows the reason + when + who, instead of vanishing silently.
+  // pitch-approve: approved shows "✅ Approved on {date} by u/{mod}" with a
+  // CTA pointing the pitcher to the [+] menu to submit the event.
+  var statusLine: string;
+  if (p.status === "approved") {
+    var aBy = p.approvedBy ? ' by u/' + escapeHtml(p.approvedBy) : '';
+    var aAt = p.approvedAt ? ' on ' + escapeHtml(new Date(p.approvedAt).toLocaleDateString()) : '';
+    statusLine = '<div style="font-size:12px;color:#15803d;font-weight:600;margin-bottom:4px;">✅ Approved' + aAt + aBy + ' — submit as event from the [+] menu</div>';
+  } else if (p.status === "dismissed") {
+    var dBy = p.dismissedBy ? ' by u/' + escapeHtml(p.dismissedBy) : '';
+    var dAt = p.dismissedAt ? ' · on ' + escapeHtml(new Date(p.dismissedAt).toLocaleDateString()) : '';
+    statusLine = '<div style="font-size:12px;color:#b91c1c;font-weight:600;margin-bottom:4px;">❌ Dismissed: ' + escapeHtml(p.dismissReason || "(no reason given)") + dAt + dBy + '</div>';
+  } else {
+    statusLine = '<div style="font-size:11px;color:var(--muted);font-weight:500;margin-bottom:4px;">📋 Pending review</div>';
+  }
   var headerHtml = '<h3 class="card-title-md" style="margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' + escapeHtml(p.title) + '</h3>' +
     (p.proposedDate
       ? '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px;">💡 Proposed: ' + escapeHtml(p.proposedDate) + (p.proposedTime ? ' at ' + escapeHtml(p.proposedTime) : '') + '</div>'
       : '<div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px;">📅 Pitched: ' + escapeHtml(new Date(p.submittedAt).toLocaleDateString()) + '</div>') +
-    '<div style="font-size:11px;color:var(--muted);font-weight:500;">Status: ' + escapeHtml(p.status || "pending") + '</div>';
+    statusLine;
 
   var bodyHtml = '<div id="my-stuff-desc-box-' + key + '" style="flex:1;min-height:0;overflow:hidden;background:#fff;border:var(--border);position:relative;">' +
       '<div id="my-stuff-desc-track-' + key + '" style="display:flex;width:100%;height:100%;position:absolute;top:0;left:0;transition:transform 0.25s;">' +
@@ -1084,7 +1134,7 @@ function openDetailsOverlay(d: { event: any; rsvpCount: number; hasRsvped: boole
     '<div id="desc-nav-' + e.id + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:4px 8px 0 8px;min-height:28px;">' +
       (hasMore ? '<button class="btn btn-white btn-pager btn-desc-next" data-id="' + e.id + '" data-action="desc-next">Read more →</button>' : '') +
     '</div>';
-  if (e.mapUrl) { s2 +=       '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy btn-copy-link" data-id="' + escapeAttr(e.mapUrl) + '" data-action="copy-link">📋 Copy</button></div>'; }
+  if (e.mapUrl) { s2 +=       '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Map / Virtual Event Link</span><button class="copy-btn btn-copy btn-copy-link" data-id="' + escapeAttr(e.mapUrl) + '" data-action="copy-link">📋 Copy</button></div>'; }
   s2 += '</div>';
 
   // Card 3: Who's Going
@@ -1176,6 +1226,11 @@ function detailPrev() {
 function modNext() { var tab = modTab; log("modNext tab=" + tab); var idx = (modCardIdx[tab] || 0) + 1; var items = modItems[tab] || []; if (idx >= items.length) idx = items.length - 1; modCardIdx[tab] = idx; renderModCard(tab, { noFade: true }); updateCardDots("mod", idx, items.length); updateCardNav("mod", idx, items.length); }
 function modPrev() { var tab = modTab; log("modPrev tab=" + tab); var idx = (modCardIdx[tab] || 0) - 1; if (idx < 0) idx = 0; modCardIdx[tab] = idx; renderModCard(tab, { noFade: true }); updateCardDots("mod", idx, (modItems[tab] || []).length); updateCardNav("mod", idx, (modItems[tab] || []).length); }
 var modTab = "pending";
+// ui-polish-pass: mod Pitches tab is now filter-free. Mods only see pending
+// pitches; approve and dismiss both remove the pitch from the mod's view
+// immediately. The server still returns counts in the response (for the
+// [PITCHES] log line audit) but the client doesn't read them.
+const MOD_PITCHES_FILTER = "pending";
 function showModDashboard() {
   log("showModDashboard resetting active class to pending (was " + modTab + ")");
   openOverlay("mod-screen");
@@ -1183,6 +1238,14 @@ function showModDashboard() {
   document.querySelectorAll("#mod-tabs .mod-tab").forEach(function (t) {
     t.classList.toggle("active", (t as HTMLElement).dataset.mtab === "pending");
   });
+  // aged-cleanup-mode + ui-polish-pass: show the threshold in the header
+  // subtitle and the pause banner if the install setting is on. The cleanup
+  // 🧹 button is now a sibling of the X close button in the header (always
+  // shown to mods). The bar element is removed — see app.html.
+  var subtitle = document.getElementById("mod-cleanup-subtitle");
+  if (subtitle) subtitle.textContent = "Cleanup threshold: " + cachedCleanupAfterDays + " days";
+  var pauseBanner = document.getElementById("mod-cleanup-pause-banner");
+  if (pauseBanner) pauseBanner.style.display = cachedHomeIsMod && cachedPauseCleanup ? "block" : "none";
   delete modTabCache["published"];
   delete modTabCache["pitches"];
   loadModTab("pending");
@@ -1196,7 +1259,15 @@ async function loadModTab(tab: string) {
     log("loadModTab using cache " + tab);
     if (tab === "pending") renderModPending(cached.data);
     else if (tab === "published") renderModPublished(cached.data);
-    else if (tab === "pitches") renderModPitches(cached.data);
+    // pitch-feedback-loop: backward-compat — older cached entries may store
+    // the raw ideas array (no counts). If so, fall back to an empty counts
+    // object so the dismissed link just doesn't render.
+    // pitch-approve: counts now include "approved" as a third value.
+    else if (tab === "pitches") {
+      var c = cached.data;
+      if (Array.isArray(c)) renderModPitches(c, { pending: c.length, approved: 0, dismissed: 0, all: c.length });
+      else renderModPitches(c.ideas || [], c.counts || { pending: 0, approved: 0, dismissed: 0, all: 0 });
+    }
     return;
   }
   // Skip if already fetching this tab
@@ -1213,9 +1284,16 @@ async function loadModTab(tab: string) {
       var d = await res.json();
       if (d.type === "all-approved-events") { modTabCache[tab] = { data: d.events, timestamp: Date.now() }; renderModPublished(d.events); }
     } else if (tab === "pitches") {
-      var res2 = await fetch(API_BASE + "/api/pitched-ideas");
+      // pitch-feedback-loop: append ?status= so the mod's default view is
+      // the pending queue. Counts are stored in the cache alongside the
+      // filtered ideas so renderModPitches can render the "View dismissed
+      // (N)" link without an extra fetch.
+      var res2 = await fetch(API_BASE + "/api/pitched-ideas?status=" + MOD_PITCHES_FILTER);
       var d2 = await res2.json();
-      if (d2.type === "pitched-ideas") { modTabCache[tab] = { data: d2.ideas, timestamp: Date.now() }; renderModPitches(d2.ideas); }
+      if (d2.type === "pitched-ideas") {
+        modTabCache[tab] = { data: d2, timestamp: Date.now() };
+        renderModPitches(d2.ideas, d2.counts);
+      }
     }
   } catch (e) {
     log("error: loadModTab " + e);
@@ -1365,7 +1443,14 @@ function renderModCard(tab: string, opts: { noFade?: boolean } = {}) {
       '<button class="btn btn-white btn-icon btn-delete-published" data-id="' + item.id + '" data-action="delete-published" title="Delete event" aria-label="Delete event">🗑️</button>' +
       '</div>';
   } else {
-    actionsHtml = '<button class="btn btn-white btn-action-full btn-dismiss-idea" data-id="' + item.id + '" data-action="dismiss-idea">🗑️ Dismiss</button>';
+    // pitch-approve: two-button row (Approve green + Dismiss white) parallel
+    // to the pending events card (Details | Approve | Decline). flex:1 each
+    // so they split the width equally on wide viewports and wrap to two
+    // rows on narrow ones.
+    actionsHtml = '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button class="btn btn-green btn-action btn-approve-idea" data-id="' + item.id + '" data-action="approve-idea" style="flex:1;">✅ Approve</button>' +
+      '<button class="btn btn-white btn-action btn-dismiss-idea" data-id="' + item.id + '" data-action="dismiss-idea" style="flex:1;">🗑️ Dismiss</button>' +
+      '</div>';
   }
 
   c.innerHTML = buildCardShell({ color: color, headerHtml: headerHtml, bodyHtml: bodyHtml, actionsHtml: actionsHtml, noFade: opts.noFade });
@@ -1432,16 +1517,21 @@ function renderModPublished(events: any[]) {
   }
   renderModCard("published");
 }
-function renderModPitches(ideas: any[]) {
+function renderModPitches(ideas: any[], _counts?: { pending: number; approved: number; dismissed: number; all: number }) {
+  // ui-polish-pass: simplified. No filter UI. Mods only see pending pitches;
+  // approve and dismiss both remove the pitch from the mod's view immediately.
+  // The server still returns counts (for the [PITCHES] log line audit) but
+  // the client doesn't read them anymore.
   log("renderModPitches count=" + ideas.length);
   modItems["pitches"] = ideas;
   // Do NOT reset modCardIdx["pitches"] here — see renderModPending comment.
   if (ideas.length === 0) {
-    document.getElementById("pending-events-container")!.innerHTML = renderEmptyState({
-      emoji: "💡", title: "No pitched ideas",
-      body: "Community pitches will appear here.",
-      context: "mod-pitches",
-    });
+    document.getElementById("pending-events-container")!.innerHTML =
+      renderEmptyState({
+        emoji: "💡", title: "No pitched ideas",
+        body: "Community pitches will appear here.",
+        context: "mod-pitches",
+      });
     updateCardDots("mod", 0, 0);
     updateCardNav("mod", 0, 0);
     return;
@@ -1558,6 +1648,46 @@ function confirmDestructive(msg: string): Promise<boolean> {
   });
 }
 
+// pitch-feedback-loop: prompt the mod for a reason before a destructive
+// dismiss. Reuses the existing #confirm-overlay; the reason text input
+// (hidden by default in HTML) is revealed while the promise is pending.
+// Returns the typed reason, or null if the mod cancels.
+function promptForReason(message: string): Promise<string | null> {
+  var truncated = message.length > 80 ? message.substring(0, 77) + "..." : message;
+  log("promptForReason: " + truncated);
+  document.getElementById("confirm-message")!.textContent = truncated;
+  var wrap = document.getElementById("confirm-reason-wrap")! as HTMLElement;
+  var input = document.getElementById("confirm-reason-input") as HTMLTextAreaElement;
+  var counter = document.getElementById("confirm-reason-counter")!;
+  var okBtn = document.getElementById("confirm-ok-btn") as HTMLButtonElement;
+  // Reset state from any prior invocation.
+  input.value = "";
+  counter.textContent = "0 / 100";
+  wrap.style.display = "flex";
+  input.focus();
+  // Live counter
+  var onInput = function () { counter.textContent = input.value.length + " / 100"; };
+  input.addEventListener("input", onInput);
+  // Submit-on-Enter (Shift+Enter inserts a newline)
+  var onKey = function (e: KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      okBtn.click();
+    }
+  };
+  input.addEventListener("keydown", onKey);
+  openOverlay("confirm-overlay");
+  return new Promise(function (resolve) {
+    var el = document.getElementById("confirm-overlay")!;
+    (el as any)._reasonResolve = function (value: string | null) {
+      wrap.style.display = "none";
+      input.removeEventListener("input", onInput);
+      input.removeEventListener("keydown", onKey);
+      resolve(value);
+    };
+  });
+}
+
 // ======= ACTIONS =======
 var actionLocks: Record<string, boolean> = {};
 function isLocked(key: string): boolean { return !!actionLocks[key]; }
@@ -1645,15 +1775,51 @@ async function deleteEvent(id: string, type: string) { log("deleteEvent id=" + i
       }
       delete modTabCache[type];
     } else { await tryShowServerError(res, "Delete failed"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } } catch (e) { showToast("Network error", "error"); if (parent) parent.style.opacity = "1"; if (btn) { btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; } } finally { unlock(k); } }
-async function dismissIdea(id: string) { log("dismissIdea id=" + id); var k = "dismiss-" + id; if (isLocked(k)) return; lock(k); var title = getItemTitle(id, modItems); if (!await confirmDestructive('Dismiss "' + title + '"? This cannot be undone.')) { unlock(k); return; } setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', true, "⏳ Dismissing..."); var res; try { res = await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) });     if (res.ok) { showToast("Idea dismissed", "success");       // Optimistically remove from modItems
-      var pitchItems = modItems["pitches"] || [];
-      var dismissIdx = pitchItems.findIndex(function(i: any) { return i.id === id; });
-      if (dismissIdx >= 0) { pitchItems.splice(dismissIdx, 1); log("optimistic dismiss: removed " + id + " from pitches"); }
+async function dismissIdea(id: string) {
+  log("dismissIdea id=" + id);
+  var k = "dismiss-" + id;
+  if (isLocked(k)) return;
+  lock(k);
+  var title = getItemTitle(id, modItems);
+  // pitch-feedback-loop: mod path requires a reason. Use promptForReason
+  // (which extends the existing confirm overlay) instead of the plain
+  // confirmDestructive. The reason is sent in the body; the server
+  // soft-saves with status="dismissed" + dismissReason/dismissedAt/dismissedBy.
+  var reason = await promptForReason('Dismiss "' + title + '"? Add a short reason — the pitcher will see it.');
+  if (reason === null) { unlock(k); return; }
+  setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', true, "⏳ Dismissing...");
+  var res;
+  try {
+    res = await fetch(API_BASE + "/api/dismiss-idea", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ideaId: id, reason: reason }),
+    });
+    if (res.ok) {
+      showToast("Idea dismissed", "success");
+      // pitch-dismiss-refresh: refetch via loadModTab instead of optimistic
+      // splice + re-render. The refetch pattern matches approveEvent and
+      // deleteEvent, restoring the consistency the LEARNINGS §35 audit
+      // recommended. ui-polish-pass: the cross-filter counts are no longer
+      // displayed in the UI (the filter UI is gone), but the refetch pattern
+      // is still correct because the dismissed pitch must disappear from
+      // the mod's view.
+      log("dismissIdea refetching pitches tab (was optimistic splice)");
+      delete modTabCache["pitches"];
+      log("dismissIdea cache invalidated, cache hit on next load?=" + (modTabCache["pitches"] ? "yes" : "no"));
       // Re-render mod dashboard if user is viewing it
       var modScreen3 = document.getElementById("mod-screen");
-      if (modScreen3 && modScreen3.classList.contains("active") && modTab === "pitches") { renderModPitches(modItems["pitches"] || []); }
-      delete modTabCache["pitches"];
-    } else { await tryShowServerError(res, "Dismiss failed"); } } catch (e) { showToast("Network error", "error"); } finally { setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', false); unlock(k); } }
+      if (modScreen3 && modScreen3.classList.contains("active") && modTab === "pitches") { loadModTab("pitches"); }
+    } else {
+      await tryShowServerError(res, "Dismiss failed");
+    }
+  } catch (e) {
+    showToast("Network error", "error");
+  } finally {
+    setBtnLoading('[data-action="dismiss-idea"][data-id="' + id + '"]', false);
+    unlock(k);
+  }
+}
 async function deletePitch(id: string) { log("deletePitch id=" + id); var title = getItemTitle(id, { myPitches: myPitches }); if (!await confirmDestructive('Delete "' + title + '"? This cannot be undone.')) return; var k = "pitch-" + id; if (isLocked(k)) return; lock(k); setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', true, "⏳ Deleting..."); var res; try { res = await fetch(API_BASE + "/api/dismiss-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ideaId: id }) });     if (res.ok) { showToast("Deleted", "success");       // Optimistically remove from myPitches
       var pitchIdx = myPitches.findIndex(function(p: any) { return p.id === id; });
       if (pitchIdx >= 0) {
@@ -1668,6 +1834,81 @@ async function deletePitch(id: string) { log("deletePitch id=" + id); var title 
       var myStuffOverlay3 = document.getElementById("my-stuff-overlay");
       if (myStuffOverlay3 && myStuffOverlay3.classList.contains("active") && myStuffTab === "pitches") { renderMyPitchCard(); }
     } else { await tryShowServerError(res, "Delete failed"); } } catch (e) { showToast("Network error", "error"); } finally { setBtnLoading('[data-action="delete-pitch"][data-id="' + id + '"]', false); unlock(k); } }
+// aged-cleanup-mode: mod triggers a manual cleanup. The server is the source
+// of truth for what's aged; the client just shows the counts in a toast.
+// The pause setting (if any) does NOT block this — the manual button always
+// works, only the auto CRON respects the pause.
+async function runCleanupAged() {
+  log("runCleanupAged");
+  if (isLocked("cleanup-aged")) return;
+  lock("cleanup-aged");
+  if (!await confirmDestructive('Run cleanup now? This will hard-delete events and pitches older than the configured threshold. This cannot be undone.')) { unlock("cleanup-aged"); return; }
+  // ui-polish-pass: manual loading state for the cleanup button. Don't use
+  // setBtnLoading() because it sets opacity:0.5, which makes the white
+  // button on the dark mod header look "hollow" / semi-transparent. Instead,
+  // we keep the button at full opacity and just change the emoji to show
+  // a "working" state.
+  var cleanupBtn = document.querySelector('[data-action="run-cleanup-aged"]') as HTMLElement | null;
+  var origEmoji = cleanupBtn ? cleanupBtn.textContent : "";
+  if (cleanupBtn) { cleanupBtn.textContent = "⏳"; (cleanupBtn as any).disabled = true; cleanupBtn.style.pointerEvents = "none"; }
+  var res;
+  try {
+    res = await fetch(API_BASE + "/api/cleanup-aged", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    if (res.ok) {
+      var data = await res.json();
+      var c = data || {};
+      var total = (c.eventsActive || 0) + (c.eventsPending || 0) + (c.pitches || 0);
+      if (total === 0) {
+        showToast("Cleanup ran — nothing to delete", "success");
+      } else {
+        showToast("Cleanup ran — removed " + (c.eventsActive || 0) + " active + " + (c.eventsPending || 0) + " pending events, " + (c.pitches || 0) + " pitches", "success");
+      }
+      log("runCleanupAged done: " + JSON.stringify(c));
+    } else {
+      await tryShowServerError(res, "Cleanup failed");
+    }
+  } catch (e) {
+    showToast("Network error", "error");
+  } finally {
+    if (cleanupBtn) { cleanupBtn.textContent = origEmoji || "🧹"; (cleanupBtn as any).disabled = false; cleanupBtn.style.pointerEvents = "auto"; }
+    unlock("cleanup-aged");
+  }
+}
+async function approveIdea(id: string) {
+  log("approveIdea id=" + id);
+  var k = "approve-" + id;
+  if (isLocked(k)) return;
+  lock(k);
+  var title = getItemTitle(id, modItems);
+  if (!await confirmDestructive('Approve "' + title + '"? The pitcher will be notified via DM.')) { unlock(k); return; }
+  setBtnLoading('[data-action="approve-idea"][data-id="' + id + '"]', true, "⏳ Approving...");
+  var res;
+  try {
+    res = await fetch(API_BASE + "/api/approve-idea", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ideaId: id }),
+    });
+    if (res.ok) {
+      showToast("Pitch approved — DM sent", "success");
+      log("approveIdea approved " + id + ", awaiting refetch");
+      // Same refetch pattern as dismissIdea (pitch-dismiss-refresh):
+      // delete cache and loadModTab instead of optimistic update, so the
+      // cross-filter counts (pending / approved / dismissed) are correct
+      // immediately.
+      delete modTabCache["pitches"];
+      var modScreen4 = document.getElementById("mod-screen");
+      if (modScreen4 && modScreen4.classList.contains("active") && modTab === "pitches") { loadModTab("pitches"); }
+    } else {
+      await tryShowServerError(res, "Approve failed");
+    }
+  } catch (e) {
+    showToast("Network error", "error");
+  } finally {
+    setBtnLoading('[data-action="approve-idea"][data-id="' + id + '"]', false);
+    unlock(k);
+  }
+}
 async function cancelMyEvent(id: string) {
   log("cancelMyEvent id=" + id);
   var k = "my-cancel-" + id;
@@ -1768,7 +2009,7 @@ async function showModEventDetails(id: string) {
     '<div id="mod-desc-nav-' + id + '" style="flex-shrink:0;display:flex;justify-content:center;align-items:center;gap:8px;padding:4px 8px 0 8px;min-height:28px;">' +
       (descFull.length > DESC_SHORT_LENGTH ? '<button class="btn btn-white btn-pager" data-id="' + id + '" data-action="mod-detail-desc-next">Read more →</button>' : '') +
     '</div>';
-  if (item.mapUrl) { s2 += '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Google Maps</span><button class="copy-btn btn-copy btn-copy-link" data-id="' + escapeAttr(item.mapUrl) + '" data-action="copy-link">📋 Copy</button></div>'; }
+  if (item.mapUrl) { s2 += '<div style="display:flex;align-items:center;gap:8px;padding:8px;margin:0 8px;background:var(--surface);border:var(--border);flex-shrink:0;"><span style="flex:1;font-size:14px;font-weight:600;">🗺️ Map / Virtual Event Link</span><button class="copy-btn btn-copy btn-copy-link" data-id="' + escapeAttr(item.mapUrl) + '" data-action="copy-link">📋 Copy</button></div>'; }
   s2 += '</div>';
 
   // Card 3: Who's Going
@@ -2220,7 +2461,9 @@ async function submitPitch() {
     var res = await fetch(API_BASE + "/api/pitch-idea", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     var data = await res.json();
     if (data.type === "pitch-idea" && data.success) {
-      showToast("Idea sent! ✅", "success");
+      // pitch-feedback-loop: warmer toast that points the user at My Stuff
+      // for status tracking (the source of truth for "did anyone see my pitch?").
+      showToast("Idea received! 🎉 Mods will review it — check My Stuff for status.", "success");
       setBtnLoading("#pitch-submit-btn", false);
       closeOverlay("pitch-overlay");
       loadHome();
@@ -2317,15 +2560,17 @@ function eventNext() {
     // Description -> Review step. Validate desc, populate review, advance.
     var desc = (document.getElementById("event-desc") as HTMLTextAreaElement).value.trim();
     if (!desc) { showToast("Add a description", "error"); return; }
-    var titleEl = (document.getElementById("event-title") as HTMLInputElement).value;
-    var dateEl = (document.getElementById("event-date") as HTMLInputElement).value;
-    var timeEl = (document.getElementById("event-time") as HTMLInputElement).value;
-    var locEl = (document.getElementById("event-location") as HTMLInputElement).value;
-    var catEl = (document.getElementById("event-category") as HTMLSelectElement).value;
-    var catLabel = catEl ? (catEl.charAt(0).toUpperCase() + catEl.slice(1)) : "";
-    (document.getElementById("event-review-title-preview") as HTMLElement).textContent = titleEl;
+    // FIX-03 (pre-launch-bugs): rename step-3 vars so they don't collide
+    // with the step-2 HTMLElement refs of the same name (TS2403).
+    var titleVal = (document.getElementById("event-title") as HTMLInputElement).value;
+    var dateVal = (document.getElementById("event-date") as HTMLInputElement).value;
+    var timeVal = (document.getElementById("event-time") as HTMLInputElement).value;
+    var locVal = (document.getElementById("event-location") as HTMLInputElement).value;
+    var catVal = (document.getElementById("event-category") as HTMLSelectElement).value;
+    var catLabel = catVal ? (catVal.charAt(0).toUpperCase() + catVal.slice(1)) : "";
+    (document.getElementById("event-review-title-preview") as HTMLElement).textContent = titleVal;
     (document.getElementById("event-review-meta-preview") as HTMLElement).textContent =
-      "📅 " + dateEl + " at " + timeEl + " · 📍 " + locEl + (catLabel ? " · 🏷️ " + catLabel : "");
+      "📅 " + dateVal + " at " + timeVal + " · 📍 " + locVal + (catLabel ? " · 🏷️ " + catLabel : "");
     var descPreviewEl = document.getElementById("event-review-desc-preview") as HTMLElement;
     if (desc.length > DESC_SHORT_LENGTH) {
       // Long desc: render pager with explicit Previous/Next buttons (e18 design D3)
@@ -2409,7 +2654,7 @@ var usernameCached: string | null = null, prefillLoading = false;
 async function prefillOrganizer() { if (currentUsername) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + currentUsername; return; } if (usernameCached) { (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + usernameCached; return; } if (prefillLoading) return; prefillLoading = true; try { var res = await fetch(API_BASE + "/api/init"); var data = await res.json(); if (data.type === "init" && data.username) { currentUsername = data.username; usernameCached = data.username; (document.getElementById("event-organizer") as HTMLInputElement).value = "u/" + data.username; } if (data.type === "init" && data.timezone) { setAppTimezone(data.timezone); } // H1 fix: set isMod from init so the debug panel can be revealed
   // before /api/home returns. The server also returns isMod in the init
   // response (see server.ts:onInit).
-  if (data.type === "init" && typeof data.isMod === "boolean") { cachedHomeIsMod = data.isMod; applyDebugPanelVisibility(); } } catch (e) { log("error: prefillOrganizer " + e); } prefillLoading = false; }
+  if (data.type === "init" && typeof data.isMod === "boolean") { cachedHomeIsMod = data.isMod; cachedShowDebugPanel = !!(data.settings && data.settings.show_debug_panel === true); if (data.settings) { cachedPauseCleanup = data.settings.pause_cleanup === true; cachedCleanupAfterDays = Number(data.settings.cleanup_after_days) || 30; } applyDebugPanelVisibility(); } } catch (e) { log("error: prefillOrganizer " + e); } prefillLoading = false; }
 
 // ======= OVERLAY HELPERS =======
 function openOverlay(id: string) { log("OPEN overlay " + id); document.getElementById(id)!.classList.add("active"); }
@@ -2556,6 +2801,8 @@ function handleAction(action: string, id: string | null) {
     case "decline-event": if (id) deleteEvent(id, "pending"); break;
     case "delete-published": if (id) deleteEvent(id, "published"); break;
     case "dismiss-idea": if (id) dismissIdea(id); break;
+    case "approve-idea": if (id) approveIdea(id); break;
+    case "run-cleanup-aged": runCleanupAged(); break;
     case "delete-pitch": if (id) deletePitch(id); break;
     case "rsvp-now": if (id) showRsvpOverlay(id); break;
     case "update-rsvp": if (id) showUpdateRsvpOverlay(id); break;
@@ -2691,6 +2938,8 @@ function handleAction(action: string, id: string | null) {
     case "open-my-stuff": openMyStuff(); break;
     case "show-mod": showModDashboard(); break;
     case "switch-mod-tab": if (id) switchModTab(id); break;
+    // ui-polish-pass: filter switches for the mod Pitches tab removed.
+    // (The filter UI is gone — see the simplified renderModPitches above.)
     case "switch-my-stuff-tab": if (id) switchMyStuffTab(id); break;
     case "detail-next": detailNext(); break;
     case "detail-prev": detailPrev(); break;
@@ -2828,9 +3077,24 @@ document.addEventListener("DOMContentLoaded", function () {
   });
   document.querySelector(".btn-submit-rsvp")?.addEventListener("click", submitRsvp);
   // Custom confirm overlay buttons
-  document.getElementById("confirm-ok-btn")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var r = (el as any)._confirmResolve; if (r) { log("confirm OK"); r(true); (el as any)._confirmResolve = null; } });
-  document.getElementById("confirm-cancel-btn")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var r = (el as any)._confirmResolve; if (r) { log("confirm cancelled"); r(false); (el as any)._confirmResolve = null; } });
-  document.getElementById("confirm-backdrop")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var r = (el as any)._confirmResolve; if (r) { log("confirm backdrop dismissed"); r(false); (el as any)._confirmResolve = null; } });
+  document.getElementById("confirm-ok-btn")!.addEventListener("click", function () {
+    closeOverlay("confirm-overlay");
+    var el = document.getElementById("confirm-overlay")!;
+    // pitch-feedback-loop: prefer _reasonResolve when promptForReason is active
+    var rr = (el as any)._reasonResolve;
+    if (rr) {
+      var inputEl = document.getElementById("confirm-reason-input") as HTMLTextAreaElement;
+      var value = (inputEl?.value || "").trim();
+      log("reason confirm: " + (value ? "ok" : "empty-cancel"));
+      rr(value.length > 0 ? value : null);
+      (el as any)._reasonResolve = null;
+      return;
+    }
+    var r = (el as any)._confirmResolve;
+    if (r) { log("confirm OK"); r(true); (el as any)._confirmResolve = null; }
+  });
+  document.getElementById("confirm-cancel-btn")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var rr = (el as any)._reasonResolve; if (rr) { log("reason cancelled"); rr(null); (el as any)._reasonResolve = null; return; } var r = (el as any)._confirmResolve; if (r) { log("confirm cancelled"); r(false); (el as any)._confirmResolve = null; } });
+  document.getElementById("confirm-backdrop")!.addEventListener("click", function () { closeOverlay("confirm-overlay"); var el = document.getElementById("confirm-overlay")!; var rr = (el as any)._reasonResolve; if (rr) { log("reason backdrop dismissed"); rr(null); (el as any)._reasonResolve = null; return; } var r = (el as any)._confirmResolve; if (r) { log("confirm backdrop dismissed"); r(false); (el as any)._confirmResolve = null; } });
 
   // ONE event delegation listener - replaces all bindButtons() calls
   document.body.addEventListener("click", function(e) {

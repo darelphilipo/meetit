@@ -1,17 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildAnnouncementTitle,
+  buildApproveDm,
   buildAttendees,
+  buildCleanupLogEntry,
   buildGoogleCalendarUrl,
   buildReminderBody,
   buildReminderTitle,
   buildRsvpShareBody,
   createPendingEvent,
   csvEscape,
+  decideDebugPanelVisibility,
   formatAttendeeList,
   isConfiguredModerator,
+  isEventAgedOut,
+  isEventPast,
+  isPitchAgedOut,
   isSubmissionOwner,
   normalizeUsername,
+  parseQueryParam,
+  pickAgedItems,
+  pitchEffectiveStatus,
+  stripQueryString,
+  validateDismissReason,
 } from "../src/shared/meetit.ts";
 
 test("isConfiguredModerator only allows configured usernames", () => {
@@ -283,6 +295,48 @@ test("buildReminderTitle accepts a custom prefix for the 2h window (e30)", () =>
   assert.equal(title, "⏰ Starting Soon: Coffee Meetup — 2026-06-25 @ Central Park");
 });
 
+// event-announcement-post: buildAnnouncementTitle format
+test("buildAnnouncementTitle includes title, date, and @ location when all present", () => {
+  const title = buildAnnouncementTitle({
+    title: "Bangalore Tech Chai",
+    date: "2026-06-21",
+    location: "Cubbon Park",
+  });
+  assert.equal(title, "📅 [New Meetup] Bangalore Tech Chai — 2026-06-21 @ Cubbon Park");
+});
+
+test("buildAnnouncementTitle omits @ location when location is empty", () => {
+  const title = buildAnnouncementTitle({
+    title: "Coffee Meetup",
+    date: "2026-06-25",
+    location: "",
+  });
+  assert.equal(title, "📅 [New Meetup] Coffee Meetup — 2026-06-25");
+});
+
+test("buildAnnouncementTitle omits @ location when location is whitespace-only", () => {
+  const title = buildAnnouncementTitle({
+    title: "Coffee Meetup",
+    date: "2026-06-25",
+    location: "   ",
+  });
+  assert.equal(title, "📅 [New Meetup] Coffee Meetup — 2026-06-25");
+});
+
+test("buildAnnouncementTitle falls back to 'New Meetup' for missing title and TBD for missing date", () => {
+  const title = buildAnnouncementTitle({
+    title: "",
+    date: "",
+    location: "Some Place",
+  });
+  assert.equal(title, "📅 [New Meetup] New Meetup — TBD @ Some Place");
+});
+
+test("buildAnnouncementTitle is deterministic (same input -> same output)", () => {
+  const input = { title: "Hike", date: "2026-07-01", location: "Sunrise Point" };
+  assert.equal(buildAnnouncementTitle(input), buildAnnouncementTitle(input));
+});
+
 test("buildReminderTitle with custom prefix omits @ location when location is empty (e30)", () => {
   const title = buildReminderTitle(
     { title: "Coffee Meetup", date: "2026-06-25", location: "" },
@@ -297,7 +351,7 @@ test("buildReminderTitle with custom prefix omits @ location when location is em
 
 test("buildReminderBody includes a Google Maps section when event.mapUrl is set", () => {
   const body = buildReminderBody({ ...FULL_EVENT, mapUrl: "https://maps.google.com/?q=Cubbon+Park" }, "alice", [], []);
-  assert.match(body, /## 🗺️ \[Open in Google Maps\]\(https:\/\/maps\.google\.com\/\?q=Cubbon\+Park\)/);
+  assert.match(body, /## 🗺️ \[Google Maps \/ Virtual Event Link\]\(https:\/\/maps\.google\.com\/\?q=Cubbon\+Park\)/);
 });
 
 test("buildReminderBody omits the maps section when event.mapUrl is empty", () => {
@@ -358,7 +412,7 @@ test("buildRsvpShareBody returns a title and body for a full event", () => {
   // Body should contain all four sections
   assert.match(body, /## 📅 2026-06-21 at 18:30/);
   assert.match(body, /## 📍 Koramangala Social/);
-  assert.match(body, /## 🗺️ \[Open in Google Maps\]\(https:\/\/maps\.google\.com/);
+  assert.match(body, /## 🗺️ \[Google Maps \/ Virtual Event Link\]\(https:\/\/maps\.google\.com/);
   assert.match(body, /## 📝 Lightning talks and side projects\. Bring your laptop!/);
   // Footer with subreddit link
   assert.match(body, /Posted via \[Meetit\]\(https:\/\/www\.reddit\.com\/r\/meetup_hub2_dev\)/);
@@ -575,4 +629,334 @@ test("buildRsvpShareBody includes a Google Calendar link after Maps (e31)", () =
 test("buildRsvpShareBody omits calendar link when event.date is missing", () => {
   const { body } = buildRsvpShareBody({ ...SHARE_EVENT, date: "" }, "alice", [], "meetup_hub2_dev");
   assert.doesNotMatch(body, /Add to Google Calendar/);
+});
+
+// ===== pitch-feedback-loop =====
+
+test("parseQueryParam returns the value of a single param", () => {
+  assert.equal(parseQueryParam("/api/pitched-ideas?status=pending", "status"), "pending");
+});
+
+test("parseQueryParam decodes URL-encoded values", () => {
+  assert.equal(parseQueryParam("/api/foo?reason=Spam%20duplicate", "reason"), "Spam duplicate");
+});
+
+test("parseQueryParam returns undefined when param is absent", () => {
+  assert.equal(parseQueryParam("/api/pitched-ideas", "status"), undefined);
+  assert.equal(parseQueryParam("/api/pitched-ideas?other=x", "status"), undefined);
+});
+
+test("parseQueryParam returns empty string for ?status= (explicit empty)", () => {
+  assert.equal(parseQueryParam("/api/foo?status=", "status"), "");
+});
+
+test("parseQueryParam handles multiple params", () => {
+  assert.equal(parseQueryParam("/api/foo?a=1&status=dismissed&b=2", "status"), "dismissed");
+});
+
+test("parseQueryParam returns undefined for undefined URL", () => {
+  assert.equal(parseQueryParam(undefined, "status"), undefined);
+});
+
+test("stripQueryString returns just the path", () => {
+  assert.equal(stripQueryString("/api/pitched-ideas?status=pending"), "/api/pitched-ideas");
+  assert.equal(stripQueryString("/api/pitched-ideas"), "/api/pitched-ideas");
+  assert.equal(stripQueryString(undefined), "/");
+  assert.equal(stripQueryString("/?x=1"), "/");
+});
+
+test("pitchEffectiveStatus returns 'dismissed' for soft-dismissed pitches", () => {
+  const idea = { id: "x", status: "dismissed", dismissReason: "spam" };
+  assert.equal(pitchEffectiveStatus(idea), "dismissed");
+});
+
+test("pitchEffectiveStatus returns 'pending' for legacy pitches with no status field", () => {
+  const idea = { id: "x", title: "old pitch" };
+  assert.equal(pitchEffectiveStatus(idea), "pending");
+});
+
+test("pitchEffectiveStatus returns 'pending' for null/undefined/empty input", () => {
+  assert.equal(pitchEffectiveStatus(null), "pending");
+  assert.equal(pitchEffectiveStatus(undefined), "pending");
+  assert.equal(pitchEffectiveStatus({}), "pending");
+});
+
+test("pitchEffectiveStatus ignores unknown status values (treats them as pending)", () => {
+  // Defensive: any value other than the literal string "dismissed" falls back
+  // to "pending". This is intentional — we don't trust the stored status
+  // field to invent new states.
+  assert.equal(pitchEffectiveStatus({ status: "converted" }), "pending");
+  assert.equal(pitchEffectiveStatus({ status: "" }), "pending");
+});
+
+test("validateDismissReason rejects missing/empty/non-string", () => {
+  assert.equal(validateDismissReason(undefined), "Reason required");
+  assert.equal(validateDismissReason(""), "Reason required");
+  assert.equal(validateDismissReason("   "), "Reason required");
+  assert.equal(validateDismissReason(null), "Reason required");
+  assert.equal(validateDismissReason(42), "Reason required");
+});
+
+test("validateDismissReason accepts a valid reason", () => {
+  assert.equal(validateDismissReason("Spam"), null);
+  assert.equal(validateDismissReason("  Trim me  "), null); // trims whitespace
+});
+
+test("validateDismissReason rejects reasons over 100 chars", () => {
+  const long = "x".repeat(101);
+  assert.equal(validateDismissReason(long), "Reason must be 100 characters or less");
+  const exactly = "y".repeat(100);
+  assert.equal(validateDismissReason(exactly), null); // exactly 100 is fine
+});
+
+test("validateDismissReason treats 100-char limit as character count after trim", () => {
+  // 100 chars of "x" plus 10 spaces (trimmed to 100) is valid
+  const padded = "   " + "x".repeat(100) + "   ";
+  assert.equal(validateDismissReason(padded), null);
+});
+
+// debug-panel-install-gate: the 🐛 button is only shown when BOTH the user
+// is a mod AND the install setting is on. The visibility decision is a
+// pure function so the matrix can be unit tested.
+test("decideDebugPanelVisibility: mod + setting on → show", () => {
+  assert.equal(decideDebugPanelVisibility(true, true), "show");
+});
+
+test("decideDebugPanelVisibility: mod + setting off → hide", () => {
+  // Mod is loaded but the install hasn't opted in. Default behavior.
+  assert.equal(decideDebugPanelVisibility(true, false), "hide");
+});
+
+test("decideDebugPanelVisibility: non-mod + setting on → hide", () => {
+  // Setting is on but user is not a mod. Defense in depth: even if a
+  // non-mod found the install setting flipped on, they still can't see
+  // the panel.
+  assert.equal(decideDebugPanelVisibility(false, true), "hide");
+});
+
+test("decideDebugPanelVisibility: non-mod + setting off → hide", () => {
+  assert.equal(decideDebugPanelVisibility(false, false), "hide");
+});
+
+test("decideDebugPanelVisibility: only shows when both flags are strictly true", () => {
+  // Truthy-but-not-true values (1, "true", etc.) should NOT bypass the
+  // check — the install setting is read as a strict boolean.
+  assert.equal(decideDebugPanelVisibility(1 as any, true), "hide");
+  assert.equal(decideDebugPanelVisibility(true, 1 as any), "hide");
+  assert.equal(decideDebugPanelVisibility("true" as any, true), "hide");
+});
+
+// pitch-approve: extended pitchEffectiveStatus to return "approved" too.
+test("pitchEffectiveStatus returns 'approved' for status === 'approved'", () => {
+  assert.equal(pitchEffectiveStatus({ status: "approved" }), "approved");
+  assert.equal(pitchEffectiveStatus({ status: "approved", approvedAt: "2026-06-26T10:00:00.000Z" }), "approved");
+});
+
+test("pitchEffectiveStatus still returns 'dismissed' for status === 'dismissed'", () => {
+  // Back-compat: the pitch-feedback-loop behavior is preserved.
+  assert.equal(pitchEffectiveStatus({ status: "dismissed", dismissReason: "spam" }), "dismissed");
+});
+
+test("pitchEffectiveStatus is case-sensitive (rejects 'Approved' / 'APPROVED')", () => {
+  // Defensive against schema drift: only the literal lowercase "approved"
+  // counts. Mixed-case or all-caps falls back to "pending".
+  assert.equal(pitchEffectiveStatus({ status: "Approved" }), "pending");
+  assert.equal(pitchEffectiveStatus({ status: "APPROVED" }), "pending");
+  assert.equal(pitchEffectiveStatus({ status: "Dismissed" }), "pending");
+});
+
+test("pitchEffectiveStatus returns 'pending' for null/undefined/empty status", () => {
+  assert.equal(pitchEffectiveStatus(null), "pending");
+  assert.equal(pitchEffectiveStatus(undefined), "pending");
+  assert.equal(pitchEffectiveStatus({}), "pending");
+  assert.equal(pitchEffectiveStatus({ status: "" }), "pending");
+  assert.equal(pitchEffectiveStatus({ status: "pending" }), "pending");
+});
+
+// pitch-approve: buildApproveDm template helper. Pure, deterministic, testable.
+test("buildApproveDm produces expected subject + body for u/-prefixed username", () => {
+  const dm = buildApproveDm({ title: "Board game night", submittedBy: "u/alice" });
+  assert.equal(dm.subject, "✅ Your Meetit pitch was approved!");
+  assert.match(dm.body, /Hi u\/alice,/);
+  assert.match(dm.body, /"Board game night"/);
+  assert.match(dm.body, /\[\+\] menu/);
+  assert.match(dm.body, /— Meetit Mods/);
+});
+
+test("buildApproveDm normalizes bare username (no u/ prefix)", () => {
+  // Defensive: form data may store usernames with or without the u/ prefix
+  // (LEARNINGS §49). The DM should always render with exactly one u/.
+  const dm = buildApproveDm({ title: "Hike at sunrise", submittedBy: "bob" });
+  assert.match(dm.body, /Hi u\/bob,/);
+  assert.doesNotMatch(dm.body, /u\/u\//);
+});
+
+test("buildApproveDm is deterministic (same input → same output)", () => {
+  const input = { title: "Chess tournament", submittedBy: "u/carol" };
+  const dm1 = buildApproveDm(input);
+  const dm2 = buildApproveDm(input);
+  assert.equal(dm1.subject, dm2.subject);
+  assert.equal(dm1.body, dm2.body);
+});
+
+test("buildApproveDm handles empty/null title and submittedBy gracefully", () => {
+  // Defensive: malformed input shouldn't crash. The title falls back to
+  // "your idea" and the username falls back to "anonymous".
+  const dm = buildApproveDm({ title: "", submittedBy: "" });
+  assert.match(dm.body, /Hi u\/anonymous,/);
+  assert.match(dm.body, /"your idea"/);
+  const dm2 = buildApproveDm({ title: null as any, submittedBy: null as any });
+  assert.match(dm2.body, /Hi u\/anonymous,/);
+});
+
+// aged-cleanup-mode: isEventAgedOut boundary + defensive skips.
+test("isEventAgedOut: event 30 days in the past is NOT aged (boundary)", () => {
+  // Now is 2026-06-26 10:00 IST. Event is 30 days before that, at 10:00 IST.
+  // The boundary is strict: (now - instant) > 30d, so 30d exactly is NOT aged.
+  const now = new Date("2026-06-26T10:00:00.000+05:30");
+  const event = { date: "2026-05-27", time: "10:00" };
+  assert.equal(isEventAgedOut(event, now, 30, "+05:30"), false);
+});
+
+test("isEventAgedOut: event 30 days + 1 second in the past IS aged", () => {
+  const now = new Date("2026-06-26T10:00:01.000+05:30");
+  const event = { date: "2026-05-27", time: "10:00" };
+  assert.equal(isEventAgedOut(event, now, 30, "+05:30"), true);
+});
+
+test("isEventAgedOut: future event is never aged", () => {
+  const now = new Date("2026-06-26T10:00:00.000+05:30");
+  const event = { date: "2027-01-01", time: "10:00" };
+  assert.equal(isEventAgedOut(event, now, 30, "+05:30"), false);
+});
+
+test("isEventAgedOut: missing date returns false (defensive skip)", () => {
+  const now = new Date();
+  assert.equal(isEventAgedOut({ time: "10:00" }, now, 30, "+05:30"), false);
+  assert.equal(isEventAgedOut({ date: "2026-01-01" }, now, 30, "+05:30"), false);
+  assert.equal(isEventAgedOut({}, now, 30, "+05:30"), false);
+  assert.equal(isEventAgedOut(null, now, 30, "+05:30"), false);
+});
+
+test("isEventAgedOut: invalid date/time returns false", () => {
+  const now = new Date();
+  assert.equal(isEventAgedOut({ date: "not-a-date", time: "10:00" }, now, 30, "+05:30"), false);
+  assert.equal(isEventAgedOut({ date: "2026-13-99", time: "25:99" }, now, 30, "+05:30"), false);
+});
+
+// aged-cleanup-mode: isPitchAgedOut boundary + defensive skips.
+test("isPitchAgedOut: pitch 30 days old is NOT aged (boundary)", () => {
+  const now = new Date("2026-06-26T10:00:00.000Z");
+  const pitch = { submittedAt: "2026-05-27T10:00:00.000Z" };
+  assert.equal(isPitchAgedOut(pitch, now, 30), false);
+});
+
+test("isPitchAgedOut: pitch 30 days + 1 second old IS aged", () => {
+  const now = new Date("2026-06-26T10:00:01.000Z");
+  const pitch = { submittedAt: "2026-05-27T10:00:00.000Z" };
+  assert.equal(isPitchAgedOut(pitch, now, 30), true);
+});
+
+test("isPitchAgedOut: missing submittedAt returns false (defensive skip)", () => {
+  const now = new Date();
+  assert.equal(isPitchAgedOut({}, now, 30), false);
+  assert.equal(isPitchAgedOut({ submittedAt: "" }, now, 30), false);
+  assert.equal(isPitchAgedOut({ submittedAt: "not-a-date" }, now, 30), false);
+  assert.equal(isPitchAgedOut(null, now, 30), false);
+});
+
+test("isPitchAgedOut: status does not affect aging (approved/dismissed/pending all eligible)", () => {
+  const now = new Date("2026-06-26T10:00:00.000Z");
+  const oldSubmittedAt = "2025-01-01T00:00:00.000Z";
+  assert.equal(isPitchAgedOut({ status: "pending", submittedAt: oldSubmittedAt }, now, 30), true);
+  assert.equal(isPitchAgedOut({ status: "dismissed", submittedAt: oldSubmittedAt }, now, 30), true);
+  assert.equal(isPitchAgedOut({ status: "approved", submittedAt: oldSubmittedAt }, now, 30), true);
+});
+
+// aged-cleanup-mode: pickAgedItems splits correctly.
+test("pickAgedItems splits aged events into active vs pending", () => {
+  const now = new Date("2026-06-26T10:00:00.000+05:30");
+  const oldActiveEvent = { id: "evt_old_active", date: "2025-01-01", time: "10:00" };
+  const oldPendingEvent = { id: "evt_old_pending", date: "2025-01-01", time: "10:00" };
+  const newActiveEvent = { id: "evt_new_active", date: "2026-12-31", time: "10:00" };
+  const oldPitch = { id: "pitch_old", submittedAt: "2025-01-01T00:00:00.000Z" };
+  const newPitch = { id: "pitch_new", submittedAt: "2026-06-20T00:00:00.000Z" };
+  const result = pickAgedItems(
+    [oldActiveEvent, newActiveEvent],
+    [oldPendingEvent],
+    [oldPitch, newPitch],
+    now,
+    30,
+    "+05:30",
+  );
+  assert.equal(result.agedActiveEvents.length, 1);
+  assert.equal(result.agedActiveEvents[0].id, "evt_old_active");
+  assert.equal(result.agedPendingEvents.length, 1);
+  assert.equal(result.agedPendingEvents[0].id, "evt_old_pending");
+  assert.equal(result.agedPitches.length, 1);
+  assert.equal(result.agedPitches[0].id, "pitch_old");
+});
+
+// aged-cleanup-mode: buildCleanupLogEntry is deterministic and includes all fields.
+test("buildCleanupLogEntry includes ts, events, pitches, thresholdDays, trigger, user", () => {
+  const now = new Date("2026-06-26T10:00:00.000Z");
+  const entry = buildCleanupLogEntry(
+    now,
+    { eventsActive: 3, eventsPending: 1, pitches: 2 },
+    { thresholdDays: 30, trigger: "manual", user: "u/darelphilip" },
+  );
+  const parsed = JSON.parse(entry);
+  assert.equal(parsed.ts, "2026-06-26T10:00:00.000Z");
+  assert.deepEqual(parsed.events, { active: 3, pending: 1 });
+  assert.equal(parsed.pitches, 2);
+  assert.equal(parsed.thresholdDays, 30);
+  assert.equal(parsed.trigger, "manual");
+  assert.equal(parsed.user, "u/darelphilip");
+});
+
+test("buildCleanupLogEntry is deterministic (same inputs → same output)", () => {
+  const now = new Date("2026-06-26T10:00:00.000Z");
+  const counts = { eventsActive: 0, eventsPending: 0, pitches: 5 };
+  const meta = { thresholdDays: 30, trigger: "cron" as const, user: "system" };
+  assert.equal(buildCleanupLogEntry(now, counts, meta), buildCleanupLogEntry(now, counts, meta));
+});
+
+// FIX-01 (pre-launch-bugs): organizer (event owner) should be allowed to
+// see contact details in addition to mods. The current onRsvpList
+// implementation now checks isSubmissionOwner as well as isMod. (This
+// test documents the contract; the integration is verified manually.)
+test("FIX-01: isSubmissionOwner recognizes case-insensitive organizer match", () => {
+  assert.equal(isSubmissionOwner("alice", "alice"), true);
+  assert.equal(isSubmissionOwner("Alice", "alice"), true);
+  assert.equal(isSubmissionOwner("u/alice", "alice"), true);
+  assert.equal(isSubmissionOwner("alice", "u/alice"), true);
+  assert.equal(isSubmissionOwner("bob", "alice"), false);
+  assert.equal(isSubmissionOwner("", "alice"), false);
+  assert.equal(isSubmissionOwner("alice", ""), false);
+});
+
+// FIX-02 (pre-launch-bugs): isEventPast returns true for yesterday, false
+// for today and future. Defensive: false for missing or malformed dates.
+test("FIX-02: isEventPast returns true for events with yesterday's date", () => {
+  const now = new Date("2026-06-26T15:00:00Z");
+  assert.equal(isEventPast({ date: "2026-06-25" }, now), true);
+});
+
+test("FIX-02: isEventPast returns false for events with today's date", () => {
+  const now = new Date("2026-06-26T15:00:00Z");
+  assert.equal(isEventPast({ date: "2026-06-26" }, now), false);
+});
+
+test("FIX-02: isEventPast returns false for events with tomorrow's date", () => {
+  const now = new Date("2026-06-26T15:00:00Z");
+  assert.equal(isEventPast({ date: "2026-06-27" }, now), false);
+});
+
+test("FIX-02: isEventPast returns false for missing or malformed dates (defensive default)", () => {
+  const now = new Date("2026-06-26T15:00:00Z");
+  assert.equal(isEventPast({ date: "" }, now), false);
+  assert.equal(isEventPast({ date: "not-a-date" }, now), false);
+  assert.equal(isEventPast({}, now), false);
+  assert.equal(isEventPast(null, now), false);
+  assert.equal(isEventPast(undefined, now), false);
 });

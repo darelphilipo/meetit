@@ -13,7 +13,7 @@ import {
   type RsvpAttendee,
   type SubmitEventFormData,
 } from "../shared/api.ts";
-import { buildAttendees, buildReminderBody, buildReminderTitle, buildRsvpShareBody, createPendingEvent, csvEscape, isConfiguredModerator, isSubmissionOwner, normalizeUsername } from "../shared/meetit.ts";
+import { buildAnnouncementTitle, buildApproveDm, buildAttendees, buildCleanupLogEntry, buildReminderBody, buildReminderTitle, buildRsvpShareBody, createPendingEvent, csvEscape, isConfiguredModerator, isEventAgedOut, isEventPast, isPitchAgedOut, isSubmissionOwner, normalizeUsername, parseQueryParam, pickAgedItems, pitchEffectiveStatus, stripQueryString, validateDismissReason } from "../shared/meetit.ts";
 import { once } from "node:events";
 
 const MAX_SERVER_LOGS = 100;
@@ -51,6 +51,13 @@ export async function serverOnRequest(
   }
 }
 
+// pitch-feedback-loop: strip query string from URL so the switch can match
+// the path-only endpoint, while preserving the original URL on req for
+// handlers that need to parse query params (e.g. ?status=).
+function endpointPath(rawUrl: string | undefined): string {
+  return stripQueryString(rawUrl);
+}
+
 async function onRequest(
   req: IncomingMessage,
   rsp: ServerResponse,
@@ -62,7 +69,7 @@ async function onRequest(
     return;
   }
 
-  const endpoint = url as ApiEndpoint | InternalEndpoint;
+  const endpoint = endpointPath(url) as ApiEndpoint | InternalEndpoint;
   const apiMsg = `[API] ${req.method || "POST"} ${endpoint}`;
   console.log(apiMsg);
   serverLog("info", apiMsg);
@@ -106,13 +113,19 @@ async function onRequest(
       body = await onPendingEvents();
       break;
     case ApiEndpoint.PitchedIdeas:
-      body = await onPitchedIdeas();
+      body = await onPitchedIdeas(req);
       break;
     case ApiEndpoint.AllApprovedEvents:
       body = await onAllApprovedEvents();
       break;
     case ApiEndpoint.DismissIdea:
       body = await onDismissIdea(req);
+      break;
+    case ApiEndpoint.ApproveIdea:
+      body = await onApproveIdea(req);
+      break;
+    case ApiEndpoint.CleanupAged:
+      body = await onCleanupAged(req);
       break;
     case ApiEndpoint.DeletePending:
       body = await onDeletePending(req);
@@ -141,6 +154,9 @@ async function onRequest(
     case InternalEndpoint.CheckEvents:
       body = await onCheckEvents(req);
       break;
+    case InternalEndpoint.CheckCleanupAged:
+      body = await onCleanupAged(req);
+      break;
     default:
       endpoint satisfies never;
       body = { error: "not found", status: 404 };
@@ -155,12 +171,13 @@ const InternalEndpoint = {
   OnAppInstall: "/internal/on-app-install",
   OnAppUpgrade: "/internal/on-app-upgrade",
   CheckEvents: "/internal/scheduler/check-events",
+  CheckCleanupAged: "/internal/scheduler/cleanup-aged",
 } as const;
 
 type InternalEndpoint = (typeof InternalEndpoint)[keyof typeof InternalEndpoint];
 
 type ApiResponse =
-  | { type: "init"; postId: string; username: string; settings: AppSettings; timezone: string }
+  | { type: "init"; postId: string; username: string; isMod: boolean; settings: AppSettings; timezone: string }
   | { type: "home"; data: HomeState }
   | { type: "event-details"; data: EventDetails }
   | { type: "rsvp"; success: boolean; wasExisting?: boolean }
@@ -171,11 +188,13 @@ type ApiResponse =
   | { type: "submit-event"; success: boolean }
   | { type: "approve-event"; success: boolean }
   | { type: "pending-events"; events: MeetitEvent[] }
-  | { type: "pitched-ideas"; ideas: any[] }
+  | { type: "pitched-ideas"; ideas: any[]; counts: { pending: number; dismissed: number; all: number } }
   | { type: "all-approved-events"; events: any[] }
   | { type: "dismiss-idea"; success: boolean }
+  | { type: "approve-idea"; success: boolean }
   | { type: "delete-pending"; success: boolean }
   | { type: "delete-published"; success: boolean }
+  | { type: "cleanup-aged"; eventsActive: number; eventsPending: number; pitches: number }
   | { type: "my-submissions"; pitches: any[]; events: MeetitEvent[]; rsvps: any[] }
   | { type: "my-rsvp"; email: string; phone: string }
   | { type: "export-attendees"; csv: string; filename: string }
@@ -216,21 +235,40 @@ function parseModList(raw: unknown): string[] {
 
 async function getSettings(): Promise<AppSettings> {
   try {
-    const [primary, secondary, borders, tz] = await Promise.all([
+    const [primary, secondary, borders, showDebug, tz, cleanupDays, pauseCleanup] = await Promise.all([
       settings.get("primary_color"),
       settings.get("secondary_color"),
       settings.get("use_brutalist_borders"),
+      settings.get("show_debug_panel"),
       settings.get("timezone"),
+      settings.get("cleanup_after_days"),
+      settings.get("pause_cleanup"),
     ]);
+    const showDebugPanel = (showDebug as boolean) === true;
+    // aged-cleanup-mode: threshold parsed as a number, validated to 1-365 in
+    // the cleanup handler. Defensive default: 30 (the documented default).
+    const cleanupAfterDays = Math.max(1, Math.min(365, Number(cleanupDays) || 30));
+    const pauseCleanupFlag = (pauseCleanup as boolean) === true;
     return {
       primary_color: (primary as string) || "#ffff00",
       secondary_color: (secondary as string) || "#ff69b4",
       use_brutalist_borders: (borders as boolean) !== false,
+      show_debug_panel: showDebugPanel,
       timezone: normalizeTimezone(tz),
+      cleanup_after_days: cleanupAfterDays,
+      pause_cleanup: pauseCleanupFlag,
     };
   } catch (e) {
     console.error(`getSettings error: ${e}`);
-    return { primary_color: "#ffff00", secondary_color: "#ff69b4", use_brutalist_borders: true, timezone: "+05:30" };
+    return {
+      primary_color: "#ffff00",
+      secondary_color: "#ff69b4",
+      use_brutalist_borders: true,
+      show_debug_panel: false,
+      timezone: "+05:30",
+      cleanup_after_days: 30,
+      pause_cleanup: false,
+    };
   }
 }
 
@@ -289,6 +327,23 @@ async function addRsvp(eventId: string, username: string, email: string, phone: 
   await redis.zAdd(key, { score: Date.now(), member: userKey });
   if (email || phone) {
     await redis.hSet(`meetit:rsvp_details:${eventId}`, { [userKey]: JSON.stringify({ email: email || "", phone: phone || "" }) });
+    const writeMsg = `[FIX-04-WRITE] rsvp-details-written eventId=${eventId} user=${userKey} hasEmail=${!!email} hasPhone=${!!phone}`;
+    console.log(writeMsg);
+    serverLog("info", writeMsg);
+  } else {
+    // FIX-04 (pre-launch-bugs): blank email AND blank phone means the user
+    // wants their contact info removed. Currently the hash entry would
+    // linger, so mods and CSV exports would still see the old data. hDel it.
+    const deleted = await redis.hDel(`meetit:rsvp_details:${eventId}`, [userKey]);
+    if (deleted > 0) {
+      const clearMsg = `[FIX-04-CLEAR] rsvp-details-cleared eventId=${eventId} user=${userKey} (hDel returned ${deleted})`;
+      console.log(clearMsg);
+      serverLog("info", clearMsg);
+    } else {
+      const noopMsg = `[FIX-04-CLEAR] rsvp-details-noop eventId=${eventId} user=${userKey} (no prior contact info to clear)`;
+      console.log(noopMsg);
+      serverLog("info", noopMsg);
+    }
   }
   const verifyScore = await redis.zScore(key, userKey);
   console.log(`[RSVP] ${username} → ${eventId} | score=${verifyScore} | email=${!!email} phone=${!!phone}`);
@@ -402,6 +457,19 @@ async function onRsvp(req: IncomingMessage): Promise<ApiResponse> {
   // C6: Verify event exists before allowing RSVP
   const event = await getActiveEvent(eventId);
   if (!event) return { error: "Event not found", status: 404 };
+  // FIX-02 (pre-launch-bugs): block RSVP to past events. Defensive explicit
+  // date check; the UI prevents this, but direct API calls and stale Redis
+  // state could otherwise allow it. isEventPast returns false (allow) for
+  // malformed dates so a typo doesn't silently block valid RSVPs.
+  if (isEventPast(event)) {
+    const blockMsg = `[FIX-02-BLOCK] rsvp-past-event-blocked eventId=${eventId} eventDate=${event.date} user=${context.username || "anon"}`;
+    console.warn(blockMsg);
+    serverLog("warn", blockMsg);
+    return { error: "Cannot RSVP to past events", status: 400 };
+  }
+  const allowMsg = `[FIX-02-ALLOW] rsvp eventId=${eventId} eventDate=${event.date} user=${context.username || "anon"}`;
+  console.log(allowMsg);
+  serverLog("info", allowMsg);
   const username = context.username;
   if (!username) return { error: "Authentication required", status: 401 };
   // BUG7: detect re-RSVP so client can show "Contact info updated"
@@ -554,8 +622,25 @@ async function onPitchIdea(req: IncomingMessage): Promise<ApiResponse> {
   if (proposedTime) idea.proposedTime = proposedTime;
   await redis.hSet("meetit:pitched_ideas", { [ideaId]: JSON.stringify(idea) });
 
-  // Notification comment disabled - submitComment not available in Devvit Web
-  // await notifyMods(`💡 New pitch idea...`);
+  // pitch-feedback-loop: best-effort DM confirmation. Failure does NOT block
+  // the submission (the pitch is already saved). The My Stuff row + toast are
+  // the source of truth; the DM is a courtesy.
+  try {
+    await reddit.sendPrivateMessage({
+      to: username,
+      subject: "💡 Your idea was received",
+      text: `Hey u/${username}! Your pitch "${title}" was received. Mods will review it soon. Track its status in My Stuff → Pitches (👤 → 💡 Pitches). — Meetit`,
+    });
+    const dmOk = `[PITCH] DM confirmation sent to u/${username}`;
+    console.log(dmOk);
+    serverLog("info", dmOk);
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    const dmFail = `[PITCH] DM confirmation failed for u/${username}: ${errMsg}`;
+    console.log(dmFail);
+    serverLog("warn", dmFail);
+  }
+
   return { type: "pitch-idea", success: true };
 }
 
@@ -623,6 +708,52 @@ async function onApproveEvent(req: IncomingMessage): Promise<ApiResponse> {
   }
 
   console.log(`[APPROVE] ${event.title} approved`);
+  serverLog("info", `[APPROVE] ${event.title} approved`);
+
+  // event-announcement-post: create a public announcement post on the
+  // subreddit so the community can start planning and discussing the event
+  // immediately. The post is best-effort — a Reddit API failure does NOT
+  // block the approval (the event is already in meetit:active_events and
+  // the organizer is auto-RSVPed). Failure is logged; the post URL is
+  // stored at meetit:event_post:${eventId} for future reference.
+  try {
+    const meetitAppPostId = (await redis.get("meetit:meetit_app_post_id")) || "";
+    const meetitAppPostUrl = meetitAppPostId
+      ? `https://www.reddit.com/comments/${meetitAppPostId.replace(/^t3_/, "")}/`
+      : undefined;
+    // Look up the mod list (for the "Moderators:" line in the post body).
+    // Falls back to the empty array if the setting is unset. Same pattern
+    // as onCheckEvents.
+    const modListStr = ((await settings.get("mod_usernames")) as string) || "";
+    const modList = modListStr
+      .split(",")
+      .map((m) => m.trim())
+      .filter((m) => m.length > 0);
+    const organizerForBody = (event.organizer && event.organizer.trim()) || context.username || "the organizer";
+    const announcementTitle = buildAnnouncementTitle(event);
+    const announcementBody = buildReminderBody(
+      event,
+      organizerForBody,
+      modList,
+      [], // empty attendees — no one has RSVPed yet on approval
+      context.subredditName,
+      meetitAppPostUrl,
+    );
+    const post = await reddit.submitPost({
+      title: announcementTitle,
+      text: announcementBody,
+    });
+    await redis.set("meetit:event_post:" + eventId, post.url);
+    const annMsg = `[APPROVE] announcement post created url=${post.url} for ${event.title}`;
+    console.log(annMsg);
+    serverLog("info", annMsg);
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    const failMsg = `[APPROVE] announcement post FAILED for ${eventId}: ${errMsg}`;
+    console.log(failMsg);
+    serverLog("warn", failMsg);
+  }
+
   return { type: "approve-event", success: true };
 }
 
@@ -634,13 +765,36 @@ async function onPendingEvents(): Promise<ApiResponse> {
   return { type: "pending-events", events };
 }
 
-async function onPitchedIdeas(): Promise<ApiResponse> {
+// pitch-feedback-loop: extract the `?status=` query param from the request
+// URL. Returns the raw value or undefined if absent.
+function queryParam(req: IncomingMessage, name: string): string | undefined {
+  return parseQueryParam(req.url, name);
+}
+
+async function onPitchedIdeas(req: IncomingMessage): Promise<ApiResponse> {
   const authError = await requireMod();
   if (authError) return authError;
+  const raw = queryParam(req, "status");
+  // pitch-approve: filter accepts "approved" as a third state. Unknown /
+  // missing values default to "pending" (back-compat with the
+  // pitch-feedback-loop change).
+  const filter: "pending" | "dismissed" | "approved" | "all" =
+    raw === "dismissed" || raw === "approved" || raw === "all" ? raw : "pending";
   const ideas = await redis.hGetAll("meetit:pitched_ideas");
   const ideasList = Object.values(ideas).map((val) => safeJSONParse(val)).filter((i): i is any => i !== null);
-  console.log(`[PITCHES] ${ideasList.length} pitched ideas`);
-  return { type: "pitched-ideas", ideas: ideasList };
+  // Counts across the full set (independent of the current filter), so the
+  // client can render "View dismissed (N)" and "View approved (N)" links
+  // from the pending view. pitch-approve: extended to include approved.
+  const counts = { pending: 0, approved: 0, dismissed: 0, all: ideasList.length };
+  for (const idea of ideasList) {
+    const s = pitchEffectiveStatus(idea);
+    if (s === "dismissed") counts.dismissed++;
+    else if (s === "approved") counts.approved++;
+    else counts.pending++;
+  }
+  const filtered = filter === "all" ? ideasList : ideasList.filter((i) => pitchEffectiveStatus(i) === filter);
+  console.log(`[PITCHES] status=${filter} n=${filtered.length} (counts pending=${counts.pending} approved=${counts.approved} dismissed=${counts.dismissed})`);
+  return { type: "pitched-ideas", ideas: filtered, counts };
 }
 
 async function onAllApprovedEvents(): Promise<ApiResponse> {
@@ -663,18 +817,114 @@ async function onAllApprovedEvents(): Promise<ApiResponse> {
 }
 
 async function onDismissIdea(req: IncomingMessage): Promise<ApiResponse> {
-  const { ideaId } = await readJSON<{ ideaId: string }>(req);
+  const { ideaId, reason } = await readJSON<{ ideaId: string; reason?: string }>(req);
+  if (!ideaId) return { error: "Missing ideaId", status: 400 };
   const ideaJson = await redis.hGet("meetit:pitched_ideas", ideaId);
-  if (ideaJson) {
-    const idea = JSON.parse(ideaJson) as { submittedBy?: unknown };
-    if (!isSubmissionOwner(context.username, idea.submittedBy)) {
-      const authError = await requireMod();
-      if (authError) return authError;
-    }
+  if (!ideaJson) return { error: "Idea not found", status: 404 };
+  const idea = safeJSONParse(ideaJson) as { submittedBy?: unknown } | null;
+  if (!idea) return { error: "Idea not found", status: 404 };
+
+  // pitch-feedback-loop: branch by actor. The OWNER path keeps the legacy
+  // hDel behavior (no reason, no status field, row vanishes from My Stuff)
+  // and takes priority over mod status — if the user submitted the pitch,
+  // they can always remove it from their own view without a reason, even
+  // if they also happen to be a mod. The MOD path soft-saves with
+  // status="dismissed" + a required reason so the pitcher sees a status
+  // line in My Stuff instead of a vanishing row.
+  const isOwner = isSubmissionOwner(context.username, idea.submittedBy);
+  const modError = await requireMod();
+  const isMod = modError === undefined;
+  if (!isOwner && !isMod) return modError || { error: "Not authorized", status: 403 };
+
+  if (isOwner) {
+    await redis.hDel("meetit:pitched_ideas", [ideaId]);
+    const msg = `[DISMISS] Idea ${ideaId} hard-deleted by owner u/${context.username}`;
+    console.log(msg);
+    serverLog("info", msg);
+    return { type: "dismiss-idea", success: true };
   }
-  await redis.hDel("meetit:pitched_ideas", [ideaId]);
-  console.log(`[DISMISS] Idea ${ideaId} removed`);
+
+  // Mod path: require reason, soft-save.
+  const reasonError = validateDismissReason(reason);
+  if (reasonError) return { error: reasonError, status: 400 };
+  const trimmed = (reason as string).trim();
+  const dismissedIdea = {
+    ...idea,
+    status: "dismissed",
+    dismissReason: trimmed,
+    dismissedAt: new Date().toISOString(),
+    dismissedBy: context.username || "unknown",
+  };
+  await redis.hSet("meetit:pitched_ideas", { [ideaId]: JSON.stringify(dismissedIdea) });
+  const msg = `[DISMISS] Idea ${ideaId} soft-dismissed by u/${context.username}: ${trimmed}`;
+  console.log(msg);
+  serverLog("info", msg);
   return { type: "dismiss-idea", success: true };
+}
+
+// pitch-approve: mod approves a pending pitch. Soft-saves with
+// status="approved" + approvedAt + approvedBy. Best-effort DM to the pitcher.
+// Idempotent: re-approving an already-approved pitch is a no-op (no duplicate
+// DM, no re-write). The mod path requires a successful requireMod() check;
+// the owner's own pitch cannot be self-approved through this endpoint (the
+// owner's delete path is dismissIdea without a reason).
+async function onApproveIdea(req: IncomingMessage): Promise<ApiResponse> {
+  const authError = await requireMod();
+  if (authError) return authError;
+  const { ideaId } = await readJSON<{ ideaId: string }>(req);
+  if (!ideaId) return { error: "Missing ideaId", status: 400 };
+  const ideaJson = await redis.hGet("meetit:pitched_ideas", ideaId);
+  if (!ideaJson) {
+    const msg = `[APPROVE-IDEA] pitch ${ideaId} not found`;
+    console.log(msg);
+    serverLog("warn", msg);
+    return { error: "Idea not found", status: 404 };
+  }
+  const idea = safeJSONParse(ideaJson) as Record<string, any> | null;
+  if (!idea) {
+    const msg = `[APPROVE-IDEA] pitch ${ideaId} not found (malformed JSON)`;
+    console.log(msg);
+    serverLog("warn", msg);
+    return { error: "Idea not found", status: 404 };
+  }
+  // pitch-approve: idempotency guard. Re-approving an already-approved pitch
+  // is a no-op — prevents a double-click (or two mods clicking at the same
+  // time) from spamming the pitcher with duplicate DMs.
+  if (idea.status === "approved") {
+    const msg = `[APPROVE-IDEA] ignored: pitch ${ideaId} already has status="approved"`;
+    console.log(msg);
+    serverLog("info", msg);
+    return { type: "approve-idea", success: true };
+  }
+  const mod = context.username || "unknown";
+  const approvedIdea = {
+    ...idea,
+    status: "approved",
+    approvedAt: new Date().toISOString(),
+    approvedBy: mod,
+  };
+  await redis.hSet("meetit:pitched_ideas", { [ideaId]: JSON.stringify(approvedIdea) });
+  // Best-effort DM. Failure does NOT block the approve (the status is
+  // already set). The pitcher still sees the "Approved" line in My Stuff
+  // even if the DM doesn't arrive.
+  const submittedBy = (idea.submittedBy as string) || "anonymous";
+  const dm = buildApproveDm({ title: (idea.title as string) || "your idea", submittedBy });
+  try {
+    await reddit.sendPrivateMessage({
+      to: submittedBy,
+      subject: dm.subject,
+      text: dm.body,
+    });
+    const okMsg = `[APPROVE-IDEA] Idea ${ideaId} approved by u/${mod}, DM sent to u/${submittedBy}`;
+    console.log(okMsg);
+    serverLog("info", okMsg);
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    const failMsg = `[APPROVE-IDEA] DM failed for u/${submittedBy}: ${errMsg} (status still set to approved)`;
+    console.log(failMsg);
+    serverLog("warn", failMsg);
+  }
+  return { type: "approve-idea", success: true };
 }
 
 async function onDeletePending(req: IncomingMessage): Promise<ApiResponse> {
@@ -747,10 +997,32 @@ async function onRsvpList(req: IncomingMessage): Promise<ApiResponse> {
   const { eventId, includeContactDetails } = await readJSON<{ eventId: string; includeContactDetails?: boolean }>(req);
   if (!eventId) return { error: "Missing eventId", status: 400 };
   const results = await redis.zRange(`meetit:rsvps:${eventId}`, "-inf", "+inf", { by: "score" });
-  console.log(`[RSVP-LIST] ${eventId} | ${results.length} attendees | contact=${!!includeContactDetails}`);
+  // FIX-01 (pre-launch-bugs): organizer (event owner) should be able to see
+  // contact details, matching onExportAttendees. Fetch event to determine
+  // owner. If fetch fails, default to mod-only (the previous behavior).
+  let isOwner = false;
+  try {
+    const eventJson = await redis.hGet("meetit:active_events", eventId);
+    if (eventJson) {
+      const event = JSON.parse(eventJson) as MeetitEvent;
+      isOwner = isSubmissionOwner(context.username, event.organizer);
+    }
+  } catch (e) { /* owner check is best-effort; default false is safe */ }
+  const userIsMod = await isMod();
+  const canViewContactDetails = Boolean(includeContactDetails) && (userIsMod || isOwner);
+  // FIX-01: log every contact-detail request with the access path so
+  // regressions are visible in the in-app debug panel.
+  const accessPath = userIsMod ? "mod" : isOwner ? "owner" : "none";
+  const fix01Msg = `[FIX-01] rsvp-list eventId=${eventId} requester=${context.username || "anon"} path=${accessPath} count=${results.length} contact=${!!includeContactDetails}`;
+  console.log(fix01Msg);
+  serverLog("info", fix01Msg);
+  if (includeContactDetails && !canViewContactDetails) {
+    const warnMsg = `[FIX-01-WARN] rsvp-list eventId=${eventId} requester=${context.username || "anon"} contact-stripped path=none`;
+    console.warn(warnMsg);
+    serverLog("warn", warnMsg);
+  }
   // Fetch contact details from companion hash
   const detailsHash = await redis.hGetAll(`meetit:rsvp_details:${eventId}`);
-  const canViewContactDetails = Boolean(includeContactDetails) && (await isMod());
   const attendees = buildAttendees(results, detailsHash, canViewContactDetails);
   return { type: "rsvp-list", attendees };
 }
@@ -965,6 +1237,130 @@ async function readRaw(req: IncomingMessage): Promise<string> {
   req.on("data", (chunk) => chunks.push(chunk));
   await once(req, "end");
   return `${Buffer.concat(chunks)}`;
+}
+
+// aged-cleanup-mode: hard-deletes events and pitches older than the
+// configured `cleanup_after_days` threshold. Triggered by both the daily
+// auto CRON (03:00 UTC) and the mod-only manual endpoint. Uses a separate
+// distributed lock (meetit:cleanup_lock, 5-min TTL) so it doesn't conflict
+// with the check-events CRON. Best-effort and logged in full.
+async function onCleanupAged(req: IncomingMessage): Promise<ApiResponse | TaskResponse> {
+  const startedAt = Date.now();
+  const isCron = req.url === InternalEndpoint.CheckCleanupAged;
+  // 1. Lock check (CRON only)
+  if (isCron) {
+    const got = await redis.hSetNX("meetit:cleanup_lock", "lock", Date.now().toString());
+    if (!got) {
+      console.log(`[CLEANUP] auto CRON skipped: lock held by another instance`);
+      return { status: "ok", skipped: true };
+    }
+    await redis.expire("meetit:cleanup_lock", 300); // 5-min TTL
+  } else {
+    // 2. Auth check (manual only)
+    const authError = await requireMod();
+    if (authError) return authError;
+  }
+  // 3. Read settings
+  const appSettings = await getSettings();
+  const days = appSettings.cleanup_after_days;
+  // 4. Threshold validation
+  if (!Number.isInteger(days) || days < 1 || days > 365) {
+    const msg = `[CLEANUP] invalid threshold=${days}, must be 1-365`;
+    console.log(msg);
+    serverLog("warn", msg);
+    return { error: "Invalid threshold", status: 400 };
+  }
+  // 5. Pause check (CRON only)
+  if (isCron && appSettings.pause_cleanup) {
+    const msg = `[CLEANUP] skipped: pause_cleanup=true`;
+    console.log(msg);
+    serverLog("info", msg);
+    return { status: "ok", skipped: true };
+  }
+  // 6. Log start
+  const actor = context.username || "system";
+  const startMsg = isCron
+    ? `[CLEANUP] auto CRON tick (threshold=${days}d, pause=${appSettings.pause_cleanup})`
+    : `[CLEANUP] manual trigger by u/${actor} (threshold=${days}d, pause=${appSettings.pause_cleanup})`;
+  console.log(startMsg);
+  serverLog("info", startMsg);
+  // 7. Read data
+  const [activeJson, pendingJson, pitchesJson] = await Promise.all([
+    redis.hGetAll("meetit:active_events"),
+    redis.hGetAll("meetit:pending_events"),
+    redis.hGetAll("meetit:pitched_ideas"),
+  ]);
+  const activeList = Object.values(activeJson).map((v) => safeJSONParse(v)).filter((e): e is any => e !== null);
+  const pendingList = Object.values(pendingJson).map((v) => safeJSONParse(v)).filter((e): e is any => e !== null);
+  const pitchList = Object.values(pitchesJson).map((v) => safeJSONParse(v)).filter((p): p is any => p !== null);
+  // 8. Pick aged items
+  const now = new Date();
+  const picked = pickAgedItems(activeList, pendingList, pitchList, now, days, appSettings.timezone);
+  // 8a. Log defensive skips (events with missing/invalid date)
+  for (const e of activeList) {
+    if (!isEventAgedOut(e, now, days, appSettings.timezone) && (typeof e?.date !== "string" || typeof e?.time !== "string" || isNaN(new Date(`${e.date}T${e.time}:00${appSettings.timezone}`).getTime()))) {
+      const msg = `[CLEANUP] skipping event ${e?.id}: missing/invalid date (date="${e?.date}" time="${e?.time}")`;
+      console.log(msg);
+      serverLog("warn", msg);
+    }
+  }
+  for (const e of pendingList) {
+    if (!isEventAgedOut(e, now, days, appSettings.timezone) && (typeof e?.date !== "string" || typeof e?.time !== "string" || isNaN(new Date(`${e.date}T${e.time}:00${appSettings.timezone}`).getTime()))) {
+      const msg = `[CLEANUP] skipping event ${e?.id}: missing/invalid date (date="${e?.date}" time="${e?.time}")`;
+      console.log(msg);
+      serverLog("warn", msg);
+    }
+  }
+  for (const p of pitchList) {
+    if (!isPitchAgedOut(p, now, days) && (typeof p?.submittedAt !== "string" || isNaN(new Date(p.submittedAt).getTime()))) {
+      const msg = `[CLEANUP] skipping pitch ${p?.id}: missing submittedAt`;
+      console.log(msg);
+      serverLog("warn", msg);
+    }
+  }
+  // 9. Delete aged active events (+ RSVP side data)
+  for (const e of picked.agedActiveEvents) {
+    if (!e?.id) continue;
+    await Promise.all([
+      redis.hDel("meetit:active_events", [e.id]),
+      redis.del(`meetit:rsvps:${e.id}`),
+      redis.del(`meetit:rsvp_details:${e.id}`),
+    ]);
+  }
+  // 10. Delete aged pending events
+  if (picked.agedPendingEvents.length > 0) {
+    const ids = picked.agedPendingEvents.map((e: any) => e.id).filter(Boolean);
+    if (ids.length > 0) await redis.hDel("meetit:pending_events", ids);
+  }
+  // 11. Delete aged pitches (any status)
+  if (picked.agedPitches.length > 0) {
+    const ids = picked.agedPitches.map((p: any) => p.id).filter(Boolean);
+    if (ids.length > 0) await redis.hDel("meetit:pitched_ideas", ids);
+  }
+  // 12. Write audit log
+  const counts = {
+    eventsActive: picked.agedActiveEvents.length,
+    eventsPending: picked.agedPendingEvents.length,
+    pitches: picked.agedPitches.length,
+  };
+  const logEntry = buildCleanupLogEntry(now, counts, {
+    thresholdDays: days,
+    trigger: isCron ? "cron" : "manual",
+    user: isCron ? "system" : actor,
+  });
+  await redis.zAdd("meetit:cleanup_log", { score: now.getTime(), member: logEntry });
+  // Trim audit log to 50 most recent entries
+  await redis.zRemRangeByRank("meetit:cleanup_log", 0, -51);
+  // 13. Log finish
+  const took = Date.now() - startedAt;
+  const totalDeleted = counts.eventsActive + counts.eventsPending + counts.pitches;
+  const finishMsg = totalDeleted === 0
+    ? `[CLEANUP] done: nothing to clean (events=${activeList.length + pendingList.length} pitches=${pitchList.length})`
+    : `[CLEANUP] done: events active=${counts.eventsActive} pending=${counts.eventsPending}, pitches=${counts.pitches} (threshold=${days}d, took=${took}ms)`;
+  console.log(finishMsg);
+  serverLog("info", finishMsg);
+  if (isCron) return { status: "ok", ...counts };
+  return { type: "cleanup-aged", ...counts };
 }
 
 async function onCheckEvents(req: IncomingMessage): Promise<TaskResponse> {

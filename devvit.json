@@ -45,6 +45,10 @@
       "check-events": {
         "endpoint": "/internal/scheduler/check-events",
         "cron": "*/5 * * * *"
+      },
+      "cleanup-aged": {
+        "endpoint": "/internal/scheduler/cleanup-aged",
+        "cron": "0 3 * * *"
       }
     }
   },
@@ -64,6 +68,12 @@
         "type": "boolean",
         "label": "Use Brutalist Borders",
         "defaultValue": true
+      },
+      "show_debug_panel": {
+        "type": "boolean",
+        "label": "Show Debug Log Panel (mods only)",
+        "helpText": "Off by default. When enabled, mods see a 🐛 button to open the in-app debug log panel (server logs merged with client logs).",
+        "defaultValue": false
       },
       "mod_usernames": {
         "type": "string",
@@ -95,6 +105,18 @@
           { "label": "UTC", "value": "+00:00" }
         ],
         "defaultValue": "+05:30"
+      },
+      "cleanup_after_days": {
+        "type": "number",
+        "label": "Aged Cleanup: Days Before Deletion (1-365)",
+        "helpText": "Events past their event-date by more than this many days, and pitches submitted more than this many days ago, are hard-deleted by the daily cleanup CRON. Default 30.",
+        "defaultValue": 30
+      },
+      "pause_cleanup": {
+        "type": "boolean",
+        "label": "Pause Automatic Aged Cleanup",
+        "helpText": "When enabled, the auto CRON skips cleanup. The manual 'Run cleanup now' button still works. Useful before a big release.",
+        "defaultValue": false
       }
     }
   },

@@ -32,7 +32,10 @@ export type AppSettings = {
   primary_color: string;
   secondary_color: string;
   use_brutalist_borders: boolean;
+  show_debug_panel: boolean;
   timezone: string;
+  cleanup_after_days: number;
+  pause_cleanup: boolean;
 };
 
 export type RsvpFormData = {
@@ -79,6 +82,7 @@ export const ApiEndpoint = {
   PitchedIdeas: "/api/pitched-ideas",
   AllApprovedEvents: "/api/all-approved-events",
   DismissIdea: "/api/dismiss-idea",
+  ApproveIdea: "/api/approve-idea",
   DeletePending: "/api/delete-pending",
   DeletePublished: "/api/delete-published",
   MySubmissions: "/api/my-submissions",
@@ -86,6 +90,7 @@ export const ApiEndpoint = {
   ExportAttendees: "/api/export-attendees",
   ServerLogs: "/api/server-logs",
   RsvpShare: "/api/rsvp-share",
+  CleanupAged: "/api/cleanup-aged",
 } as const;
 
 export type ApiEndpoint = (typeof ApiEndpoint)[keyof typeof ApiEndpoint];
