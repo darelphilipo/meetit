@@ -1,83 +1,130 @@
 # Meetit
 
-A Reddit community meetup manager built on [Devvit](https://developers.reddit.com/). Let users discover, RSVP to, and organize real-world events directly inside your subreddit.
+**Run real meetups from your subreddit. Built for r/bihar, open to every community.**
 
-Built with Devvit Web (HTML/CSS/JS inline webview) and a Neo-Brutalist design system.
+---
 
-## What is Meetit?
+## Why we built this
 
-Meetit turns your subreddit into a community event hub. Members can browse upcoming meetups, RSVP with their contact info, submit event ideas, and mods can approve/publish events from a dashboard. Everything happens inside Reddit — no external links required.
+Our subreddit r/bihar meets up regularly — chai, hikes, cricket, Diwali dinners, the works. The hard part was never deciding to do a meetup. It was everything around it:
 
-Designed for mobile-first use with card-based UIs, hard shadows, and bold typography.
+- Reminding people the day before
+- Collecting phone numbers so the organizer could reach the venue
+- Sending maps to the location
+- Handling the inevitable "wait, when is this happening?" messages
+- Chasing attendance after the fact
 
-## Core Features
+Meetit centralizes the whole flow inside Reddit. Pin it to your subreddit and members always see what's coming up. The organizer gets the attendee list. The reminders go out automatically. No external tools, no spreadsheets, no group chats, no chasing.
 
-### For Members
-- **Browse Events** — Discover upcoming meetups in your community with date, time, location, and description
-- **RSVP** — One-tap registration with optional email/phone for organizer contact
-- **Update Contact** — Edit your email/phone after RSVPing without re-registering
-- **My Stuff** — Tabbed personal dashboard: events you're attending, events you created, and ideas you pitched
-- **Share** — Copy event post URL to clipbord for sharing
+---
 
-### For Organizers
-- **Submit Events** — 4-step form with title, category, date/time, location, and description
-- **Category System** — Pick from 12 categories (Tech, Sports, Food, Arts, etc.) with auto-assigned emoji badges
-- **Track Attendees** — View RSVP list with contact details after publishing
-- **My Events** — Manage your published and pending events in one place
+## What you get
 
-### For Moderators
-- **Mod Dashboard** — Tabbed view of pending events, published events, and submitted pitches
-- **Approve/Decline** — Review and publish community-submitted events
-- **Export CSV** — Copy attendee data (username, email, phone) to clipboard as CSV for spreadsheets
-- **View RSVPs** — See full attendee list with contact details per event
+### For your community (subreddit members)
 
-## Tech Stack
+- **Always-visible upcoming events** — pin a launcher post to the top of the subreddit and the app stays on the home page
+- **One-tap RSVP** with optional contact info (email or phone) that goes **only** to the organizer
+- **Automatic reminder posts** 24 hours and 2 hours before each event, with the event details, the map link, and the organizer's handle
+- **Add to Google Calendar** in one tap, right from the post
+- **Map link or virtual meetup link** in every post — in-person or online, both work
+- **"I'm going" share** with one tap — posts a "u/you is going to X" thread to start the conversation
+- **Pitch a meetup idea** — anyone can suggest a meetup; mods review; you get a DM when your idea is approved or dismissed
 
-- **Devvit Web** — Inline webview (HTML/CSS/JS) embedded in Reddit posts
-- **TypeScript** — Full type safety across client and server
-- **Redis** — All data stored via Devtaxon's Redis (hashes for events, sorted sets for RSVPs)
-- **CRON Scheduler** — Automated event reminders and cleanup jobs
-- **Neo-Brutalist Design** — Space Grotesk font, #ff69b4 pink + #ffff00 yellow, hard 4px borders and shadows
+### For event organizers
 
-## Design Highlights
+- **5-step submit wizard** — title, organizer, date, time, location, description
+- **Auto-RSVPed as the organizer** the moment your event goes live — you appear in your own attendee list immediately
+- **Public announcement post** automatically created on approval — the community sees it the moment you do
+- **See who's coming** with avatars, names, and (for you) the contact info you need to reach attendees
+- **Export the full attendee list to CSV** for any external coordination (larger groups, ride-sharing, dietary tracking)
+- **One place to manage your events** — pending, published, and past in My Stuff
+- **Auto-cleanup of old events** — no manual housekeeping required
 
-- **Card-Based Layout** — Every screen uses stacked cards, not scrolling lists
-- **Horizontal Pagination** — Description overflow handled with Next/Prev buttons (no mobile scrolling issues)
-- **Animated Loading** — Emoji cycle with bounce animation and progress bar
-- **Compact Cards** — Content-height cards that don't waste space
-- **Per-Action Locks** — Prevent double-submission on all destructive actions
-- **Event Delegation** — Single handler for all dynamic button clicks (no memory leaks)
+### For moderators
 
-## Data Model
+- **One mod dashboard** with three tabs: pending events, your published events, and community-submitted ideas
+- **Approve or dismiss in one tap** with optional reason for pitches (the pitcher gets a DM automatically)
+- **Daily aged cleanup** removes old events and pitches — set the threshold (1-365 days) and set it and forget it
+- **Manual cleanup button** when you need a clean slate before a big release
+- **Pause cleanup** with one setting flip if you're about to do a manual data migration
+- **In-app debug log panel** (opt-in) for troubleshooting — only mods see it
+- **All attendee data is exportable** as a safe CSV (formula-injection guarded, RFC 4180 compliant)
 
-All data lives in Redis:
+---
 
-- `meetit:active_events` — Hash of published events
-- `meetit:pending_events` — Hash of events awaiting mod approval
-- `meetit:rsvps:{eventId}` — Sorted set of attendees per event
-- `meetit:rsvp_details:{eventId}` — Hash of email/phone per attendee per event
-- `meetit:pitched_ideas` — Hash of community-submitted ideas
-- `meetit:settings` — App configuration (mod list, brand colors, etc.)
+## Privacy & data
 
-## Architecture
+Your community's trust is the most important thing.
 
-```
-src/
-  client/
-    app.ts           — Core UI: card rendering, pagination, RSVP/leave, mod dashboard, overlays
-  server/
-    server.ts        — API handlers, Redis data layer, CRON jobs, settings
-    index.ts         — Devvit Web server entry
-  shared/
-    api.ts           — TypeScript types and API endpoint constants
-    meetit.ts        — Shared utilities (moderator check, RSVP parsing, event creation)
-public/
-  app.html           — Neo-Brutalist HTML/CSS with all overlays
+- **No personal info is collected** unless the user explicitly types it in
+- Email and phone numbers are stored encrypted at rest in Reddit's Redis
+- Contact info is visible **only** to the event organizer and the moderators
+- Other community members see attendee names, not their contact info
+- Deleting your RSVP removes your contact info immediately
+- Account deletion triggers a full data cleanup
+- Aged events and pitches are automatically hard-deleted by a daily background job (configurable threshold, default 30 days)
 
-tools/
-  build.ts           — esbuild (client) + tsc (server) build script
-```
+---
+
+## How it works
+
+1. **Sub admin installs the app** from the Reddit App Directory
+2. **Sub admin creates the launcher post** via the subreddit menu (one click) and pins it to the top
+3. **Organizers submit events** through the Create menu — events go to the mod approval queue
+4. **Mods approve or dismiss** from the mod dashboard
+5. **Approved events go live** on the subreddit home with a public announcement post
+6. **Members RSVP** from the event card, optionally sharing contact info with the organizer
+7. **Reminders fire automatically** at 24h and 2h before the event as plain-text posts
+8. **After the event**, the organizer can export the full attendee list as CSV
+
+The whole thing runs on Reddit's infrastructure. No external servers, no external data collection, no third-party integrations.
+
+---
+
+## For subreddit admins
+
+### Installation
+
+1. Install Meetit from the Reddit App Directory
+2. Open the subreddit menu and click **"Set Up Meetit"** — this creates the launcher post
+3. Pin the launcher post to the top of the subreddit
+4. Open the Mod Dashboard (the button appears for mods in the home page header) and start approving events
+
+That's it. The app works out of the box with sensible defaults.
+
+### Configuration (all optional)
+
+The app has 9 install settings, all with defaults that work for most communities:
+
+| Setting | Default | What it does |
+|---|---|---|
+| Primary color | `#ffff00` | Brand color #1 |
+| Secondary color | `#ff69b4` | Brand color #2 |
+| Brutalist borders | on | Visual style toggle |
+| Moderator usernames | empty | Comma-separated list — gates the mod dashboard |
+| Reminder hours | 24 | When the first reminder fires |
+| Second reminder hours | 2 | When the second reminder fires (set 0 to disable) |
+| Community timezone | IST | Event times and reminders use this |
+| Show debug panel | off | Opt-in for the in-app 🐛 log panel |
+| Cleanup after days | 30 | Auto-delete old events and pitches |
+| Pause cleanup | off | Freeze the daily auto-cleanup |
+
+---
+
+## Open source
+
+Built on [Reddit Devvit](https://developers.reddit.com/), the official platform for Reddit apps. Source code is in this repository under the BSD-3-Clause license. The app runs entirely on Reddit's infrastructure — no external servers, no external data collection, no third-party tracking.
+
+Contributions, bug reports, and feature requests are welcome.
+
+---
+
+## Credits
+
+Built by [u/darelphilip](https://www.reddit.com/user/darelphilip) for the r/bihar community. If this helps your subreddit, share it with your fellow mods.
+
+---
 
 ## License
 
-MIT
+BSD-3-Clause. See [LICENSE](LICENSE).

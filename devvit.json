@@ -29,8 +29,8 @@
   "menu": {
     "items": [
       {
-        "label": "Create Meetit Post",
-        "description": "meetit",
+        "label": "Set Up Meetit",
+        "description": "Create the launcher post that pins Meetit to the top of your subreddit",
         "location": "subreddit",
         "endpoint": "/internal/menu/create-post"
       }
