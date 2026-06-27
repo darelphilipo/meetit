@@ -4,7 +4,7 @@
 
 ## Priority: 2/5
 
-## Status: proposed
+## Status: shipped (2026-06-26, pre-launch bug fixes — FIX-02)
 
 ## Audit (2026-06-19)
 

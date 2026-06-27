@@ -4,7 +4,7 @@ When a user re-RSVPs to an event with a different email/phone, the RSVP sorted s
 
 ## Priority: 2/5
 
-## Status: partial
+## Status: shipped (2026-06-26, pre-launch bug fixes — FIX-04)
 
 ## Audit (2026-06-25)
 
