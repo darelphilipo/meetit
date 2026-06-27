@@ -119,6 +119,18 @@ Contributions, bug reports, and feature requests are welcome.
 
 ---
 
+## Privacy & Terms
+
+The app's data practices are described in [PRIVACY.md](PRIVACY.md). The Terms of Service are in [TERMS.md](TERMS.md). Both are short, written in plain language, and cover exactly what data the app stores, who can see it, and how to delete it.
+
+**TL;DR:**
+- No PII is collected unless you type it in
+- Email/phone you provide is visible **only** to the event organizer and the subreddit moderators
+- All data is stored in Reddit's own Redis, no external servers
+- You can delete your data at any time through the app, or by asking a mod
+
+---
+
 ## Credits
 
 Built by [u/darelphilip](https://www.reddit.com/user/darelphilip) for the r/bihar community. If this helps your subreddit, share it with your fellow mods.
