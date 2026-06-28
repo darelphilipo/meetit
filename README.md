@@ -33,7 +33,7 @@ Meetit centralizes the whole flow inside Reddit. Pin it to your subreddit and me
 ### For event organizers
 
 - **5-step submit wizard** — title, organizer, date, time, location, description
-- **Auto-RSVPed as the organizer** the moment your event goes live — you appear in your own attendee list immediately
+
 - **Public announcement post** automatically created on approval — the community sees it the moment you do
 - **See who's coming** with avatars, names, and (for you) the contact info you need to reach attendees
 - **Export the full attendee list to CSV** for any external coordination (larger groups, ride-sharing, dietary tracking)
